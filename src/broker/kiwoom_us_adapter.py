@@ -40,6 +40,14 @@ class KiwoomUSStockAdapter:
             for item in result_list:
                 if isinstance(item, Mapping):
                     rows.append(self._holding(item))
+        cash_page = self.client.post("/api/us/acnt", api_id="ust21110", body={})
+        cash_rows = cash_page.data.get("result_list") or []
+        if isinstance(cash_rows, Mapping):
+            cash_rows = [cash_rows]
+        usd_cash = next(
+            (item for item in cash_rows if isinstance(item, Mapping) and _text(item.get("crnc_code")) == "USD"),
+            {},
+        )
         return {
             "output1": rows,
             "output2": {
@@ -47,6 +55,8 @@ class KiwoomUSStockAdapter:
                 "frcr_evlu_tota": _text(summary.get("tot_evlt_amt")),
                 "tot_evlu_amt": _text(summary.get("tot_evlt_amt")),
                 "tot_pfls_amt": _text(summary.get("tot_pl_amt")),
+                "frcr_dncl_amt": _text(usd_cash.get("fc_entra")),
+                "frcr_drwg_psbl_amt": _text(usd_cash.get("fc_ord_alowa")),
             },
             "output3": {},
             "_broker": "kiwoom",

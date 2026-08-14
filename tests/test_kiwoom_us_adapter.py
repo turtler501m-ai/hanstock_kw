@@ -20,6 +20,7 @@ class KiwoomUSStockAdapterTests(unittest.TestCase):
                 "evlt_amt": "570.6", "pl_amt": "30.3", "pl_rt": "5.61",
             }],
         })]
+        client.post.return_value = KiwoomPage(data={"result_list": [{"crnc_code": "USD", "fc_entra": "1000", "fc_ord_alowa": "900"}]})
         adapter = KiwoomUSStockAdapter(client, account_no="12345678")
 
         result = adapter.get_overseas_balance()
@@ -27,6 +28,7 @@ class KiwoomUSStockAdapterTests(unittest.TestCase):
         self.assertEqual(result["output1"][0]["pdno"], "AAPL")
         self.assertEqual(result["output1"][0]["cblc_qty13"], "3")
         self.assertEqual(result["output2"]["frcr_evlu_tota"], "12,500.50")
+        self.assertEqual(result["output2"]["frcr_drwg_psbl_amt"], "900")
         self.assertEqual(result["_broker"], "kiwoom")
         client.post_all_pages.assert_called_once_with(
             "/api/us/acnt", api_id="ust21070", body={"stex_tp": "", "stk_cd": ""}
@@ -38,6 +40,7 @@ class KiwoomUSStockAdapterTests(unittest.TestCase):
             KiwoomPage(data={"tot_evlt_amt": "10", "result_list": [{"stk_cd": "AAPL", "poss_qty": "1"}]}),
             KiwoomPage(data={"result_list": [{"stk_cd": "MSFT", "poss_qty": "2"}]}),
         ]
+        client.post.return_value = KiwoomPage(data={"result_list": []})
         result = KiwoomUSStockAdapter(client).get_overseas_balance()
         self.assertEqual([row["pdno"] for row in result["output1"]], ["AAPL", "MSFT"])
 
