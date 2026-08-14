@@ -29,6 +29,8 @@ class VmServiceSafetyTest(unittest.TestCase):
             deploy_script,
         )
         self.assertNotIn("hanstock_ora.git", deploy_script)
+        self.assertIn('else { "~/hanstock/.env" }', deploy_script)
+        self.assertIn('chmod 600 "$REPO_PATH/.env"', deploy_script)
 
     def test_vm_update_uses_checked_in_deploy_constraints(self):
         update_script = (ROOT / "scripts/vm/update.sh").read_text(encoding="utf-8")

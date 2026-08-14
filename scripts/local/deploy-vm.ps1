@@ -11,6 +11,7 @@ param(
     [string]$KeyPath = $(if ($env:HANSTOCK_SSH_KEY) { $env:HANSTOCK_SSH_KEY } else { (Join-Path $env:USERPROFILE ".ssh\id_ed25519") }),
     [string]$BackupRoot = $(if ($env:HANSTOCK_VM_BACKUP_ROOT) { $env:HANSTOCK_VM_BACKUP_ROOT } else { "~/hanstock_kw_backups" }),
     [string]$RepoUrl = $(if ($env:HANSTOCK_REPO_URL) { $env:HANSTOCK_REPO_URL } else { "https://github.com/turtler501m-ai/hanstock_kw.git" }),
+    [string]$SeedEnvPath = $(if ($env:HANSTOCK_VM_SEED_ENV) { $env:HANSTOCK_VM_SEED_ENV } else { "~/hanstock/.env" }),
     [switch]$FreshClone,
     [switch]$SkipPush
 )
@@ -109,10 +110,12 @@ BRANCH="__BRANCH__"
 REPO_PATH="__REPO_PATH__"
 REPO_URL="__REPO_URL__"
 BACKUP_ROOT="__BACKUP_ROOT__"
+SEED_ENV_PATH="__SEED_ENV_PATH__"
 FRESH_CLONE="__FRESH_CLONE__"
 
 REPO_PATH="${REPO_PATH/#\~/$HOME}"
 BACKUP_ROOT="${BACKUP_ROOT/#\~/$HOME}"
+SEED_ENV_PATH="${SEED_ENV_PATH/#\~/$HOME}"
 
 if [ "$FRESH_CLONE" = "1" ] && [ -e "$REPO_PATH" ]; then
   stamp="$(date +%Y%m%d-%H%M%S)"
@@ -128,6 +131,11 @@ if [ ! -d "$REPO_PATH/.git" ]; then
   if [ -n "${backup_path:-}" ] && [ -f "$backup_path/.env" ] && [ ! -f "$REPO_PATH/.env" ]; then
     echo "[deploy] copying .env from backup"
     cp "$backup_path/.env" "$REPO_PATH/.env"
+  fi
+  if [ -f "$SEED_ENV_PATH" ] && [ ! -f "$REPO_PATH/.env" ]; then
+    echo "[deploy] seeding .env from existing VM configuration"
+    cp "$SEED_ENV_PATH" "$REPO_PATH/.env"
+    chmod 600 "$REPO_PATH/.env"
   fi
 fi
 cd "$REPO_PATH"
@@ -163,6 +171,7 @@ $remoteCommand = $remoteCommand.
     Replace("__REPO_PATH__", $RepoPath).
     Replace("__REPO_URL__", $RepoUrl).
     Replace("__BACKUP_ROOT__", $BackupRoot).
+    Replace("__SEED_ENV_PATH__", $SeedEnvPath).
     Replace("__FRESH_CLONE__", $(if ($FreshClone) { "1" } else { "0" }))
 $remoteCommand = $remoteCommand -replace "`r`n", "`n" -replace "`r", "`n"
 
