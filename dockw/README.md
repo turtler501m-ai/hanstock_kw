@@ -8,6 +8,7 @@
 - `01-current-analysis.md`: 최초 복사 범위와 현재 결합 구조
 - `02-kiwoom-migration-plan.md`: 키움 REST API 전환 계획
 - `03-progress.md`: 날짜별 진행 및 검증 내역
+- `04-broker-contract-analysis.md`: 공통 Broker 계약과 키움 공식 API 대응표
 
 ## 관리 원칙
 

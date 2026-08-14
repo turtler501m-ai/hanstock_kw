@@ -29,3 +29,26 @@
 - 필수 화면 `/`, `/mistock`, `/env-settings` 라우트 등록 확인
 - `.runtime/`과 `data/`가 Git ignore 대상임을 확인
 - 최초 기준선 커밋 `1930e4d`를 GitHub `main` 브랜치에 push 완료
+
+## 2026-08-14 — Broker 공통 계약 1차
+
+### 완료
+
+- 멀티 에이전트로 KIS 계약, 직접 호출부, 키움 공식 API 대응을 병렬 분석했다.
+- 증권사 중립 잔고·보유종목·시세·일봉·주문·체결 모델을 추가했다.
+- `DomesticStockBroker` Protocol과 broker factory를 추가했다.
+- 기존 KIS 응답을 typed 모델로 변환하는 `KISBrokerAdapter`를 추가했다.
+- 점진적 이전을 위해 기존 KIS-shaped 메서드 위임을 호환 계층으로 유지했다.
+- 대시보드 중앙 `_get_api()`를 broker factory에 연결했다.
+- `DOMESTIC_STOCK_BROKER=kis` 기본 설정을 추가했다.
+
+### 다음 작업
+
+- 잔고 파서와 주문 라우터를 typed 모델 소비자로 전환
+- 키움 OAuth 및 공통 HTTP/연속조회 클라이언트 구현
+- 공개 KIS 구현의 `revise_order`/`get_order_snapshot` 불일치 해소
+
+### 검증
+
+- `python -m unittest tests.test_broker_contract tests.test_dashboard_settings_schema tests.test_dashboard_execution_plan tests.test_order_router`: 21건 통과
+- `python -m unittest tests.test_dashboard_core`: 81건 통과

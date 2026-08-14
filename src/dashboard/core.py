@@ -21,6 +21,7 @@ if os.environ.get("HANSTOCK_TESTING") != "1":
 from src import trader  # noqa: E402
 from src.config import apply_env_updates  # noqa: E402
 from src.trader import KIStockAPI  # noqa: E402
+from src.broker import DomesticStockBroker, create_domestic_stock_broker  # noqa: E402
 from src.api.kis_api import KISAccountError, KISConfigError, KISRateLimitError  # noqa: E402
 from src.api.quantconnect_api import QuantConnectAPI, QuantConnectCredentials  # noqa: E402
 from src.futures_signals import (  # noqa: E402
@@ -324,11 +325,15 @@ def _parse_balance(balance_data: dict) -> dict:
     return parse_balance(balance_data)
 
 
-def _get_api() -> KIStockAPI:
+def _get_api() -> DomesticStockBroker:
     override = _public_override("_get_api", _get_api)
     if override is not None:
         return override()
-    return KIStockAPI(notify_errors=False)
+    return create_domestic_stock_broker(
+        broker=trader.config.domestic_stock_broker,
+        kis_client_factory=KIStockAPI,
+        notify_errors=False,
+    )
 
 
 def _account_cache_key() -> str:

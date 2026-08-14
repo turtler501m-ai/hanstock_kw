@@ -12,6 +12,7 @@ if not _TESTING:
     load_dotenv(override=True)
 
 class Settings(BaseSettings):
+    domestic_stock_broker: str = "kis"
     # KIS API Credentials (국내주식)
     kistock_app_key: str = ""
     kistock_app_secret: str = ""
