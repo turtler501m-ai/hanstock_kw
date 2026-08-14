@@ -4,6 +4,7 @@ import sqlite3
 from typing import Any
 
 from src import trader
+from src.config import temporary_settings
 from src.db.repository import load_ai_strategies
 from src.utils.logger import logger
 
@@ -89,17 +90,11 @@ class DashboardStockService:
             scan_result = trader.find_candidates(held_symbols, **scan_kwargs)
         else:
             ranker_param = "rule_only" if ranker == "none" else ranker
-            orig_weight = trader.config.ai_score_weight
-            orig_model = trader.config.openai_model
-            orig_enabled = trader.config.ai_strategy_enabled
-            try:
-                trader.config.ai_score_weight = ranker_weight
-                trader.config.openai_model = ranker_param
-                if ranker_param == "rule_only":
-                    trader.config.ai_strategy_enabled = False
-                else:
-                    trader.config.ai_strategy_enabled = True
-
+            with temporary_settings(
+                ai_score_weight=ranker_weight,
+                openai_model=ranker_param,
+                ai_strategy_enabled=ranker_param != "rule_only",
+            ):
                 scan_result = trader.find_candidates(
                     held_symbols,
                     universe=universe,
@@ -109,11 +104,7 @@ class DashboardStockService:
                     strategy_profile=strategy_profile,
                     strategy_description=strategy_description,
                 )
-            finally:
-                trader.config.ai_score_weight = orig_weight
-                trader.config.openai_model = orig_model
-                trader.config.ai_strategy_enabled = orig_enabled
-            
+
         candidates = scan_result.get("candidates", [])
         
         if optimizer == "score_tilted_inverse_vol":

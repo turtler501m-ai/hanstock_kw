@@ -2,20 +2,21 @@
 
 ## Project Structure & Module Organization
 
-Hanstock is a Python trading platform with FastAPI dashboards and an Android client.
+Hanstock is a Python trading platform with FastAPI dashboards and Kiwoom REST brokerage integration.
 
-- `src/`: application code and entry points (`dashboard.py`, `trader.py`)
-- `src/api/`: KIS, futures, Bybit, LS, and QuantConnect clients
+- `src/`: application code and the trading entry point (`trader.py`)
+- `src/api/`: remaining LS and Bybit integration clients
+- `src/broker/`: broker-neutral contracts and Kiwoom domestic/US adapters
 - `src/dashboard/`: dashboard routes, services, and presenters
 - `src/db/`: bounded persistence repositories and migrations
-- `src/strategy/`, `src/ai_stock/`, `src/futures_signals/`: trading and analysis domains
+- `src/strategy/`, `src/ai_stock/`, `src/mistock/`: trading and analysis domains
 - `web/templates/`, `web/static/`: server-rendered pages, CSS, and JavaScript
-- `android/`: Gradle-based Android client
 - `tests/`: Python `unittest` suite
 - `config/`: checked-in, non-secret configuration
 - `scripts/local/`, `scripts/vm/`: Windows development and Linux VM operations
 - `tools/`: verification and maintenance utilities
-- `doc/`: project manuals and technical notes
+- `doc/`: current operational documentation
+- `dockw/`: historical Kiwoom migration analysis
 
 Put generated state only in `.runtime/`, `logs/`, or `data/`. Keep application code, tests, and web assets free of runtime output.
 
@@ -48,7 +49,7 @@ Follow `.editorconfig`: UTF-8, LF endings, final newline, and no trailing whites
 
 ## Testing Guidelines
 
-Use deterministic `unittest` tests named `test_*.py`. Mock KIS, Telegram, Slack, OpenAI, QuantConnect, Bybit, and other network calls. Add regression coverage for trading logic, routes, persistence, configuration, and deployment behavior. There is no fixed coverage threshold; changed behavior must be exercised.
+Use deterministic `unittest` tests named `test_*.py`. Mock Kiwoom, Slack, OpenAI, Bybit, and other network calls. Add regression coverage for trading logic, routes, persistence, configuration, and deployment behavior. There is no fixed coverage threshold; changed behavior must be exercised.
 
 ## Commit & Pull Request Guidelines
 

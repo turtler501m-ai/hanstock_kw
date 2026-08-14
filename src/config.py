@@ -1,5 +1,6 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from dataclasses import dataclass
+from contextlib import contextmanager
 from typing import Optional
 from dotenv import load_dotenv
 import os
@@ -122,6 +123,32 @@ class TradingFlags:
 
 def get_settings() -> Settings:
     return config
+
+
+def settings_snapshot() -> Settings:
+    """Return an isolated settings value for one operation."""
+    with _settings_lock:
+        return config.model_copy(deep=True)
+
+
+@contextmanager
+def temporary_settings(**updates):
+    """Apply validated, process-local overrides for one serialized operation."""
+    unknown = set(updates) - set(Settings.model_fields)
+    if unknown:
+        names = ", ".join(sorted(unknown))
+        raise KeyError(f"unknown settings: {names}")
+
+    with _settings_lock:
+        previous = {name: getattr(config, name) for name in updates}
+        validated = Settings.model_validate({**config.model_dump(), **updates})
+        try:
+            for name in updates:
+                setattr(config, name, getattr(validated, name))
+            yield config
+        finally:
+            for name, value in previous.items():
+                setattr(config, name, value)
 
 
 def trading_flags(settings: Settings | None = None) -> TradingFlags:

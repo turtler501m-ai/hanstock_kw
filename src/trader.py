@@ -16,7 +16,7 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from src.config import config, get_settings, trading_flags
+from src.config import config, get_settings, settings_snapshot, trading_flags
 from src.utils.logger import logger
 from src.db.repository import init_db, connect_db, save_trade, update_trade_order_status
 from src.notifier.slack import slack_session_start, slack_order, slack_candidates, slack_session_end, slack_error
@@ -51,8 +51,7 @@ class TraderRuntimeContext:
 
     @classmethod
     def capture(cls) -> "TraderRuntimeContext":
-        current = get_settings()
-        settings = current.model_copy(deep=True)
+        settings = settings_snapshot()
         return cls(settings=settings, flags=trading_flags(settings))
 
 ONLINE_ACCESS_BLOCKED = config.online_access_blocked
