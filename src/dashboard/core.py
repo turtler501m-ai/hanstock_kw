@@ -162,6 +162,7 @@ MIN_ORDER_HISTORY_SYNC_DAYS = 30
 _balance_fetch_lock = threading.Lock()
 from src.dashboard.settings_schema import (
     AI_ENV_BINDINGS,
+    BROKER_ENV_BINDINGS,
     ENV_FIELD_MAP,
     ENV_FIELDS,
     KIS_ENV_BINDINGS,
@@ -333,6 +334,8 @@ def _get_api() -> DomesticStockBroker:
         broker=trader.config.domestic_stock_broker,
         kis_client_factory=KIStockAPI,
         notify_errors=False,
+        settings=trader.config,
+        order_submission_enabled=trader.runtime_flags().order_submission_enabled,
     )
 
 
@@ -956,6 +959,11 @@ def _apply_strategy_env_updates(updates: dict[str, str]) -> None:
         kis_binding = KIS_ENV_BINDINGS.get(key)
         if kis_binding:
             config_attr, caster = kis_binding
+            setattr(trader.config, config_attr, caster(value))
+            continue
+        broker_binding = BROKER_ENV_BINDINGS.get(key)
+        if broker_binding:
+            config_attr, caster = broker_binding
             setattr(trader.config, config_attr, caster(value))
             continue
         if key == "MISTOCK_EXCHANGE_MAP":

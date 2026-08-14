@@ -15,6 +15,26 @@ ENV_FIELDS = [{'key': 'KIS_REAL_CHECK_ENABLED',
   'options': [],
   'secret': False,
   'restart_required': False},
+ {'key': 'DOMESTIC_STOCK_BROKER',
+  'label': '국내주식 증권사',
+  'type': 'select',
+  'hint': '국내주식 조회·주문에 사용할 증권사입니다.',
+  'options': ['kis', 'kiwoom'],
+  'secret': False,
+  'restart_required': True},
+ {'key': 'KIWOOM_TRADING_ENV',
+  'label': '키움 거래 환경',
+  'type': 'select',
+  'hint': 'demo=모의투자, real=실전투자 인증정보를 선택합니다.',
+  'options': ['demo', 'real'],
+  'secret': False,
+  'restart_required': True},
+ {'key': 'KIWOOM_DOMESTIC_DEMO_ACCOUNT', 'label': '키움 모의 국내주식 계좌', 'type': 'text', 'hint': '키움 모의투자 국내주식 계좌입니다.', 'options': [], 'secret': False, 'restart_required': True},
+ {'key': 'KIWOOM_DOMESTIC_DEMO_APP_KEY', 'label': '키움 모의 App Key', 'type': 'secret', 'hint': '키움 REST API 모의투자 앱 키입니다.', 'options': [], 'secret': True, 'restart_required': True},
+ {'key': 'KIWOOM_DOMESTIC_DEMO_APP_SECRET', 'label': '키움 모의 App Secret', 'type': 'secret', 'hint': '키움 REST API 모의투자 앱 시크릿입니다.', 'options': [], 'secret': True, 'restart_required': True},
+ {'key': 'KIWOOM_DOMESTIC_REAL_ACCOUNT', 'label': '키움 실전 국내주식 계좌', 'type': 'text', 'hint': '키움 실전투자 국내주식 계좌입니다.', 'options': [], 'secret': False, 'restart_required': True},
+ {'key': 'KIWOOM_DOMESTIC_REAL_APP_KEY', 'label': '키움 실전 App Key', 'type': 'secret', 'hint': '키움 REST API 실전투자 앱 키입니다.', 'options': [], 'secret': True, 'restart_required': True},
+ {'key': 'KIWOOM_DOMESTIC_REAL_APP_SECRET', 'label': '키움 실전 App Secret', 'type': 'secret', 'hint': '키움 REST API 실전투자 앱 시크릿입니다.', 'options': [], 'secret': True, 'restart_required': True},
  {'key': 'KIS_REAL_CHECK_APP_KEY', 'label': 'KIS real_check App Key', 'type': 'secret', 'hint': '', 'options': [], 'secret': True, 'restart_required': False},
  {'key': 'KIS_REAL_CHECK_APP_SECRET',
   'label': 'KIS real_check App Secret',
@@ -376,12 +396,24 @@ KIS_ENV_BINDINGS = {
     "KIS_REAL_CHECK_CONDITION_NAME": ("kis_real_check_condition_name", str),
 }
 
+BROKER_ENV_BINDINGS = {
+    "DOMESTIC_STOCK_BROKER": ("domestic_stock_broker", str),
+    "KIWOOM_TRADING_ENV": ("kiwoom_trading_env", str),
+    "KIWOOM_DOMESTIC_DEMO_ACCOUNT": ("kiwoom_domestic_demo_account", str),
+    "KIWOOM_DOMESTIC_DEMO_APP_KEY": ("kiwoom_domestic_demo_app_key", str),
+    "KIWOOM_DOMESTIC_DEMO_APP_SECRET": ("kiwoom_domestic_demo_app_secret", str),
+    "KIWOOM_DOMESTIC_REAL_ACCOUNT": ("kiwoom_domestic_real_account", str),
+    "KIWOOM_DOMESTIC_REAL_APP_KEY": ("kiwoom_domestic_real_app_key", str),
+    "KIWOOM_DOMESTIC_REAL_APP_SECRET": ("kiwoom_domestic_real_app_secret", str),
+}
+
 
 for _field in ENV_FIELDS:
     _field["runtime_binding"] = (
         STRATEGY_ENV_BINDINGS.get(_field["key"])
         or AI_ENV_BINDINGS.get(_field["key"])
         or KIS_ENV_BINDINGS.get(_field["key"])
+        or BROKER_ENV_BINDINGS.get(_field["key"])
     )
 
 ENV_FIELD_MAP = {field["key"]: field for field in ENV_FIELDS}

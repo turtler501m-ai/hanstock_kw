@@ -83,6 +83,14 @@ def _current_env_field_value(key: str, raw_values: dict[str, str]) -> str:
     if key in raw_values:
         return raw_values.get(key, "")
     runtime_values = {
+        "DOMESTIC_STOCK_BROKER": getattr(trader.config, "domestic_stock_broker", "kis"),
+        "KIWOOM_TRADING_ENV": getattr(trader.config, "kiwoom_trading_env", "demo"),
+        "KIWOOM_DOMESTIC_DEMO_ACCOUNT": getattr(trader.config, "kiwoom_domestic_demo_account", ""),
+        "KIWOOM_DOMESTIC_DEMO_APP_KEY": getattr(trader.config, "kiwoom_domestic_demo_app_key", ""),
+        "KIWOOM_DOMESTIC_DEMO_APP_SECRET": getattr(trader.config, "kiwoom_domestic_demo_app_secret", ""),
+        "KIWOOM_DOMESTIC_REAL_ACCOUNT": getattr(trader.config, "kiwoom_domestic_real_account", ""),
+        "KIWOOM_DOMESTIC_REAL_APP_KEY": getattr(trader.config, "kiwoom_domestic_real_app_key", ""),
+        "KIWOOM_DOMESTIC_REAL_APP_SECRET": getattr(trader.config, "kiwoom_domestic_real_app_secret", ""),
         "TRADING_ENV": getattr(trader.config, "trading_env", trader.runtime_flags().trading_env),
         "DRY_RUN": str(bool(getattr(trader.config, "dry_run", trader.runtime_flags().dry_run))).lower(),
         "ENABLE_LIVE_TRADING": str(bool(getattr(trader.config, "enable_live_trading", trader.runtime_flags().enable_live_trading))).lower(),
@@ -201,18 +209,17 @@ def get_env_settings():
         key = field["key"]
         value = _virtual_env_value(key, values) if field.get("virtual") else _current_env_field_value(key, values)
         is_secret = bool(field.get("secret"))
-        display_type = "text" if is_secret else field["type"]
         item = {
             "key": key,
             "label": field["label"],
-            "type": display_type,
+            "type": field["type"],
             "options": field.get("options", []),
             "hint": field.get("hint", ""),
-            "secret": False,
+            "secret": is_secret,
             "virtual": bool(field.get("virtual")),
             "has_value": bool(value),
-            "value": value,
-            "masked": "",
+            "value": "" if is_secret else value,
+            "masked": _mask_env_value(value) if is_secret else "",
         }
         fields.append(item)
     # Get live exchange rate metrics for display
@@ -390,6 +397,7 @@ def subscribe_kis_websocket(payload: dict = Body(...)):
     return {"ok": True, **_kis_websocket_status()}
 
 
+@router.post("/api/domestic-stock/orders/cancel")
 @router.post("/api/kis/orders/cancel")
 def cancel_kis_stock_order(payload: dict = Body(...)):
     from src.online_access import require_online_access
@@ -398,9 +406,10 @@ def cancel_kis_stock_order(payload: dict = Body(...)):
     order_no = str(payload.get("order_no") or payload.get("original_order_no") or "").strip()
     if not order_no:
         raise HTTPException(status_code=400, detail="order_no is required")
-    api = KIStockAPI()
+    api = _get_api()
     result = api.cancel_order(
         order_no,
+        symbol=str(payload.get("symbol") or "").strip(),
         qty=_to_int(payload.get("qty")),
         order_division=str(payload.get("order_division") or "00"),
         original_order_branch=str(payload.get("original_order_branch") or ""),
@@ -410,6 +419,7 @@ def cancel_kis_stock_order(payload: dict = Body(...)):
     return {"ok": result.get("rt_cd") == "0", "result": result}
 
 
+@router.post("/api/domestic-stock/orders/revise")
 @router.post("/api/kis/orders/revise")
 def revise_kis_stock_order(payload: dict = Body(...)):
     from src.online_access import require_online_access
@@ -422,8 +432,9 @@ def revise_kis_stock_order(payload: dict = Body(...)):
         raise HTTPException(status_code=400, detail="order_no is required")
     if qty <= 0:
         raise HTTPException(status_code=400, detail="qty must be greater than 0")
-    result = KIStockAPI().revise_order(
+    result = _get_api().revise_order(
         order_no,
+        symbol=str(payload.get("symbol") or "").strip(),
         qty=qty,
         price=price,
         order_division=str(payload.get("order_division") or "00"),

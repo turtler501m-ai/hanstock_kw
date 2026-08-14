@@ -9,6 +9,7 @@
 - `02-kiwoom-migration-plan.md`: 키움 REST API 전환 계획
 - `03-progress.md`: 날짜별 진행 및 검증 내역
 - `04-broker-contract-analysis.md`: 공통 Broker 계약과 키움 공식 API 대응표
+- `05-kiwoom-rest-implementation.md`: 구현된 REST 기능과 실제 계정 검증 전 제한
 
 ## 관리 원칙
 

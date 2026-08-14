@@ -13,6 +13,19 @@ if not _TESTING:
 
 class Settings(BaseSettings):
     domestic_stock_broker: str = "kis"
+    kiwoom_trading_env: str = "demo"
+    kiwoom_domestic_demo_account: str = ""
+    kiwoom_domestic_demo_app_key: str = ""
+    kiwoom_domestic_demo_app_secret: str = ""
+    kiwoom_us_demo_account: str = ""
+    kiwoom_us_demo_app_key: str = ""
+    kiwoom_us_demo_app_secret: str = ""
+    kiwoom_domestic_real_account: str = ""
+    kiwoom_domestic_real_app_key: str = ""
+    kiwoom_domestic_real_app_secret: str = ""
+    kiwoom_us_real_account: str = ""
+    kiwoom_us_real_app_key: str = ""
+    kiwoom_us_real_app_secret: str = ""
     # KIS API Credentials (국내주식)
     kistock_app_key: str = ""
     kistock_app_secret: str = ""

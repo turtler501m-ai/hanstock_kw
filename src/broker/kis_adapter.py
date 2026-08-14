@@ -2,7 +2,7 @@
 
 from typing import Any, Mapping
 
-from src.broker.models import AccountBalance, DailyBar, Holding, OrderRequest, OrderResult, OrderSide, OrderStatus, Quote, TradeExecution
+from src.broker.models import AccountBalance, CancelOrderRequest, DailyBar, Holding, OrderRequest, OrderResult, OrderSide, OrderSnapshot, OrderStatus, Quote, ReviseOrderRequest, TradeExecution
 
 
 def _number(value: Any) -> float:
@@ -76,8 +76,60 @@ class KISBrokerAdapter:
         output = raw.get("output") or {}
         return OrderResult(success, str(raw.get("msg1") or ""), str(_first(output, "ODNO", "odno", "order_no")), OrderStatus.SUBMITTED if success else OrderStatus.REJECTED, str(raw.get("msg1")) == "DRY_RUN", raw)
 
+    def submit_revision(self, request: ReviseOrderRequest) -> OrderResult:
+        raw = self.revise_order(
+            request.order_id,
+            symbol=request.symbol,
+            qty=request.quantity,
+            price=request.price,
+            exchange_id=request.exchange,
+        )
+        return self._order_result(raw)
+
+    def submit_cancellation(self, request: CancelOrderRequest) -> OrderResult:
+        raw = self.cancel_order(
+            request.order_id,
+            qty=request.quantity,
+            exchange_id=request.exchange,
+            cancel_all=request.quantity <= 0,
+        )
+        return self._order_result(raw)
+
+    @staticmethod
+    def _order_result(raw: Mapping[str, Any]) -> OrderResult:
+        success = str(raw.get("rt_cd", "")) == "0"
+        output = raw.get("output") or {}
+        return OrderResult(
+            success,
+            str(raw.get("msg1") or ""),
+            str(_first(output, "ODNO", "odno", "order_no")),
+            OrderStatus.SUBMITTED if success else OrderStatus.REJECTED,
+            str(raw.get("msg1")) == "DRY_RUN",
+            raw,
+        )
+
     def fetch_trade_history(self, start_date: str, end_date: str) -> list[TradeExecution]:
         return [self._execution(row) for row in self.client.get_trade_history(start_date, end_date)]
+
+    def fetch_order_snapshot(self, order_id: str, order_date: str = "") -> OrderSnapshot:
+        raw = self.client.get_order_snapshot(order_id, order_date=order_date)
+        status_value = str(raw.get("status") or "unknown")
+        status_aliases = {"partially_filled": OrderStatus.PARTIAL, "cancelled": OrderStatus.CANCELED}
+        try:
+            status = OrderStatus(status_value)
+        except ValueError:
+            status = status_aliases.get(status_value, OrderStatus.UNKNOWN)
+        return OrderSnapshot(
+            broker_order_id=str(raw.get("broker_order_id") or order_id),
+            status=status,
+            requested_quantity=_integer(raw.get("requested_qty")),
+            filled_quantity=_integer(raw.get("cumulative_filled_qty")),
+            remaining_quantity=_integer(raw.get("remaining_qty")),
+            average_fill_price=_number(raw.get("average_fill_price")),
+            message=str(raw.get("message") or ""),
+            outcome_unknown=bool(raw.get("outcome_unknown")),
+            raw=raw,
+        )
 
     @staticmethod
     def _execution(row: Mapping[str, Any]) -> TradeExecution:
@@ -104,6 +156,20 @@ class KISBrokerAdapter:
 
     def place_order(self, symbol: str, order_type: str, price: int, qty: int) -> dict:
         return self.client.place_order(symbol, order_type, price, qty)
+
+    def cancel_order(self, order_no: str, **kwargs: Any) -> dict:
+        kwargs.pop("symbol", None)
+        return self.client.cancel_order(order_no, **kwargs)
+
+    def revise_order(self, order_no: str, **kwargs: Any) -> dict:
+        kwargs.pop("symbol", None)
+        revise = getattr(self.client, "revise_order", None)
+        if callable(revise):
+            return revise(order_no, **kwargs)
+        low_level = getattr(self.client, "_client", None)
+        if low_level is not None and hasattr(low_level, "revise_domestic_order"):
+            return low_level.revise_domestic_order(order_no, **kwargs)
+        raise NotImplementedError("KIS order revision is unavailable for this client")
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self.client, name)

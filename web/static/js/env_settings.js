@@ -150,14 +150,17 @@ function buildEnvControl(field) {
         `;
     }
 
-    const inputType = isNumericField(field) ? 'text' : 'text';
+    const inputType = field.secret ? 'password' : 'text';
     const inputMode = isNumericField(field) ? ' inputmode="decimal"' : '';
     const numericAttrs = isNumericField(field) ? ' data-env-numeric="true"' : '';
+    const placeholder = field.secret && field.masked
+        ? ` placeholder="${escapeHtml(field.masked)} (변경하려면 새 값 입력)"`
+        : '';
     return `
         <div class="env-field">
             <label for="env-${key}">${label}</label>
             <div class="env-input-with-unit">
-                <input id="env-${key}" type="${inputType}"${inputMode} value="${value}"
+                <input id="env-${key}" type="${inputType}"${inputMode} value="${value}"${placeholder}
                     data-env-key="${key}" data-env-type="${escapeHtml(field.type)}"${numericAttrs}
                     data-original="${escapeHtml(field.value || '')}" autocomplete="off">
                 ${unitMarkup}
@@ -172,6 +175,14 @@ const CATEGORIES = [
         title: "🇰🇷 국내주식 자동매매 설정 (한스톡)",
         short: "국내주식 (한스톡)",
         keys: [
+            "DOMESTIC_STOCK_BROKER",
+            "KIWOOM_TRADING_ENV",
+            "KIWOOM_DOMESTIC_DEMO_ACCOUNT",
+            "KIWOOM_DOMESTIC_DEMO_APP_KEY",
+            "KIWOOM_DOMESTIC_DEMO_APP_SECRET",
+            "KIWOOM_DOMESTIC_REAL_ACCOUNT",
+            "KIWOOM_DOMESTIC_REAL_APP_KEY",
+            "KIWOOM_DOMESTIC_REAL_APP_SECRET",
             "ONLINE_ACCESS_BLOCKED",
             "TRADING_ENV",
             "DRY_RUN",

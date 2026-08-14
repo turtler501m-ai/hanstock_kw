@@ -2,7 +2,17 @@
 
 from typing import Protocol, runtime_checkable
 
-from src.broker.models import AccountBalance, DailyBar, OrderRequest, OrderResult, Quote, TradeExecution
+from src.broker.models import (
+    AccountBalance,
+    CancelOrderRequest,
+    DailyBar,
+    OrderRequest,
+    OrderResult,
+    OrderSnapshot,
+    Quote,
+    ReviseOrderRequest,
+    TradeExecution,
+)
 
 
 @runtime_checkable
@@ -18,4 +28,10 @@ class DomesticStockBroker(Protocol):
 
     def submit_order(self, request: OrderRequest) -> OrderResult: ...
 
+    def submit_revision(self, request: ReviseOrderRequest) -> OrderResult: ...
+
+    def submit_cancellation(self, request: CancelOrderRequest) -> OrderResult: ...
+
     def fetch_trade_history(self, start_date: str, end_date: str) -> list[TradeExecution]: ...
+
+    def fetch_order_snapshot(self, order_id: str, order_date: str = "") -> OrderSnapshot: ...

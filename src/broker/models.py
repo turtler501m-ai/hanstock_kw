@@ -76,6 +76,23 @@ class OrderRequest:
 
 
 @dataclass(frozen=True, slots=True)
+class ReviseOrderRequest:
+    order_id: str
+    symbol: str
+    quantity: int
+    price: int
+    exchange: str = "KRX"
+
+
+@dataclass(frozen=True, slots=True)
+class CancelOrderRequest:
+    order_id: str
+    symbol: str
+    quantity: int = 0
+    exchange: str = "KRX"
+
+
+@dataclass(frozen=True, slots=True)
 class OrderResult:
     success: bool
     message: str = ""
@@ -96,4 +113,17 @@ class TradeExecution:
     average_fill_price: float = 0.0
     status: OrderStatus = OrderStatus.UNKNOWN
     ordered_at: str = ""
+    raw: Mapping[str, Any] = field(default_factory=dict, compare=False)
+
+
+@dataclass(frozen=True, slots=True)
+class OrderSnapshot:
+    broker_order_id: str
+    status: OrderStatus = OrderStatus.UNKNOWN
+    requested_quantity: int = 0
+    filled_quantity: int = 0
+    remaining_quantity: int = 0
+    average_fill_price: float = 0.0
+    message: str = ""
+    outcome_unknown: bool = False
     raw: Mapping[str, Any] = field(default_factory=dict, compare=False)

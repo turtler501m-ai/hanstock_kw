@@ -522,6 +522,7 @@ def cancel_blocking_sell_and_retry_approval(approval_id: int):
     try:
         cancel_result = api.cancel_order(
             order_no,
+            symbol=symbol,
             qty=remaining_qty,
             original_order_branch=branch,
             cancel_all=True,
@@ -744,6 +745,7 @@ def _cancel_open_buy_orders_before_liquidation(api) -> list[dict]:
         try:
             result = api.cancel_order(
                 order_no,
+                symbol=str(item.get("symbol") or ""),
                 qty=remaining_qty,
                 cancel_all=True,
             )

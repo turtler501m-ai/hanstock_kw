@@ -52,3 +52,31 @@
 
 - `python -m unittest tests.test_broker_contract tests.test_dashboard_settings_schema tests.test_dashboard_execution_plan tests.test_order_router`: 21건 통과
 - `python -m unittest tests.test_dashboard_core`: 81건 통과
+
+## 2026-08-14 — 키움 REST 전환 1차 구현
+
+### 완료
+
+- OAuth, 공통 POST, 연속조회와 운영·모의 호출 제한을 구현했다.
+- 잔고·예수금·시세·일봉·업종일봉·거래량순위 조회를 구현했다.
+- 매수·매도·정정·취소와 주문체결 조회를 구현했다.
+- 기존 대시보드가 키움 adapter를 사용할 수 있도록 임시 호환 facade를 구현했다.
+- 환경설정 화면에 broker 선택과 키움 운영·모의 자격증명을 추가했다.
+- 환경설정 API가 KIS 및 키움 secret을 평문으로 반환하던 문제를 차단했다.
+- 주문 취소 시 키움 필수값인 종목코드를 전달하도록 국내주식 라우트를 보완했다.
+- 일반 국내주식 정정·취소 API 경로를 추가하고 기존 `/api/kis/*` 경로는 호환 유지했다.
+
+### 검증
+
+- 키움 client·adapter·factory·설정 테스트 31건 통과
+- 대시보드·주문·트레이더 핵심 회귀 테스트 121건 통과
+- 대시보드 설정 포함 집중 회귀 테스트 113건 통과
+- 전체 suite 938건 실행: 기존 기준선 실패 5건·오류 3건과 신규 기대값 실패 1건 확인
+- 신규 실패는 취소 요청에 `symbol`이 추가된 의도된 계약 변경으로 테스트를 갱신함
+- `python -m compileall -q src` 통과
+
+### 외부 검증 대기
+
+- 키움 모의 App Key/Secret과 허용 IP를 사용한 실제 잔고 조회
+- 모의계좌 매수·정정·취소·체결 동기화
+- 조건검색 및 실시간 주문체결 WebSocket

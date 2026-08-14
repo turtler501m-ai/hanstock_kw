@@ -29,6 +29,35 @@ class BrokerContractTests(unittest.TestCase):
         with patch.dict(os.environ, {"DOMESTIC_STOCK_BROKER": "KIWOOM"}):
             self.assertEqual(selected_domestic_stock_broker(), "kiwoom")
 
+    def test_factory_builds_kiwoom_adapter_from_injected_transport(self):
+        client = Mock()
+        broker = create_domestic_stock_broker(
+            "kiwoom", client=client, order_submission_enabled=True
+        )
+        self.assertEqual(broker.broker_name, "kiwoom")
+        self.assertIs(broker.client, client)
+        self.assertTrue(broker.order_submission_enabled)
+
+    def test_factory_rejects_missing_kiwoom_credentials(self):
+        settings = Mock(
+            kiwoom_trading_env="demo",
+            trading_env="demo",
+            kiwoom_domestic_demo_app_key="",
+            kiwoom_domestic_demo_app_secret="",
+        )
+        with self.assertRaisesRegex(ValueError, "App Key and App Secret are required"):
+            create_domestic_stock_broker("kiwoom", settings=settings)
+
+    def test_factory_rejects_kiwoom_and_application_environment_mismatch(self):
+        settings = Mock(
+            kiwoom_trading_env="real",
+            trading_env="demo",
+            kiwoom_domestic_real_app_key="key",
+            kiwoom_domestic_real_app_secret="secret",
+        )
+        with self.assertRaisesRegex(ValueError, "must match TRADING_ENV"):
+            create_domestic_stock_broker("kiwoom", settings=settings)
+
     def test_kis_adapter_normalizes_balance_and_retains_raw(self):
         client = Mock()
         client.get_balance.return_value = {

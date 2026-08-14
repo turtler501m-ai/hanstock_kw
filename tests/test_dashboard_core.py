@@ -424,11 +424,12 @@ class DashboardCoreTests(unittest.TestCase):
     def test_secret_env_values_are_masked_for_response(self):
         self.assertEqual(dashboard._mask_env_value("1234567801"), "12******01")
 
-    def test_env_settings_return_unmasked_values(self):
+    def test_env_settings_mask_secret_values(self):
         original_env_path = dashboard.ENV_PATH
         try:
             dashboard.ENV_PATH = MemoryTextPath(
                 "KISTOCK_APP_KEY=app-key-secret\n"
+                "KIWOOM_DOMESTIC_DEMO_APP_SECRET=kiwoom-demo-secret\n"
                 "KISTOCK_ACCOUNT=1234567801\n"
                 "TRADING_ENV=demo\n"
             )
@@ -436,11 +437,14 @@ class DashboardCoreTests(unittest.TestCase):
                 data = dashboard.get_env_settings()
             fields = {field["key"]: field for field in data["fields"]}
 
-            self.assertEqual(fields["KISTOCK_APP_KEY"]["value"], "app-key-secret")
-            self.assertEqual(fields["KISTOCK_APP_KEY"]["masked"], "")
-            self.assertEqual(fields["KISTOCK_APP_KEY"]["type"], "text")
-            self.assertFalse(fields["KISTOCK_APP_KEY"]["secret"])
+            self.assertEqual(fields["KISTOCK_APP_KEY"]["value"], "")
+            self.assertEqual(fields["KISTOCK_APP_KEY"]["masked"], "ap**********et")
+            self.assertEqual(fields["KISTOCK_APP_KEY"]["type"], "secret")
+            self.assertTrue(fields["KISTOCK_APP_KEY"]["secret"])
             self.assertTrue(fields["KISTOCK_APP_KEY"]["has_value"])
+            self.assertEqual(fields["KIWOOM_DOMESTIC_DEMO_APP_SECRET"]["value"], "")
+            self.assertEqual(fields["KIWOOM_DOMESTIC_DEMO_APP_SECRET"]["masked"], "ki**************et")
+            self.assertTrue(fields["KIWOOM_DOMESTIC_DEMO_APP_SECRET"]["secret"])
             self.assertEqual(fields["KISTOCK_ACCOUNT"]["value"], "1234567801")
             self.assertEqual(fields["KISTOCK_ACCOUNT"]["masked"], "")
             self.assertEqual(fields["KISTOCK_ACCOUNT"]["type"], "text")
@@ -2606,7 +2610,7 @@ class DashboardCoreTests(unittest.TestCase):
 
                 self.assertEqual(api.calls, [(
                     "B12345",
-                    {"qty": 6, "cancel_all": True},
+                    {"symbol": "005930", "qty": 6, "cancel_all": True},
                 )])
                 self.assertEqual(result[0]["status"], "canceled")
                 with dashboard.trader.connect_db() as conn:
