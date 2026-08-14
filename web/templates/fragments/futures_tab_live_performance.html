@@ -1,0 +1,49 @@
+<!-- 실계좌 전환 스위치 영역 -->
+<div class="live-switch-panel">
+  <div class="switch-warning">
+    ⚠️ 실계좌 거래는 실제 자금이 사용됩니다. 충분한 모의 검증 후 활성화하세요.
+  </div>
+
+  <div class="switch-controls">
+    <div class="switch-item">
+      <label>KIS 실계좌 거래</label>
+      <label class="toggle-switch">
+        <input type="checkbox" id="switch-live-trading" onchange="updateExecutorState('live_trading_enabled', this.checked)">
+        <span class="slider"></span>
+      </label>
+      <span id="live-status" class="status-badge off">비활성</span>
+    </div>
+
+    <div class="switch-item">
+      <label>Bybit 거래</label>
+      <label class="toggle-switch">
+        <input type="checkbox" id="switch-bybit" onchange="updateExecutorState('bybit_enabled', this.checked)">
+        <span class="slider"></span>
+      </label>
+      <span id="bybit-status" class="status-badge off">비활성</span>
+    </div>
+
+    <div class="switch-item">
+      <label>기본 계약수</label>
+      <input type="number" id="default-qty" min="1" max="10" value="1"
+             onchange="updateExecutorState('default_qty', parseInt(this.value))">
+    </div>
+  </div>
+</div>
+
+<!-- KIS 실계좌 성과 (live_trading_enabled=true 시) -->
+<div id="live-perf-content" class="perf-grid" style="display:none">
+  <div class="perf-card">
+    <h3>KIS 실계좌</h3>
+    <div id="live-stats">
+      <div class="stat-row"><span>잔고</span><span id="live-balance">-</span></div>
+      <div class="stat-row"><span>가용 현금</span><span id="live-cash">-</span></div>
+      <div class="stat-row"><span>오픈 포지션</span><span id="live-positions-count">-</span></div>
+    </div>
+    <div id="live-positions-list" class="positions-list"></div>
+  </div>
+</div>
+
+<div id="live-disabled-msg" class="disabled-msg">
+  실계좌 거래가 비활성화 상태입니다. 위 스위치로 활성화하세요.
+</div>

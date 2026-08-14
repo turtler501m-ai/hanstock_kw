@@ -1,0 +1,14 @@
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+[*.{md,html,css,js,py,ps1,cmd,yml,yaml,json,sh,txt,env,example,gitattributes,gitignore,editorconfig}]
+charset = utf-8
+
+[*.{sqlite,db,png,jpg,jpeg,gif,zip}]
+insert_final_newline = false
+trim_trailing_whitespace = false

@@ -1,0 +1,47 @@
+<section class="futures-grid">
+    <article class="panel" style="padding: 12px;">
+        <div class="panel-title" style="margin-bottom: 8px;">
+            <h2 style="font-size: 0.9rem;">계좌/신호검증 요약</h2>
+        </div>
+        <section class="status-strip futures-status" aria-label="계좌 정보" style="gap: 8px; padding: 8px;">
+            <div class="status-item ok" id="account-type-item"><span>계좌유형</span><strong id="account-type">선물/옵션 모의</strong></div>
+            <div class="status-item" id="api-connection-status"><span>API연결</span><strong id="account-api-status">연결안됨</strong></div>
+            <div class="status-item" id="trading-env-status"><span>거래모드</span><strong id="trading-env">-</strong></div>
+            <div class="status-item" id="dry-run-status"><span>주문차단</span><strong id="dry-run">-</strong></div>
+            <div class="status-item" id="auto-approval-status"><span>자동승인</span><strong id="auto-approval">-</strong></div>
+            <div class="status-item ok"><span>계좌번호</span><strong id="account-number">-</strong></div>
+            <div class="status-item ok"><span>총 자본</span><strong id="account-total-capital">-</strong></div>
+            <div class="status-item ok"><span>총 자산</span><strong id="account-balance">-</strong></div>
+            <div class="status-item ok"><span>예수금</span><strong id="account-cash">-</strong></div>
+            <div class="status-item ok"><span>평가금</span><strong id="account-stock-eval">-</strong></div>
+            <div class="status-item ok"><span>포지션</span><strong id="account-positions">-</strong></div>
+        </section>
+        <section class="status-strip futures-status" aria-label="신호검증 요약" style="gap: 8px; padding: 8px; margin-top: 8px;">
+            <div class="status-item" id="polld-status-item"><span>스케줄</span><strong id="polld-status">확인中</strong></div>
+            <div class="status-item ok"><span>오늘 수집</span><strong id="summary-collected">-</strong></div>
+            <div class="status-item ok"><span>파싱 성공률</span><strong id="summary-parse-rate">-</strong></div>
+            <div class="status-item warn"><span>검증 대기</span><strong id="summary-pending">-</strong></div>
+            <div class="status-item ok"><span>승률</span><strong id="summary-win-rate">-</strong></div>
+        </section>
+        <div style="display: flex; gap: 12px; flex-wrap: wrap; font-size: 0.8rem; margin-top: 8px;">
+            <div><span>검증 완료</span><strong id="summary-verified">-</strong></div>
+            <div><span>거부됨</span><strong id="summary-rejected">-</strong></div>
+            <div><span>신뢰도</span><strong id="summary-confidence">-</strong></div>
+            <div><span>평균 손익</span><strong id="summary-avg-pnl">-</strong></div>
+        </div>
+    </article>
+    <article class="panel" style="padding: 12px; margin-top: 12px; background: linear-gradient(135deg, #1e293b, #0f172a); border: 1px solid #334155;">
+        <div class="panel-title" style="margin-bottom: 8px;">
+            <h2 style="font-size: 0.9rem; color: #22d3ee;">모의거래 성과 (Signal Trader)</h2>
+        </div>
+        <section class="status-strip futures-status" aria-label="모의거래" style="gap: 12px; padding: 8px;">
+            <div class="status-item ok"><span>총 손익</span><strong id="overview-mock-pnl">$0.00</strong></div>
+            <div class="status-item ok"><span>승률</span><strong id="overview-mock-win-rate">0%</strong></div>
+            <div class="status-item ok"><span>완료</span><strong id="overview-mock-closed">0</strong></div>
+            <div class="status-item warn"><span>진행중</span><strong id="overview-mock-open">0</strong></div>
+        </section>
+        <div id="overview-mock-trades-list" style="font-size: 0.75rem; margin-top: 8px; max-height: 120px; overflow-y: auto;">
+            <div style="color: #94a3b8;">거래 내역이 없습니다.</div>
+        </div>
+    </article>
+</section>

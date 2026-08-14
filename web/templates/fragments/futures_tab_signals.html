@@ -1,0 +1,61 @@
+<section class="futures-grid">
+    <article class="panel signal-panel">
+        <div class="panel-title split">
+            <div>
+                <h2>신호 목록</h2>
+                <p>NQ, ES, GC, CL 등 해외선물 Telegram 신호와 검증 상태입니다.</p>
+            </div>
+            <div class="signal-toolbar">
+                <div class="status-counts" aria-label="검증 상태 카운트">
+                    <span class="status-count verified">Verified <strong id="count-verified">-</strong></span>
+                    <span class="status-count pending">Pending <strong id="count-pending">-</strong></span>
+                    <span class="status-count rejected">Rejected <strong id="count-rejected">-</strong></span>
+                </div>
+                <button type="button" class="btn-refresh-signals" id="btn-refresh-signals" title="신호 새로고침">🔄 재조회</button>
+                <span class="state-pill ok" id="last-updated">대기 중</span>
+            </div>
+        </div>
+        <div class="signal-table-wrap">
+            <table class="signal-table">
+                <thead>
+                    <tr>
+                        <th>시간</th>
+                        <th>제공자</th>
+                        <th>종목</th>
+                        <th>방향</th>
+                        <th>진입</th>
+                        <th>SL</th>
+                        <th>TP</th>
+                        <th>신뢰도</th>
+                        <th>모의결과</th>
+                        <th>상태</th>
+                        <th>QC 주문</th>
+                    </tr>
+                </thead>
+                <tbody id="signal-table-body"></tbody>
+            </table>
+        </div>
+        <div class="empty-state" id="signal-empty">표시할 신호가 없습니다.</div>
+    </article>
+
+    <article class="panel detail-panel">
+        <div class="panel-title">
+            <h2>Telegram 원문 / 파싱 결과</h2>
+            <p>선택한 신호의 원문 메시지와 정규화된 값을 비교합니다.</p>
+        </div>
+        <div class="detail-badges" id="detail-badges" aria-label="선택 신호 상태"></div>
+        <div class="raw-message" id="raw-message">신호를 선택하면 Telegram 원문이 표시됩니다.</div>
+        <dl class="detail-list" id="parsed-detail"></dl>
+        <div class="signal-action-panel">
+            <div>
+                <strong>QC 모의주문</strong>
+                <span id="qc-signal-eligibility">신호를 선택하면 주문 가능 여부를 표시합니다.</span>
+            </div>
+            <div class="signal-action-buttons">
+                <button type="button" class="btn-buy" id="btn-qc-signal-buy" data-qc-detail-side="buy" disabled>QC 매수</button>
+                <button type="button" class="btn-sell" id="btn-qc-signal-sell" data-qc-detail-side="sell" disabled>QC 매도</button>
+            </div>
+            <div class="qc-message" id="qc-signal-order-result">MNQ 진입 신호만 QuantConnect Paper 주문으로 보낼 수 있습니다.</div>
+        </div>
+    </article>
+</section>

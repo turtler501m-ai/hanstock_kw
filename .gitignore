@@ -1,0 +1,39 @@
+__pycache__/
+*.pyc
+.env
+.venv/
+logs/
+*.log
+.runtime/
+.vm_backup/
+.DS_Store
+.vscode/
+.idea/workspace.iml
+.idea/workspace.xml
+data/kis_token.json
+data/kis_*token*.json
+data/*.db
+data/*.sqlite
+data/*.db-journal
+data/*.sqlite-journal
+data/trades.json
+.claude/worktrees/
+test_debug.ps1
+bybit_test.py
+bybit_test_full.py
+
+# Temporary side-by-side source snapshots kept while consolidating loc/vm.
+hanstock_loc/
+hanstock_vm/
+
+# Android build and local settings exclusions
+android/.gradle/
+android/app/build/
+android/build/
+android/.idea/
+android/local.properties
+tensorboard_logs/
+
+# Scratch files and directories
+scratch/
+.idea/

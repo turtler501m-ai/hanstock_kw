@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>한스톡 내러티브 모멘텀</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Sans+KR:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/style.css?v=28">
+    <link rel="stylesheet" href="/static/css/narrative_momentum.css?v=6">
+</head>
+<body>
+    <div class="dashboard-container narrative-page">
+        <header class="app-header">
+            <div>
+                <p class="eyebrow">Narrative Momentum</p>
+                <h1>내러티브 <span class="highlight">모멘텀</span></h1>
+            </div>
+            <div class="header-actions">
+                <a class="nav-button" href="/">한스톡</a>
+                <a class="nav-button" href="/mistock">미스톡</a>
+                <a class="nav-button active" href="/narrative-momentum">내러티브</a>
+                <a class="nav-button futures-nav-button" href="/futures-signals">해외선물</a>
+                <a class="nav-button" href="/voice-dashboard">음성</a>
+                <a class="nav-button" href="/env-settings">환경설정</a>
+                <button type="button" class="nav-button" id="btn-narrative-refresh">새로고침</button>
+            </div>
+        </header>
+
+        <main class="narrative-workspace">
+            <section class="narrative-band">
+                <div>
+                    <p class="eyebrow">뉴스/공시 테마 점수화</p>
+                    <h2>시장 이야기를 종목 후보로 변환</h2>
+                    <p class="section-help">전용 런타임 파일과 테마 매핑만 사용하며 기존 후보 스캐너와 분리되어 작동합니다.</p>
+                </div>
+                <div class="narrative-actions">
+                    <button type="button" id="btn-narrative-oneclick" class="narrative-primary-action">자동 실행</button>
+                    <button type="button" id="btn-narrative-collect" class="button-ghost">뉴스 자동생성</button>
+                    <button type="button" id="btn-narrative-scan">스캔 실행</button>
+                    <button type="button" id="btn-narrative-save-scan" class="button-ghost">스캔+후보저장</button>
+                </div>
+            </section>
+
+            <section class="narrative-readiness" id="narrative-readiness">
+                내러티브 데이터 상태를 확인하는 중입니다.
+            </section>
+
+            <section class="narrative-action-status idle" id="narrative-action-status" role="status" aria-live="polite">
+                <strong>대기 중</strong>
+                <span>자동 실행 버튼을 누르면 뉴스 자동생성, 스캔, 후보저장을 한 번에 실행하고 결과 목록에 남깁니다.</span>
+            </section>
+
+            <section class="narrative-status-grid" id="narrative-status-grid"></section>
+
+            <nav class="narrative-tabs" role="tablist">
+                <button type="button" class="narrative-tab active" data-tab="summary" role="tab" aria-selected="true">요약</button>
+                <button type="button" class="narrative-tab" data-tab="signals" role="tab" aria-selected="false">시그널</button>
+                <button type="button" class="narrative-tab" data-tab="results" role="tab" aria-selected="false">결과</button>
+                <button type="button" class="narrative-tab" data-tab="history" role="tab" aria-selected="false">내러티브 이력</button>
+                <button type="button" class="narrative-tab" data-tab="themes" role="tab" aria-selected="false">테마 매핑</button>
+                <button type="button" class="narrative-tab" data-tab="schedule" role="tab" aria-selected="false">스케줄</button>
+            </nav>
+
+            <section class="narrative-panel active" id="narrative-tab-summary" role="tabpanel">
+                <div class="panel-header split-header">
+                    <div>
+                        <h2>상태 요약</h2>
+                        <p class="section-help">최신 거래일 데이터와 안전 조건을 확인합니다.</p>
+                    </div>
+                    <span class="narrative-badge" id="narrative-state-badge">-</span>
+                </div>
+                <div class="narrative-summary-layout">
+                    <div class="narrative-table-wrap">
+                        <table class="narrative-table">
+                            <tbody id="narrative-summary-body"></tbody>
+                        </table>
+                    </div>
+                    <div class="narrative-log" id="narrative-errors"></div>
+                </div>
+            </section>
+
+            <section class="narrative-panel" id="narrative-tab-signals" role="tabpanel" hidden>
+                <div class="panel-header split-header">
+                    <div>
+                        <h2>종목 시그널</h2>
+                        <p class="section-help">점수는 기대수익률이 아니라 내러티브 기준 상대 순위입니다.</p>
+                    </div>
+                    <span class="time-muted" id="narrative-signal-count">-</span>
+                </div>
+                <div class="narrative-table-wrap">
+                    <table class="narrative-table">
+                        <thead>
+                            <tr>
+                                <th>순위</th>
+                                <th>종목</th>
+                                <th>점수</th>
+                                <th>테마</th>
+                                <th>근거</th>
+                                <th>가격/수량</th>
+                                <th>액션</th>
+                            </tr>
+                        </thead>
+                        <tbody id="narrative-signals-body"></tbody>
+                    </table>
+                </div>
+            </section>
+
+            <section class="narrative-panel" id="narrative-tab-results" role="tabpanel" hidden>
+                <div class="panel-header split-header">
+                    <div>
+                        <h2>일별 성과</h2>
+                        <p class="section-help">날짜별 실행 성과를 선택하면 해당 날짜의 실행 목록과 후보 세부정보가 표시됩니다.</p>
+                    </div>
+                    <span class="time-muted" id="narrative-result-count">-</span>
+                </div>
+                <div class="narrative-results-layout">
+                    <div class="narrative-table-wrap">
+                        <table class="narrative-table">
+                            <thead>
+                                <tr>
+                                    <th>날짜</th>
+                                    <th>실행</th>
+                                    <th>최신상태</th>
+                                    <th>후보</th>
+                                    <th>저장</th>
+                                </tr>
+                            </thead>
+                            <tbody id="narrative-results-body"></tbody>
+                        </table>
+                    </div>
+                    <div class="narrative-result-detail" id="narrative-result-detail">
+                        날짜를 선택하면 세부목록이 표시됩니다.
+                    </div>
+                </div>
+            </section>
+
+            <section class="narrative-panel" id="narrative-tab-history" role="tabpanel" hidden>
+                <div class="panel-header split-header">
+                    <div>
+                        <h2>내러티브 이력</h2>
+                        <p class="section-help">최근 테마 강도와 방향 변화를 추적합니다.</p>
+                    </div>
+                    <span class="time-muted" id="narrative-history-count">-</span>
+                </div>
+                <div class="narrative-editor">
+                    <div class="split-header">
+                        <div>
+                            <h3>내러티브 JSON 입력</h3>
+                            <p class="section-help">LLM이 생성한 narrative_history 배열을 붙여 넣고 저장합니다.</p>
+                        </div>
+                        <div class="narrative-actions">
+                            <button type="button" class="button-ghost compact-button" id="btn-narrative-load-editor">현재 이력 불러오기</button>
+                            <button type="button" class="compact-button" id="btn-narrative-save-history">JSON 저장</button>
+                        </div>
+                    </div>
+                    <textarea id="narrative-history-editor" spellcheck="false" placeholder='[{"date":"2026-06-18","market_mood":"risk_on","dominant_narratives":[{"theme":"AI 반도체 투자 확대","strength":88,"sentiment":"bullish","direction":"rising","affected_sectors":["반도체"]}],"narrative_shifts":[{"theme":"AI 반도체 투자 확대","change":"rising"}]}]'></textarea>
+                    <div class="time-muted" id="narrative-editor-status">-</div>
+                </div>
+                <div class="narrative-table-wrap">
+                    <table class="narrative-table">
+                        <thead>
+                            <tr>
+                                <th>날짜</th>
+                                <th>테마</th>
+                                <th>강도</th>
+                                <th>감성</th>
+                                <th>방향</th>
+                                <th>영향 섹터</th>
+                                <th>핵심 근거</th>
+                            </tr>
+                        </thead>
+                        <tbody id="narrative-history-body"></tbody>
+                    </table>
+                </div>
+            </section>
+
+            <section class="narrative-panel" id="narrative-tab-themes" role="tabpanel" hidden>
+                <div class="panel-header split-header">
+                    <div>
+                        <h2>테마 매핑</h2>
+                        <p class="section-help">읽기 전용입니다. 수정은 config/theme_map.json에서 진행합니다.</p>
+                    </div>
+                    <button type="button" id="btn-narrative-theme-reload" class="button-ghost compact-button">매핑 다시 읽기</button>
+                </div>
+                <div class="narrative-table-wrap">
+                    <table class="narrative-table">
+                        <thead>
+                            <tr>
+                                <th>테마</th>
+                                <th>종목 수</th>
+                                <th>연결 종목</th>
+                            </tr>
+                        </thead>
+                        <tbody id="narrative-theme-body"></tbody>
+                    </table>
+                </div>
+            </section>
+
+            <section class="narrative-panel" id="narrative-tab-schedule" role="tabpanel" hidden>
+                <div class="panel-header split-header">
+                    <div>
+                        <h2>자동 실행</h2>
+                        <p class="section-help">스케줄러가 내러티브 스캔을 주기적으로 실행하고 결과 요약을 저장합니다.</p>
+                    </div>
+                    <button type="button" id="btn-narrative-run-scheduled" class="compact-button">즉시 실행</button>
+                </div>
+                <div class="narrative-schedule-grid">
+                    <label>
+                        <span>사용</span>
+                        <input type="checkbox" id="narrative-schedule-enabled">
+                    </label>
+                    <label>
+                        <span>간격(분)</span>
+                        <input type="number" id="narrative-schedule-interval" min="1" step="1" value="30">
+                    </label>
+                    <label>
+                        <span>시작</span>
+                        <input type="text" id="narrative-schedule-start" value="0900" maxlength="4">
+                    </label>
+                    <label>
+                        <span>종료</span>
+                        <input type="text" id="narrative-schedule-end" value="1530" maxlength="4">
+                    </label>
+                    <label>
+                        <span>요일</span>
+                        <input type="text" id="narrative-schedule-weekdays" value="1-5">
+                    </label>
+                    <label>
+                        <span>모드</span>
+                        <select id="narrative-schedule-mode">
+                            <option value="execute">스캔+후보저장</option>
+                            <option value="analysis_only">스캔만 실행</option>
+                        </select>
+                    </label>
+                </div>
+                <div class="narrative-actions">
+                    <button type="button" id="btn-narrative-save-schedule">스케줄 저장</button>
+                    <span class="time-muted" id="narrative-schedule-status">-</span>
+                </div>
+                <div class="narrative-log" id="narrative-schedule-summary">최근 스케줄 실행 결과가 없습니다.</div>
+                <div class="narrative-table-wrap">
+                    <table class="narrative-table">
+                        <thead>
+                            <tr>
+                                <th>실행시각</th>
+                                <th>모드</th>
+                                <th>상태</th>
+                                <th>후보</th>
+                                <th>저장</th>
+                                <th>상위 시그널</th>
+                            </tr>
+                        </thead>
+                        <tbody id="narrative-schedule-history-body"></tbody>
+                    </table>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <script src="/static/js/narrative_momentum.js?v=6"></script>
+</body>
+</html>

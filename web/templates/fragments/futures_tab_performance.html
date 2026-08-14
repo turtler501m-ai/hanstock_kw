@@ -1,0 +1,119 @@
+<section class="futures-grid">
+    <article class="panel" style="grid-column: 1 / -1;">
+        <div class="panel-title">
+            <h2>📊 모의거래 성과 분석</h2>
+            <p>Telegram 신호 기반 모의거래 성과</p>
+        </div>
+        <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 20px;">
+            <div class="metric-card" style="background: rgba(15,23,42,0.6); padding: 16px; border-radius: 8px; text-align: center;">
+                <div style="font-size: 0.8rem; color: #94a3b8; margin-bottom: 4px;">총 시그널</div>
+                <div style="font-size: 1.5rem; font-weight: 700; color: #fff;" id="perf-total-signals">-</div>
+            </div>
+            <div class="metric-card" style="background: rgba(15,23,42,0.6); padding: 16px; border-radius: 8px; text-align: center;">
+                <div style="font-size: 0.8rem; color: #94a3b8; margin-bottom: 4px;">총 수익</div>
+                <div style="font-size: 1.5rem; font-weight: 700; color: #22c55e;" id="perf-total-pnl">-</div>
+            </div>
+            <div class="metric-card" style="background: rgba(15,23,42,0.6); padding: 16px; border-radius: 8px; text-align: center;">
+                <div style="font-size: 0.8rem; color: #94a3b8; margin-bottom: 4px;">승률</div>
+                <div style="font-size: 1.5rem; font-weight: 700; color: #fff;" id="perf-win-rate">-</div>
+            </div>
+            <div class="metric-card" style="background: rgba(15,23,42,0.6); padding: 16px; border-radius: 8px; text-align: center;">
+                <div style="font-size: 0.8rem; color: #94a3b8; margin-bottom: 4px;">평균 손익</div>
+                <div style="font-size: 1.5rem; font-weight: 700; color: #fff;" id="perf-avg-pnl">-</div>
+            </div>
+        </div>
+    </article>
+
+    <article class="panel" style="grid-column: 1 / -1;">
+        <div class="panel-title">
+            <h3>일별 손익 추이</h3>
+        </div>
+        <div style="height: 300px; position: relative;">
+            <canvas id="perf-daily-chart"></canvas>
+        </div>
+    </article>
+
+    <article class="panel">
+        <div class="panel-title">
+            <h3>종목별 성과</h3>
+        </div>
+        <div class="table-responsive">
+            <table class="signal-table" style="font-size: 0.85rem;">
+                <thead>
+                    <tr>
+                        <th>종목</th>
+                        <th>거래횟수</th>
+                        <th>승률</th>
+                        <th>총손익</th>
+                    </tr>
+                </thead>
+                <tbody id="perf-by-symbol-body">
+                </tbody>
+            </table>
+        </div>
+    </article>
+
+    <article class="panel">
+        <div class="panel-title">
+            <h3>신호 제공자별 성과</h3>
+        </div>
+        <div class="table-responsive">
+            <table class="signal-table" style="font-size: 0.85rem;">
+                <thead>
+                    <tr>
+                        <th>제공자</th>
+                        <th>시그널</th>
+                        <th>승률</th>
+                        <th>총손익</th>
+                    </tr>
+                </thead>
+                <tbody id="perf-by-provider-body">
+                </tbody>
+            </table>
+        </div>
+    </article>
+
+    <article class="panel" style="grid-column: 1 / -1;">
+        <div class="panel-title">
+            <h3>최근 거래 내역</h3>
+        </div>
+        <div class="table-responsive">
+            <table class="signal-table">
+                <thead>
+                    <tr>
+                        <th>시간</th>
+                        <th>종목</th>
+                        <th>방향</th>
+                        <th>진입가</th>
+                        <th>청산가</th>
+                        <th>손익</th>
+                        <th>상태</th>
+                    </tr>
+                </thead>
+                <tbody id="perf-trades-body">
+                </tbody>
+            </table>
+        </div>
+        <div class="empty-state" id="perf-trades-empty">거래 내역이 없습니다.</div>
+    </article>
+
+    <article class="panel" style="grid-column: 1 / -1;">
+        <div class="panel-title">
+            <h3>신호 검증 현황</h3>
+        </div>
+        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px;">
+            <div style="background: rgba(34,197,94,0.1); border-left: 3px solid #22c55e; padding: 12px;">
+                <div style="font-size: 0.8rem; color: #94a3b8;">검증완료 (수익)</div>
+                <div style="font-size: 1.2rem; font-weight: 600; color: #22c55e;" id="perf-verified-win">-</div>
+            </div>
+            <div style="background: rgba(239,68,68,0.1); border-left: 3px solid #ef4444; padding: 12px;">
+                <div style="font-size: 0.8rem; color: #94a3b8;">검증완료 (손실)</div>
+                <div style="font-size: 1.2rem; font-weight: 600; color: #ef4444;" id="perf-verified-loss">-</div>
+            </div>
+            <div style="background: rgba(251,191,36,0.1); border-left: 3px solid #fbbf24; padding: 12px;">
+                <div style="font-size: 0.8rem; color: #94a3b8;">검증대기</div>
+                <div style="font-size: 1.2rem; font-weight: 600; color: #fbbf24;" id="perf-pending">-</div>
+            </div>
+        </div>
+    </article>
+</section>

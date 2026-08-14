@@ -1,0 +1,23 @@
+[
+  {
+    "key": "goldmoon",
+    "id_or_username": "GoldMoon_RAINBOW",
+    "label": "GoldMoon futures signals",
+    "daily_summary": true,
+    "signal_tracking": true
+  },
+  {
+    "key": "chart_leader",
+    "id_or_username": 3238715568,
+    "label": "Chart Leader room 2",
+    "daily_summary": true,
+    "signal_tracking": true
+  },
+  {
+    "key": "jurin_6",
+    "id_or_username": 3326027645,
+    "label": "Jurin futures room 6",
+    "daily_summary": true,
+    "signal_tracking": true
+  }
+]

@@ -1,0 +1,5 @@
+# Complete local installation. Smaller deployments can install one of the
+# purpose-specific files directly.
+-r requirements-core.txt
+-r requirements-integrations.txt
+-r requirements-voice.txt

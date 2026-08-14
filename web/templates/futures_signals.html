@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>한스톡 해외선물 신호 대시보드</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Sans+KR:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/futures_dashboard.css?v=2">
+    <link rel="stylesheet" href="/static/css/futures_signals.css?v=7">
+</head>
+<body>
+    <div class="dashboard-container futures-dashboard">
+        <header class="app-header dashboard-header" id="summary">
+            <div>
+                <p class="eyebrow">KIS 국내주식 자동매매</p>
+                <h1>한스톡 <span class="highlight">대시보드</span></h1>
+            </div>
+            <div class="header-actions">
+                <a class="nav-button" href="/">한스톡</a>
+                <a class="nav-button" href="/mistock">미스톡</a>
+                <a class="nav-button" href="/narrative-momentum">내러티브</a>
+                <a class="nav-button futures-nav-button" href="/futures-signals">해외선물</a>
+                <a class="nav-button" href="/voice-dashboard">음성</a>
+                <a class="nav-button" href="/env-settings">환경설정</a>
+                <button type="button" class="nav-button" id="btn-refresh-futures" aria-label="새로고침" title="새로고침">새로고침</button>
+                <div class="status-indicator">
+                    <span class="dot live"></span> 자동 갱신 중
+                </div>
+            </div>
+        </header>
+
+        <main class="futures-workspace">
+            <section class="panel futures-page-banner">
+                <div class="panel-title">
+                    <p class="eyebrow">Telegram signals / Backtest</p>
+                    <h2>해외선물 매매신호 수집, 파싱, 검증 결과</h2>
+                    <p>메인 한스톡 대시보드의 상단 영역은 유지하고, 해외선물 신호와 성과는 아래 탭에서 관리합니다.</p>
+                </div>
+            </section>
+
+            <nav class="dashboard-tabs tab-nav" role="tablist">
+                <button type="button" class="dashboard-tab active" data-tab="overview" data-fragment="futures_tab_overview.html" role="tab" aria-selected="true">개요</button>
+                <button type="button" class="dashboard-tab" data-tab="signals" data-fragment="futures_tab_signals.html" role="tab" aria-selected="false">신호 목록</button>
+                <button type="button" class="dashboard-tab" data-tab="mock-perf" data-fragment="futures_tab_mock_performance.html" role="tab" aria-selected="false">모의 성과</button>
+                <button type="button" class="dashboard-tab" data-tab="live-perf" data-fragment="futures_tab_live_performance.html" role="tab" aria-selected="false">실계좌 성과</button>
+                <button type="button" class="dashboard-tab" data-tab="settings" data-fragment="futures_tab_settings.html" role="tab" aria-selected="false">설정</button>
+            </nav>
+
+            <section class="dashboard-card futures-tab-card">
+                <div id="tab-overview" class="tab-content active" role="tabpanel"></div>
+                <div id="tab-signals" class="tab-content" role="tabpanel"></div>
+                <div id="tab-mock-perf" class="tab-content" role="tabpanel"></div>
+                <div id="tab-live-perf" class="tab-content" role="tabpanel"></div>
+                <div id="tab-settings" class="tab-content" role="tabpanel"></div>
+            </section>
+        </main>
+    </div>
+
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script>
+    const tabFragments = {};
+    let overviewLoaded = false;
+
+    async function loadTabFragment(tabName, fragmentUrl) {
+        const cached = tabFragments[tabName];
+        if (cached) {
+            document.getElementById('tab-' + tabName).innerHTML = cached;
+            iconize();
+            return;
+        }
+        return fetch('/templates/fragments/' + fragmentUrl)
+            .then(r => r.text())
+            .then(html => {
+                document.getElementById('tab-' + tabName).innerHTML = html;
+                tabFragments[tabName] = html;
+                iconize();
+            });
+    }
+
+    function runTabInit(tabName) {
+        if (tabName === 'overview') {
+            if (typeof loadOverviewData === 'function') loadOverviewData();
+        } else if (tabName === 'signals') {
+            if (typeof renderSignals === 'function') renderSignals();
+            if (typeof renderDetails === 'function') {
+                renderDetails(state.signals.find(function(item) { return item.id === state.selectedId; }) || state.signals[0] || null);
+            }
+        } else if (tabName === 'mock-perf') {
+            if (typeof loadMockPerformance === 'function') loadMockPerformance();
+            if (typeof loadPaperPerformance === 'function') loadPaperPerformance();
+        } else if (tabName === 'live-perf') {
+            if (typeof loadExecutorState === 'function') loadExecutorState();
+            if (typeof loadLivePerformance === 'function') loadLivePerformance();
+        } else if (tabName === 'settings') {
+            if (typeof loadExecutorState === 'function') loadExecutorState();
+        }
+    }
+
+    async function init() {
+        await loadTabFragment('overview', 'futures_tab_overview.html');
+        overviewLoaded = true;
+        if (typeof refreshDashboard === 'function') {
+            refreshDashboard();
+        }
+    }
+
+    document.addEventListener('DOMContentLoaded', function() {
+        const tabButtons = document.querySelectorAll('.tab-nav button');
+
+        init();
+
+        tabButtons.forEach(function(btn) {
+            btn.addEventListener('click', function() {
+                const tabName = this.dataset.tab;
+                const fragmentUrl = this.dataset.fragment;
+
+                tabButtons.forEach(function(b) {
+                    b.classList.remove('active');
+                    b.setAttribute('aria-selected', 'false');
+                });
+                btn.classList.add('active');
+                btn.setAttribute('aria-selected', 'true');
+
+                document.querySelectorAll('.tab-content').forEach(function(content) {
+                    content.classList.remove('active');
+                });
+                document.getElementById('tab-' + tabName).classList.add('active');
+
+                loadTabFragment(tabName, fragmentUrl).then(function() {
+                    runTabInit(tabName);
+                });
+            });
+        });
+    });
+    </script>
+    <style>
+        .btn-buy { background: #22c55e !important; }
+        .btn-sell { background: #ef4444 !important; }
+        .btn-buy:hover { background: #16a34a !important; }
+        .btn-sell:hover { background: #dc2626 !important; }
+        .btn-cancel { padding: 4px 8px; background: #64748b; border: none; color: #fff; border-radius: 4px; cursor: pointer; font-size: 0.75rem; }
+        .btn-cancel:hover { background: #475569; }
+        .text-buy { color: #22c55e !important; }
+        .text-sell { color: #ef4444 !important; }
+    </style>
+    <script src="/static/js/environment_badge.js?v=1"></script>
+    <script src="/static/js/futures_signals.js?v=26"></script>
+</body>
+</html>

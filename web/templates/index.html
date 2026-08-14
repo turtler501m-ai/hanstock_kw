@@ -1,0 +1,3062 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="theme-color" content="#030712">
+    <title>한스톡 대시보드</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&family=Noto+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/style.css?v=39">
+</head>
+
+<body>
+    <div class="dashboard-container">
+        <header class="app-header">
+            <div>
+                <p class="eyebrow">KIS 국내주식 자동매매</p>
+                <h1>한스톡 <span class="highlight">대시보드</span></h1>
+            </div>
+            <div class="header-actions">
+                <a class="nav-button" href="/">한스톡</a>
+                <a class="nav-button" href="/mistock">미스톡</a>
+                <a class="nav-button" href="/narrative-momentum">내러티브</a>
+                <a class="nav-button" href="/ai-stock">AI스톡</a>
+                <a class="nav-button futures-nav-button" href="/futures-signals">해외선물</a>
+                <a class="nav-button" href="/voice-dashboard">음성</a>
+                <a class="nav-button" href="/env-settings">환경설정</a>
+                <a class="nav-button" href="javascript:window.location.reload()">새로고침</a>
+                <div class="status-indicator">
+                    <span class="dot live"></span> 자동 갱신 중
+                </div>
+            </div>
+        </header>
+
+        <main>
+            <section class="status-banner" id="status-banner" hidden></section>
+
+            <nav class="dashboard-tabs" aria-label="대시보드 기능 메뉴">
+                <button type="button" class="dashboard-tab active" data-dashboard-tab="overview">개요</button>
+                <button type="button" class="dashboard-tab" data-dashboard-tab="portfolio">보유종목</button>
+                <button type="button" class="dashboard-tab" data-dashboard-tab="watchlist">관심종목</button>
+                <button type="button" class="dashboard-tab" data-dashboard-tab="ai-strategies">AI 전략</button>
+                <button type="button" class="dashboard-tab" data-dashboard-tab="strategy">전략조회</button>
+                <button type="button" class="dashboard-tab" data-dashboard-tab="schedule">스케쥴</button>
+                <button type="button" class="dashboard-tab" data-dashboard-tab="orders">주문승인</button>
+                <button type="button" class="dashboard-tab" data-dashboard-tab="ai">AI/최적화</button>
+                <button type="button" class="dashboard-tab" data-dashboard-tab="performance">성과</button>
+                <button type="button" class="dashboard-tab" data-dashboard-tab="plunge-bounce">급락반등</button>
+                <button type="button" class="dashboard-tab" data-dashboard-tab="heikin-ashi">알파 하이킨아시</button>
+            </nav>
+
+            <section class="dashboard-section active" id="dashboard-tab-overview">
+                <section class="summary-grid">
+                    <div class="card glass">
+                        <h3>총자산</h3>
+                        <div class="value" id="val-total">-</div>
+                    </div>
+                    <div class="card glass pnl-summary-card" id="total-pnl-card" role="button" tabindex="0"
+                         aria-expanded="false" aria-controls="total-pnl-breakdown" title="총손익 상세 목록 보기">
+                        <h3>총손익</h3>
+                        <div class="value" id="val-account-pnl">-</div>
+                        <small class="summary-card-action">상세 목록 보기</small>
+                    </div>
+                    <div class="card glass">
+                        <h3>총수익률</h3>
+                        <div class="value" id="val-account-return">-</div>
+                    </div>
+                    <div class="card glass">
+                        <h3>예수금</h3>
+                        <div class="value" id="val-cash">-</div>
+                    </div>
+                    <div class="card glass">
+                        <h3>주식 평가금</h3>
+                        <div class="value" id="val-stock-eval">-</div>
+                    </div>
+                    <div class="card glass">
+                        <h3>계좌번호</h3>
+                        <div class="value" id="val-account">-</div>
+                    </div>
+                </section>
+
+                <section class="card glass total-pnl-breakdown" id="total-pnl-breakdown" hidden>
+                    <div class="panel-header split-header">
+                        <div>
+                            <h2>총손익 상세</h2>
+                            <p class="section-help">초기자산 5억 원 대비 전체 자산 변동과 현재 확인 가능한 손익 구성입니다.</p>
+                        </div>
+                        <button type="button" class="button-ghost compact-button" id="btn-close-total-pnl">닫기</button>
+                    </div>
+                    <div class="table-responsive">
+                        <table id="table-total-pnl-breakdown">
+                            <thead>
+                                <tr>
+                                    <th>구분</th>
+                                    <th>항목</th>
+                                    <th>금액</th>
+                                    <th>설명</th>
+                                </tr>
+                            </thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
+                    <p class="section-help total-pnl-note">기록 시작 이전의 매입원가와 KIS 모의투자에서 제공하지 않는 과거 손익은 기준 조정으로 분리됩니다.</p>
+                </section>
+
+                <section class="risk-grid">
+                    <div class="card glass risk-card">
+                        <span class="label">평가손익</span>
+                        <strong id="val-pnl" class="valuation-pnl-value">-</strong>
+                    </div>
+                    <div class="card glass risk-card">
+                        <span class="label">평가수익률</span>
+                        <strong id="val-return">-</strong>
+                    </div>
+                    <div class="card glass risk-card">
+                        <span class="label">누적 실현손익</span>
+                        <strong id="val-realized">-</strong>
+                    </div>
+                    <div class="card glass risk-card">
+                        <span class="label">현금 비중</span>
+                        <strong id="risk-cash-ratio">-</strong>
+                    </div>
+                    <div class="card glass risk-card">
+                        <span class="label">최대 종목 비중</span>
+                        <strong id="risk-concentration">-</strong>
+                    </div>
+                    <div class="card glass risk-card">
+                        <span class="label">손실 방어</span>
+                        <strong id="risk-loss-usage">-</strong>
+                    </div>
+                </section>
+
+                <section class="card glass panel-runtime">
+                    <div class="panel-header split-header">
+                        <div>
+                            <h2>운영 상태</h2>
+                            <p class="section-help">거래 환경, 주문 차단, 자동 승인 상태를 한곳에서 확인합니다.</p>
+                        </div>
+                        <span class="time-muted" id="last-updated">-</span>
+                    </div>
+                    <div class="runtime-grid">
+                        <div>
+                            <span class="label">API 환경</span>
+                            <strong id="runtime-env">-</strong>
+                        </div>
+                        <div>
+                            <span class="label">실전 주문</span>
+                            <strong id="runtime-real">-</strong>
+                        </div>
+                        <div>
+                            <span class="label">최종 주문 전송</span>
+                            <strong id="runtime-order">-</strong>
+                        </div>
+                        <div>
+                            <span class="label">주문 차단</span>
+                            <div class="inline-control">
+                                <strong id="runtime-dry-run">-</strong>
+                                <button type="button" id="btn-dry-run" class="button-ghost compact-button">전환</button>
+                            </div>
+                        </div>
+                        <div>
+                            <span class="label">자동 승인</span>
+                            <div class="inline-control">
+                                <strong id="runtime-auto-approval">-</strong>
+                                <button type="button" id="btn-auto-approval" class="button-ghost compact-button">전환</button>
+                            </div>
+                        </div>
+                        <div>
+                            <span class="label">AI 토큰 사용량</span>
+                            <strong id="runtime-tokens">- tkn</strong>
+                        </div>
+                    </div>
+                </section>
+
+                <div class="dashboard-two-column">
+                    <section class="card glass panel-chart">
+                        <h2>자산 비중</h2>
+                        <p class="section-help">현금과 보유 종목 평가금의 구성입니다.</p>
+                        <div class="asset-allocation-layout">
+                            <div class="chart-container asset-allocation-chart">
+                                <canvas id="portfolioChart"></canvas>
+                            </div>
+                            <div id="portfolio-legend" class="asset-allocation-legend" aria-label="보유 종목별 자산 비중"></div>
+                        </div>
+                    </section>
+
+                    <section class="card glass panel-settings">
+                        <h2>전략 설정</h2>
+                        <p class="section-help">매수·청산, 후보 선별, 자금·리스크 기준을 영역별로 확인하고 조정합니다.</p>
+                        <div class="settings-grid" id="settings-grid"></div>
+                    </section>
+                </div>
+            </section>
+
+            <section class="dashboard-section" id="dashboard-tab-portfolio">
+                <div class="holding-page-heading">
+                    <div>
+                        <span class="holding-eyebrow">PORTFOLIO POSITIONS</span>
+                        <h2>보유종목 현황</h2>
+                        <p class="section-help">계좌 보유자산과 전략별 귀속 금액, 손익 상태를 함께 확인합니다.</p>
+                    </div>
+                    <div class="holding-page-actions">
+                        <button type="button" id="btn-refresh-holdings" class="button-ghost compact-button">새로고침</button>
+                        <button type="button" id="btn-sell-all-holdings" class="button-danger">전량 매도 요청</button>
+                    </div>
+                </div>
+
+                <div id="holding-account-summary" class="ai-strategy-summary holdings-account-summary"></div>
+
+                <div class="holding-analysis-grid">
+                    <section class="card glass holding-strategy-panel">
+                        <div class="panel-header split-header">
+                            <div>
+                                <span class="holding-card-kicker">STRATEGY ALLOCATION</span>
+                                <h2>전략별 평가 현황</h2>
+                                <p class="section-help">체결기록의 전략 귀속 수량을 실제 보유수량 범위에서 배분한 결과입니다.</p>
+                            </div>
+                            <span class="holding-count-badge" id="holding-strategy-count">0개 전략</span>
+                        </div>
+                        <div class="table-responsive">
+                            <table id="table-holding-strategies">
+                                <thead>
+                                    <tr>
+                                        <th>전략</th>
+                                        <th>종목</th>
+                                        <th>평가금액</th>
+                                        <th>비중</th>
+                                        <th>평가손익</th>
+                                        <th>수익률</th>
+                                        <th>손실 여부</th>
+                                        <th>전체귀속 매도</th>
+                                    </tr>
+                                </thead>
+                                <tbody></tbody>
+                            </table>
+                        </div>
+                    </section>
+
+                    <section class="card glass holding-diagnosis-panel">
+                        <div>
+                            <span class="holding-card-kicker">POSITION HEALTH</span>
+                            <h2>손익 진단</h2>
+                            <p class="section-help">현재 보유종목의 손익 분포와 전략 귀속률입니다.</p>
+                        </div>
+                        <div class="holding-health-grid">
+                            <div class="is-profit">
+                                <span>수익 종목</span>
+                                <strong id="holding-profit-count">0</strong>
+                            </div>
+                            <div class="is-loss">
+                                <span>손실 종목</span>
+                                <strong id="holding-loss-count">0</strong>
+                            </div>
+                            <div>
+                                <span>보합 종목</span>
+                                <strong id="holding-flat-count">0</strong>
+                            </div>
+                            <div>
+                                <span>전략 귀속률</span>
+                                <strong id="holding-attribution-coverage">0%</strong>
+                            </div>
+                        </div>
+                        <div class="holding-loss-list" id="holding-loss-list">
+                            <span class="time-muted">손실 종목을 확인 중입니다.</span>
+                        </div>
+                    </section>
+                </div>
+
+                <section class="card glass panel-holdings">
+                    <div class="panel-header split-header">
+                        <div>
+                            <span class="holding-card-kicker">HOLDINGS DETAIL</span>
+                            <h2>보유종목 상세</h2>
+                            <p class="section-help">열 제목을 누르면 정렬할 수 있으며 전략과 손익 상태로 목록을 좁힐 수 있습니다.</p>
+                        </div>
+                        <div class="holding-table-filters">
+                            <label>
+                                <span>전략</span>
+                                <select id="select-holding-strategy-filter">
+                                    <option value="all">전체 전략</option>
+                                </select>
+                            </label>
+                            <label>
+                                <span>손익</span>
+                                <select id="select-holding-pnl-filter">
+                                    <option value="all">전체 상태</option>
+                                    <option value="profit">수익</option>
+                                    <option value="loss">손실</option>
+                                    <option value="flat">보합</option>
+                                </select>
+                            </label>
+                        </div>
+                    </div>
+                    <div class="table-responsive">
+                        <table id="table-holdings">
+                            <thead>
+                                <tr>
+                                    <th>종목</th>
+                                    <th>수량</th>
+                                    <th>현재가</th>
+                                    <th>평가금액</th>
+                                    <th>한스톡 비중</th>
+                                    <th>수익률</th>
+                                    <th>평가손익</th>
+                                    <th>손익 상태</th>
+                                    <th>귀속 전략</th>
+                                    <th>매도</th>
+                                </tr>
+                            </thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
+                </section>
+            </section>
+
+            <section class="dashboard-section" id="dashboard-tab-strategy">
+                <section class="card glass panel-signals">
+                    <div class="panel-header split-header">
+                        <div>
+                            <h2>보유 종목 매매 신호</h2>
+                            <p class="section-help">RSI, MACD, 볼린저밴드, 분할전략으로 현재 보유 종목을 진단합니다.</p>
+                        </div>
+                        <button type="button" id="btn-signals">진단하기</button>
+                    </div>
+                    <div class="table-responsive">
+                        <table id="table-signals">
+                            <thead>
+                                <tr>
+                                    <th>종목</th>
+                                    <th>판단</th>
+                                    <th>점수</th>
+                                    <th>수량</th>
+                                    <th>RSI/RSI2</th>
+                                    <th>MACD</th>
+                                    <th>근거</th>
+                                </tr>
+                            </thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
+                </section>
+
+                <section class="card glass panel-candidates">
+                    <div class="panel-header split-header">
+                        <div>
+                            <h2>신규 매수 후보</h2>
+                            <p class="section-help">관심 종목과 거래량 상위 종목에서 조건을 만족하는 후보를 찾습니다.</p>
+                        </div>
+                        <div class="strategy-lookup-actions">
+                            <button type="button" id="btn-candidates">찾기</button>
+                            <button type="button" id="btn-refresh-strategy-lookup" class="button-ghost">새로고침</button>
+                        </div>
+                    </div>
+                    
+                    <div class="ai-strategy-control-bar" style="display: flex; gap: 16px; align-items: center; margin-bottom: 1.5rem; background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.05); padding: 12px 16px; border-radius: 8px;">
+                        <div style="display: flex; flex-direction: column; gap: 4px;">
+                            <span style="font-size: 0.75rem; color: rgba(255,255,255,0.4);">후보 선정 AI 랭커</span>
+                            <select id="select-ai-ranker" style="background: rgba(30, 41, 59, 0.85); color: #fff; border: 1px solid rgba(255,255,255,0.1); padding: 6px 12px; border-radius: 6px; font-size: 0.85rem; outline: none; cursor: pointer; min-width: 180px;">
+                                <option value="gpt_5_mini">🤖 GPT-5-mini 기반 추론 랭커</option>
+                                <option value="rule_only">⚙️ 기본 기술 룰베이스 랭커</option>
+                            </select>
+                        </div>
+                        <div style="display: flex; flex-direction: column; gap: 4px;">
+                            <span style="font-size: 0.75rem; color: rgba(255,255,255,0.4);">포트폴리오 비중 최적화</span>
+                            <select id="select-portfolio-optimizer" style="background: rgba(30, 41, 59, 0.85); color: #fff; border: 1px solid rgba(255,255,255,0.1); padding: 6px 12px; border-radius: 6px; font-size: 0.85rem; outline: none; cursor: pointer; min-width: 220px;">
+                                <option value="score_tilted_inverse_vol">📊 변동성 역수 & 점수 틸트 (MPT)</option>
+                                <option value="score_proportional">⚖️ 단순 점수 비례 분할 배분</option>
+                                <option value="llm_confidence_weight">🤖 LLM 확신도 기반 가중 배분</option>
+                            </select>
+                        </div>
+                        <button type="button" id="btn-apply-strategy" style="margin-top: 16px; background: rgba(59, 130, 246, 0.2); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); padding: 6px 16px; border-radius: 6px; font-size: 0.85rem; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.background='rgba(59, 130, 246, 0.3)'" onmouseout="this.style.background='rgba(59, 130, 246, 0.2)'">전략 적용</button>
+                    </div>
+
+                    <div class="ai-strategy-summary" id="ai-strategy-summary">
+                        <div>
+                            <span>AI</span>
+                            <strong id="ai-summary-model">-</strong>
+                            <small id="ai-summary-model-detail">-</small>
+                        </div>
+                        <div>
+                            <span>분석 계좌</span>
+                            <strong id="ai-summary-account">-</strong>
+                            <small>현재 KIS 계좌 1순위</small>
+                        </div>
+                        <div>
+                            <span>점수 결합</span>
+                            <strong id="ai-summary-weight">-</strong>
+                            <small>룰 점수 + AI 점수</small>
+                        </div>
+                        <div>
+                            <span>처리 방식</span>
+                            <strong id="ai-summary-flow">-</strong>
+                            <small>승인/DRY_RUN 보호 적용</small>
+                        </div>
+                    </div>
+                    <div class="ai-flow-list" id="ai-flow-list"></div>
+                    <div class="table-responsive">
+                        <table id="table-candidates">
+                            <thead>
+                                <tr>
+                                    <th>종목</th>
+                                    <th>점수</th>
+                                    <th>전략/AI 분석</th>
+                                    <th>RSI/RSI2</th>
+                                    <th>MACD</th>
+                                    <th>현재가</th>
+                                    <th>예상수량</th>
+                                    <th>예상금액</th>
+                                    <th>근거</th>
+                                </tr>
+                            </thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
+                </section>
+
+                <section class="card glass panel-candidates-history" style="margin-top: 2rem;">
+                    <div class="panel-header split-header">
+                        <div>
+                            <h2>매수후보 포착 히스토리</h2>
+                            <p class="section-help">과거에 매수 후보로 스캔되고 DB에 저장된 히스토리 내역입니다.</p>
+                        </div>
+                        <button type="button" id="btn-candidates-history-refresh">새로고침</button>
+                    </div>
+                    <div class="table-responsive">
+                        <table id="table-candidates-history">
+                            <thead>
+                                <tr>
+                                    <th>포착 일시</th>
+                                    <th>종목</th>
+                                    <th>점수</th>
+                                    <th>현재가</th>
+                                    <th>기술 지표 (RSI/RSI2/MACD/이평)</th>
+                                    <th>탐색 사유</th>
+                                    <th>구동 환경</th>
+                                    <th>관리</th>
+                                </tr>
+                            </thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
+                </section>
+
+                <section class="card glass panel-execution-plan">
+                    <div class="panel-header split-header">
+                        <div>
+                            <h2>실행 계획</h2>
+                            <p class="section-help">다음 자동매매 사이클에서 실행 예정인 주문 계획입니다.</p>
+                        </div>
+                        <button type="button" id="btn-execution-plan">불러오기</button>
+                    </div>
+                    <div id="execution-plan-summary" class="execution-summary"></div>
+                    <div class="table-responsive">
+                        <table id="table-execution-plan">
+                            <thead>
+                                <tr>
+                                    <th>종목</th>
+                                    <th>구분</th>
+                                    <th>수량</th>
+                                    <th>가격</th>
+                                    <th>예상금액</th>
+                                    <th>근거</th>
+                                    <th>결정</th>
+                                    <th>승인</th>
+                                </tr>
+                            </thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
+                </section>
+            </section>
+
+            <section class="dashboard-section" id="dashboard-tab-schedule">
+                <div class="schedule-page-heading">
+                    <div>
+                        <span class="schedule-eyebrow">AUTOMATION CONTROL</span>
+                        <h2>자동매매 스케줄</h2>
+                        <p class="section-help">정기 실행 설정, 즉시 실행, 최근 처리 결과를 한곳에서 관리합니다.</p>
+                    </div>
+                    <span class="schedule-safety-note">주문 실행 모드는 승인·거래환경을 확인하세요</span>
+                </div>
+
+                <div class="schedule-overview-grid" aria-label="스케줄 운영 요약">
+                    <div class="schedule-overview-item">
+                        <span>현재 실행 상태</span>
+                        <strong id="sched-overview-run-state">확인 중</strong>
+                    </div>
+                    <div class="schedule-overview-item">
+                        <span>공용 정기 실행</span>
+                        <strong id="sched-overview-schedule-state">확인 중</strong>
+                    </div>
+                    <div class="schedule-overview-item">
+                        <span>등록 전략</span>
+                        <strong id="sched-overview-strategy-count">-</strong>
+                    </div>
+                    <div class="schedule-overview-item">
+                        <span>거래 환경</span>
+                        <strong id="sched-overview-env">-</strong>
+                    </div>
+                </div>
+
+                <div class="schedule-control-grid">
+                    <section class="card glass panel-schedule-config">
+                        <div class="schedule-card-heading">
+                            <div>
+                                <span class="schedule-card-kicker">정기 실행</span>
+                                <h2>AI 전략 공용 스케줄</h2>
+                                <p class="section-help">AI 전략 탭에서 적용한 승인 전략을 평일 지정 시간에 실행합니다.</p>
+                            </div>
+                            <span class="schedule-card-number">01</span>
+                        </div>
+
+                        <div class="schedule-settings-grid">
+                            <label class="schedule-field schedule-checkbox-field">
+                                <span>
+                                    <strong>정기 실행 사용</strong>
+                                    <small>설정한 시간 안에서 반복 실행</small>
+                                </span>
+                                <span class="switch-toggle">
+                                    <input type="checkbox" id="ai-schedule-enabled">
+                                    <span class="slider-toggle"></span>
+                                </span>
+                            </label>
+                            <label class="schedule-field">
+                                <span>실행 간격</span>
+                                <span class="schedule-input-unit">
+                                    <input type="number" id="ai-schedule-interval" min="1" value="15">
+                                    <em>분</em>
+                                </span>
+                            </label>
+                            <label class="schedule-field">
+                                <span>시작 시각</span>
+                                <input type="time" id="ai-schedule-start" value="09:00">
+                            </label>
+                            <label class="schedule-field">
+                                <span>종료 시각</span>
+                                <input type="time" id="ai-schedule-end" value="15:30">
+                            </label>
+                            <label class="schedule-field">
+                                <span>실행 모드</span>
+                                <select id="ai-schedule-mode">
+                                    <option value="analysis_only">분석 전용 — 주문 없음</option>
+                                    <option value="execute">주문 실행</option>
+                                </select>
+                            </label>
+                            <label class="schedule-field schedule-checkbox-field">
+                                <span>
+                                    <strong>자동 승인</strong>
+                                    <small>생성된 주문을 승인 대기 없이 처리</small>
+                                </span>
+                                <span class="switch-toggle">
+                                    <input type="checkbox" id="ai-schedule-auto-approve">
+                                    <span class="slider-toggle"></span>
+                                </span>
+                            </label>
+                        </div>
+                        <div class="schedule-save-row">
+                            <span class="schedule-weekday-note">월–금 · 한국시간 기준</span>
+                            <button type="button" class="button-primary" id="btn-save-ai-schedule">정기 스케줄 저장</button>
+                            <span id="ai-schedule-save-status" class="time-muted" role="status"></span>
+                        </div>
+
+                        <details class="schedule-runtime-details">
+                            <summary>
+                                <span>
+                                    <strong>운영 환경 상세</strong>
+                                    <small>재시도, 연동, 활성 전략 정보</small>
+                                </span>
+                                <span class="schedule-details-action">펼쳐보기</span>
+                            </summary>
+                            <div class="schedule-runtime-grid" id="schedule-config-grid">
+                                <div class="schedule-runtime-item">
+                                    <span>시간 표준</span>
+                                    <strong id="sched-cron-tz">-</strong>
+                                </div>
+                                <div class="schedule-runtime-item">
+                                    <span>AI 자동실행 재시도</span>
+                                    <strong id="sched-daily-retries">-</strong>
+                                </div>
+                                <div class="schedule-runtime-item">
+                                    <span>AI 재시도 대기</span>
+                                    <strong id="sched-daily-retry-delay">-</strong>
+                                </div>
+                                <div class="schedule-runtime-item">
+                                    <span>일반 실행 재시도</span>
+                                    <strong id="sched-retries">-</strong>
+                                </div>
+                                <div class="schedule-runtime-item">
+                                    <span>일반 재시도 대기</span>
+                                    <strong id="sched-retry-delay">-</strong>
+                                </div>
+                                <div class="schedule-runtime-item">
+                                    <span>Slack 알림</span>
+                                    <strong id="sched-slack-enabled">-</strong>
+                                </div>
+                                <div class="schedule-runtime-item">
+                                    <span>잔고 동기화</span>
+                                    <strong id="sched-sync-enabled">-</strong>
+                                </div>
+                                <div class="schedule-runtime-item">
+                                    <span>거래 환경</span>
+                                    <strong id="sched-trading-env">-</strong>
+                                </div>
+                                <div class="schedule-runtime-item is-wide">
+                                    <span>현재 활성 전략</span>
+                                    <strong id="sched-active-strategy">-</strong>
+                                </div>
+                            </div>
+                        </details>
+                    </section>
+
+                    <section class="card glass panel-schedule-trigger">
+                        <div class="schedule-card-heading">
+                            <div>
+                                <span class="schedule-card-kicker">수동 실행</span>
+                                <h2>지금 한 번 실행</h2>
+                                <p class="section-help">대상 전략과 실행 범위를 확인한 후 필요한 모드를 선택합니다.</p>
+                            </div>
+                            <span class="schedule-card-number">02</span>
+                        </div>
+
+                        <div class="schedule-strategy-picker">
+                            <div>
+                                <strong>실행 대상 전략</strong>
+                                <small>복수 선택 가능 · 정기 설정에는 저장되지 않음</small>
+                            </div>
+                            <div id="scheduler-strategy-checklist"></div>
+                        </div>
+
+                        <div class="schedule-mode-list">
+                            <article class="schedule-mode-card is-safe">
+                                <div>
+                                    <span class="schedule-mode-tag">ANALYSIS ONLY</span>
+                                    <h3>분석 전용</h3>
+                                    <p>신호와 매매 계획만 생성하며 주문은 전송하지 않습니다.</p>
+                                </div>
+                                <button type="button" class="button-ghost" id="btn-run-analysis-only">분석 시작</button>
+                            </article>
+                            <article class="schedule-mode-card is-auto">
+                                <div>
+                                    <span class="schedule-mode-tag">DAILY AUTO</span>
+                                    <h3>AI 자동매매 전체 사이클</h3>
+                                    <p>분석부터 계획, 자동 승인과 주문 전송까지 한 번에 수행합니다.</p>
+                                </div>
+                                <button type="button" class="button-primary" id="btn-run-daily-auto">전체 사이클 실행</button>
+                            </article>
+                            <article class="schedule-mode-card is-execute">
+                                <div>
+                                    <span class="schedule-mode-tag">EXECUTE</span>
+                                    <h3>주문 실행</h3>
+                                    <p>수립된 매매 계획을 주문으로 즉시 전송합니다.</p>
+                                </div>
+                                <button type="button" class="button-danger" id="btn-run-execute">주문 실행</button>
+                            </article>
+                        </div>
+                    </section>
+                </div>
+
+                <div id="scheduler-running-panel" class="card glass panel-schedule-running schedule-running-panel" style="display: none;">
+                    <div class="schedule-running-header">
+                        <div>
+                            <span class="dot live pulsing"></span>
+                            <h2>스케줄러 실행 중</h2>
+                        </div>
+                        <button type="button" class="button-ghost compact-button" id="btn-copy-scheduler-log" onclick="copySchedulerLog()">로그 복사</button>
+                    </div>
+                    <p class="section-help">매매 분석과 API 통신을 수행하고 있습니다. 완료될 때까지 페이지를 유지해 주세요.</p>
+                    <div class="running-log-box schedule-running-log" id="scheduler-running-log">
+                        [System] 스케쥴 실행 요청을 처리 중입니다...
+                    </div>
+                </div>
+
+                <section class="card glass panel-schedule-result schedule-result-panel">
+                    <div class="panel-header split-header">
+                        <div>
+                            <span class="schedule-card-kicker">실행 이력</span>
+                            <h2>기간별 스케줄 실행 결과</h2>
+                            <p class="section-help">일별·주별·월별로 생성된 계획, 승인과 주문 처리 결과를 집계합니다.</p>
+                        </div>
+                        <div class="schedule-result-period-control">
+                            <label for="sched-result-period">집계 기간</label>
+                            <select id="sched-result-period">
+                                <option value="daily" selected>일별 · 오늘</option>
+                                <option value="weekly">주별 · 최근 7일</option>
+                                <option value="monthly">월별 · 최근 30일</option>
+                            </select>
+                            <span class="time-muted" id="sched-last-run-time">-</span>
+                        </div>
+                    </div>
+
+                    <div class="schedule-result-metrics">
+                        <div class="schedule-result-metric is-status">
+                            <span>최종 상태</span>
+                            <strong id="sched-result-status">-</strong>
+                        </div>
+                        <div class="schedule-result-metric">
+                            <span>총 계획</span>
+                            <strong id="sched-result-plan-cnt">-</strong>
+                        </div>
+                        <div class="schedule-result-metric">
+                            <span>승인 대기</span>
+                            <strong id="sched-result-queue-cnt">-</strong>
+                        </div>
+                        <div class="schedule-result-metric">
+                            <span>자동 승인</span>
+                            <strong id="sched-result-approved-cnt">-</strong>
+                        </div>
+                        <div class="schedule-result-metric is-success">
+                            <span>성공</span>
+                            <strong id="sched-result-success-cnt">-</strong>
+                        </div>
+                        <div class="schedule-result-metric is-failure">
+                            <span>실패</span>
+                            <strong id="sched-result-failed-cnt">-</strong>
+                        </div>
+                    </div>
+
+                    <div class="schedule-tables">
+                        <div id="scheduler-runs-container">
+                            <div class="text-center" style="color: var(--text-muted); font-size: 0.95rem; padding: 2rem 0;">
+                                <i class="fas fa-spinner fa-spin" style="margin-right: 0.5rem;"></i> 로딩 중이거나 내역이 없습니다...
+                            </div>
+                        </div>
+                    </div>
+                </section>
+            </section>
+
+            <section class="dashboard-section" id="dashboard-tab-orders">
+                <section class="card glass panel-approvals">
+                    <div class="panel-header split-header">
+                        <div>
+                            <h2>주문 승인 대기열</h2>
+                            <p class="section-help">자동매매 신호를 즉시 전송하지 않고 승인 후 처리합니다.</p>
+                        </div>
+                        <div class="button-row">
+                            <button type="button" id="btn-approvals">새로고침</button>
+                            <button type="button" id="btn-retry-approvals-batch">재처리 일괄</button>
+                            <button type="button" id="btn-cancel-retry-approvals-batch" class="button-danger">취소후재처리 일괄</button>
+                        </div>
+                    </div>
+                    <div class="table-responsive">
+                        <table id="table-approvals">
+                            <thead>
+                                <tr>
+                                    <th>주문ID</th>
+                                    <th>전략 / 주문유형</th>
+                                    <th>등록일</th>
+                                    <th>구분</th>
+                                    <th>종목</th>
+                                    <th>수량</th>
+                                    <th>가격</th>
+                                    <th>예상금액</th>
+                                    <th>상태</th>
+                                    <th>처리</th>
+                                </tr>
+                            </thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
+                </section>
+            </section>
+
+            <section class="dashboard-section" id="dashboard-tab-ai">
+                <section class="card glass panel-ai">
+                    <div class="panel-header split-header">
+                        <div>
+                            <h2>AI 목표 비중 가이드</h2>
+                            <p class="section-help">보유 종목의 기술 지표와 모델 신호를 바탕으로 목표 비중을 계산합니다.</p>
+                        </div>
+                        <button type="button" id="btn-ai-allocation">계산</button>
+                    </div>
+                    <div class="table-responsive">
+                        <table id="table-ai-allocation">
+                            <thead>
+                                <tr>
+                                    <th>종목</th>
+                                    <th>점수</th>
+                                    <th>현재</th>
+                                    <th>목표</th>
+                                    <th>차이</th>
+                                    <th>판단</th>
+                                    <th>근거</th>
+                                    <th>승인</th>
+                                </tr>
+                            </thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
+                </section>
+
+                <section class="card glass panel-optimizer">
+                    <div class="panel-header split-header">
+                        <div>
+                            <h2>포트폴리오 최적화</h2>
+                            <p class="section-help">점수와 변동성을 반영해 과도한 쏠림을 줄이는 목표 비중을 제안합니다.</p>
+                        </div>
+                        <div style="display: flex; gap: 0.5rem; align-items: center;">
+                            <button type="button" id="btn-optimizer">최적화</button>
+                            <button type="button" id="btn-optimizer-batch" style="display: none;">일괄 승인대기 등록</button>
+                        </div>
+                    </div>
+                    <div class="table-responsive">
+                        <table id="table-optimizer">
+                            <thead>
+                                <tr>
+                                    <th>종목</th>
+                                    <th>점수</th>
+                                    <th>변동성</th>
+                                    <th>현재</th>
+                                    <th>목표</th>
+                                    <th>판단</th>
+                                    <th>승인</th>
+                                </tr>
+                            </thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
+                </section>
+            </section>
+
+            <section class="dashboard-section" id="dashboard-tab-performance">
+                <section class="card glass panel-trades">
+                    <div class="panel-header split-header">
+                        <div>
+                            <h2>주문 기록 및 성과</h2>
+                            <p class="section-help">주문 접수 기록, 자동매매 보유 평가, 실현 손익을 확인합니다.</p>
+                        </div>
+                        <div class="button-row">
+                            <select id="select-performance-scope" aria-label="성과 조회 범위">
+                                <option value="account">전체 계좌</option>
+                                <option value="strategy">선택 전략</option>
+                            </select>
+                            <button type="button" id="btn-sync-trades">증권사 기록 동기화</button>
+                        </div>
+                    </div>
+                    <div id="trade-sync-last-result" class="warning-note" hidden
+                         style="margin: 0 0 1rem; display: grid; gap: 0.35rem;">
+                        <strong id="trade-sync-result-title">최근 증권사 기록 동기화</strong>
+                        <span id="trade-sync-result-summary">동기화 기록이 없습니다.</span>
+                        <small id="trade-sync-result-time"></small>
+                        <small id="trade-sync-result-error" class="text-danger" hidden></small>
+                        <div id="trade-sync-run-history" class="trade-sync-run-history">
+                            <strong>동기화 실행 이력</strong>
+                            <div class="table-responsive trade-sync-run-table-wrap">
+                                <table id="table-trade-sync-runs">
+                                    <thead>
+                                        <tr>
+                                            <th>실행 시각</th>
+                                            <th>조회 항목</th>
+                                            <th>신규/갱신</th>
+                                            <th>잔고 보정</th>
+                                            <th>불일치 정리</th>
+                                            <th>결과</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody></tbody>
+                                </table>
+                            </div>
+                        </div>
+                        <details id="trade-sync-result-details" class="trade-sync-result-details">
+                            <summary><span id="trade-sync-detail-title">동기화 전체 항목 보기</span> <span id="trade-sync-result-count"></span></summary>
+                            <div class="table-responsive trade-sync-table-wrap">
+                                <table id="table-trade-sync-items">
+                                    <thead>
+                                        <tr>
+                                            <th>처리 구분</th>
+                                            <th>결과</th>
+                                            <th>일시</th>
+                                            <th>종목</th>
+                                            <th>매수/매도</th>
+                                            <th>수량</th>
+                                            <th>가격</th>
+                                            <th>주문번호</th>
+                                            <th>주문 상태</th>
+                                            <th>설명</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody></tbody>
+                                </table>
+                            </div>
+                        </details>
+                    </div>
+
+                    <div class="performance-summary">
+                        <div>
+                            <span class="label">총 거래 횟수</span>
+                            <strong id="perf-total-trades">-</strong>
+                        </div>
+                        <div>
+                            <span class="label">주문 성공률</span>
+                            <strong id="perf-success-rate">-</strong>
+                        </div>
+                        <div>
+                            <span class="label">누적 실현손익</span>
+                            <strong id="perf-realized-pnl">-</strong>
+                        </div>
+                        <div>
+                            <span class="label">현재 평가손익</span>
+                            <strong id="perf-eval-pnl">-</strong>
+                        </div>
+                        <div>
+                            <span class="label">보유주식 당일 등락</span>
+                            <strong id="perf-holding-daily-change">-</strong>
+                        </div>
+                        <div id="pnl-diff-container" hidden>
+                            <div class="warning-note">
+                                <strong>증권사 총 평가손익(<span id="perf-broker-pnl">-</span>)과 차이가 있습니다.</strong>
+                                <ul id="pnl-diff-list"></ul>
+                            </div>
+                        </div>
+                    </div>
+
+                    <h3 class="subsection-title">일별/월별 누적 성과 분석</h3>
+                    <p class="section-help">기간별 매수/매도금액, 실현손익금액 및 원가 대비 실현수익률(%) 추이를 다차원 분석합니다.</p>
+                    
+                    <div class="periodic-performance-container card panel-sub" style="margin-bottom: 2.5rem; padding: 1.5rem; border-radius: 12px; background: rgba(30, 41, 59, 0.4); border: 1px solid rgba(255, 255, 255, 0.05); backdrop-filter: blur(10px);">
+                        <style>
+                            .dashboard-tab-sub {
+                                font-family: 'Noto Sans KR', sans-serif;
+                                font-size: 0.9rem;
+                                background: none;
+                                border: none;
+                                color: #94a3b8;
+                                padding: 6px 16px;
+                                font-weight: 500;
+                                cursor: pointer;
+                                border-radius: 6px;
+                                transition: all 0.2s;
+                            }
+                            .dashboard-tab-sub:hover {
+                                background: rgba(255, 255, 255, 0.05);
+                                color: #f8fafc;
+                            }
+                            .dashboard-tab-sub.active {
+                                background: rgba(33, 150, 243, 0.15) !important;
+                                color: #3b82f6 !important;
+                                font-weight: 600;
+                            }
+                        </style>
+                        <div class="tab-sub-menu" style="display: flex; gap: 8px; margin-bottom: 1.5rem; border-bottom: 1px solid rgba(255, 255, 255, 0.05); padding-bottom: 8px;">
+                            <button type="button" class="dashboard-tab-sub active" id="btn-perf-daily">일별 성과</button>
+                            <button type="button" class="dashboard-tab-sub" id="btn-perf-monthly">월별 성과</button>
+                        </div>
+                        
+                        <div class="chart-container" style="position: relative; height: 320px; width: 100%; margin-bottom: 2rem;">
+                            <canvas id="periodicPerformanceChart"></canvas>
+                        </div>
+                        
+                        <div class="table-responsive">
+                            <table id="table-periodic-performance" style="width: 100%; border-collapse: collapse;">
+                                <thead>
+                                    <tr>
+                                        <th>기간</th>
+                                        <th>거래 횟수</th>
+                                        <th>총 매수금액</th>
+                                        <th>총 매도금액</th>
+                                        <th>실현손익</th>
+                                        <th>성과 등락</th>
+                                        <th>순현금흐름</th>
+                                        <th>보유주식 당일 등락</th>
+                                        <th>코스피 (등락)</th>
+                                        <th>코스닥 (등락)</th>
+                                    </tr>
+                                </thead>
+                                <tbody></tbody>
+                            </table>
+                        </div>
+                        <div id="performance-detail-panel" class="performance-detail-panel" style="display: none;">
+                            <div class="performance-detail-header">
+                                <div>
+                                    <h3 id="performanceDetailTitle">성과 상세 목록</h3>
+                                    <p id="performanceDetailSubtitle" class="section-help"></p>
+                                </div>
+                                <button type="button" class="button-ghost compact-button" id="btn-close-performance-detail">닫기</button>
+                            </div>
+                            <div id="performanceDetailBody" class="performance-detail-body"></div>
+                        </div>
+                    </div>
+
+                    <h3 class="subsection-title">전략별 모의성과 및 수동 검증</h3>
+                    <p class="section-help">모의 체결가로 재구성한 전략 자산을 동일 가상 현금흐름의 KOSPI·KOSDAQ과 비교합니다. NAV·MDD는 확정 거래일 종가로 계산합니다. 거래비용과 계좌 입출금이 확인되지 않은 결과는 추정치이며 실제 계좌 입출금은 확인 전까지 반영하지 않습니다. 수동 검토는 운용 상태를 자동 변경하지 않습니다.</p>
+                    <div class="button-row performance-cashflow-form" aria-label="계좌 현금흐름 수동 등록">
+                        <input type="datetime-local" id="performance-cashflow-at" aria-label="발생 시각">
+                        <select id="performance-cashflow-kind" aria-label="현금흐름 종류">
+                            <option value="deposit">입금</option>
+                            <option value="withdrawal">출금</option>
+                            <option value="dividend">배당</option>
+                            <option value="interest">이자</option>
+                            <option value="other">기타</option>
+                        </select>
+                        <input type="number" id="performance-cashflow-amount" step="1" placeholder="금액" aria-label="금액">
+                        <input type="text" id="performance-cashflow-note" maxlength="1000" placeholder="확인 근거" aria-label="확인 근거">
+                        <label><input type="checkbox" id="performance-cashflow-confirmed"> 확인 완료</label>
+                        <button type="button" id="btn-save-performance-cashflow">현금흐름 저장</button>
+                    </div>
+                    <div class="table-responsive">
+                        <table id="table-strategy-validation">
+                            <thead>
+                                <tr>
+                                    <th>전략</th>
+                                    <th>관찰기간</th>
+                                    <th>가상 투입금<br><small>실제 입금 아님</small></th>
+                                    <th>현재자산</th>
+                                    <th>비용 전 TWR</th>
+                                    <th>KOSPI</th>
+                                    <th>KOSDAQ</th>
+                                    <th>초과수익</th>
+                                    <th>품질</th>
+                                    <th>수동 검토 의견<br><small>운용 미반영</small></th>
+                                    <th>메모</th>
+                                </tr>
+                            </thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
+
+                    <h3 class="subsection-title">자동매매 보유 종목 상세</h3>
+                    <div class="table-responsive">
+                        <table id="table-eval-details">
+                            <thead>
+                                <tr>
+                                    <th>종목</th>
+                                    <th>수량</th>
+                                    <th>평균단가</th>
+                                    <th>현재가</th>
+                                    <th>평가금액</th>
+                                    <th>수익률</th>
+                                    <th>당일 등락률</th>
+                                    <th>평가손익</th>
+                                </tr>
+                            </thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
+
+                    <h3 class="subsection-title">불일치 거래 정리</h3>
+                    <p class="section-help">
+                        증권사 체결내역과 아직 맞지 않는 로컬 기록입니다. 삭제는 로컬 DB에만 적용되며 증권사 주문은 취소되지 않습니다.
+                    </p>
+                    <div class="table-responsive trades-scroll">
+                        <table id="table-trade-cleanup">
+                            <thead>
+                                <tr>
+                                    <th>시간</th>
+                                    <th>종목</th>
+                                    <th>구분</th>
+                                    <th>수량</th>
+                                    <th>상태</th>
+                                    <th>원인</th>
+                                    <th>정리</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr><td colspan="7">불일치 거래를 확인 중입니다.</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <h3 class="subsection-title">최근 매매 기록</h3>
+                    <div class="table-responsive trades-scroll">
+                        <table id="table-trades">
+                            <thead>
+                                <tr>
+                                    <th>시간</th>
+                                    <th>구분</th>
+                                    <th>종목</th>
+                                    <th>가격</th>
+                                    <th>수량</th>
+                                    <th>근거</th>
+                                    <th>Order</th>
+                                    <th>Filled</th>
+                                </tr>
+                            </thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
+                </section>
+            </section>
+
+            <section class="dashboard-section" id="dashboard-tab-ai-strategies">
+                <section class="card glass panel-ai-strategies-list">
+                    <div class="panel-header split-header">
+                        <div>
+                            <h2>전략 선택 및 스케줄 적용</h2>
+                            <p class="section-help">유형으로 일괄 선택하거나 목록에서 직접 체크한 뒤 적용 버튼을 눌러 공용 스케줄에 반영합니다.</p>
+                        </div>
+                        <div style="display: flex; gap: 8px;">
+                            <button type="button" id="btn-refresh-ai-strategies" style="background: rgba(255,255,255,0.05); color: rgba(255,255,255,0.8); border: 1px solid rgba(255,255,255,0.1); padding: 8px 16px; border-radius: 6px; font-size: 0.85rem; cursor: pointer;">목록 새로고침</button>
+                            <button type="button" id="btn-apply-selected-strategies" class="button-primary">선택 전략 스케줄 적용</button>
+                        </div>
+                    </div>
+                    <div class="ai-strategy-summary" id="strategy-context-summary">
+                        <div>
+                            <span>Active</span>
+                            <strong id="strategy-context-name">-</strong>
+                            <small id="strategy-context-detail">-</small>
+                        </div>
+                        <div>
+                            <span>Status</span>
+                            <strong id="strategy-context-status">-</strong>
+                            <small id="strategy-context-version">-</small>
+                        </div>
+                        <div>
+                            <span>Safety</span>
+                            <strong id="strategy-context-safety">-</strong>
+                            <small id="strategy-context-approval">-</small>
+                        </div>
+                    </div>
+                    <div class="panel-sub easy-strategy-builder strategy-category-selector" style="margin-top: 1rem;">
+                        <div class="panel-header split-header">
+                            <div>
+                                <h3>전략 유형 빠른 선택</h3>
+                                <p class="section-help">유형을 누르면 해당 분류 전략만 체크됩니다. 이후 개별 전략을 추가하거나 해제할 수 있습니다.</p>
+                            </div>
+                            <span id="strategy-selection-summary" class="time-muted">선택 변경 없음</span>
+                        </div>
+                        <div class="ai-strategy-summary">
+                            <button type="button" class="button-ghost easy-strategy-preset" data-preset="safe" aria-pressed="false">
+                                <strong>안정형</strong><small>리스크 낮게, 룰 중심</small>
+                            </button>
+                            <button type="button" class="button-ghost easy-strategy-preset" data-preset="balanced" aria-pressed="false">
+                                <strong>균형형</strong><small>룰 + AI 보조 균형</small>
+                            </button>
+                            <button type="button" class="button-ghost easy-strategy-preset" data-preset="aggressive" aria-pressed="false">
+                                <strong>공격형</strong><small>후보를 더 넓게 탐색</small>
+                            </button>
+                            <button type="button" class="button-ghost" id="btn-toggle-advanced-strategy">
+                                <strong>고급 설정</strong><small>직접 전략 추가</small>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="ai-strategy-editor-layout">
+                    <div class="table-responsive ai-strategy-list-column">
+                        <table id="table-ai-strategies" style="width: 100%; border-collapse: collapse;">
+                            <thead>
+                                <tr>
+                                    <th style="width: 60px; text-align: center;">선택</th>
+                                    <th>전략</th>
+                                    <th>전략 유형</th>
+                                    <th>스케줄 적용</th>
+                                    <th>핵심 기준</th>
+                                    <th style="width: 150px; text-align: center;">관리</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <!-- JS에서 동적 로드 -->
+                            </tbody>
+                        </table>
+                    </div>
+                    <aside class="panel-sub ai-strategy-detail-panel" id="ai-strategy-detail-panel">
+                        <div class="panel-header split-header">
+                            <div>
+                                <h3 id="ai-strategy-detail-title">전략 상세 기준</h3>
+                                <p class="section-help" id="ai-strategy-detail-help">전략을 클릭하면 모든 판단 기준을 확인하고 수정할 수 있습니다.</p>
+                            </div>
+                            <span id="ai-strategy-detail-version" class="status-badge">-</span>
+                        </div>
+                        <form id="form-edit-ai-strategy" class="ai-strategy-detail-form">
+                            <input type="hidden" name="strategy_id">
+                            <label><span>전략 이름</span><input name="name" required></label>
+                            <label><span>설명</span><textarea name="description" rows="3"></textarea></label>
+                            <div class="ai-strategy-form-grid">
+                                <label><span>모델</span><select name="model"><option value="none">규칙 기반</option><option value="gpt-5-mini">GPT-5 mini</option><option value="gpt-4o">GPT-4o</option></select></label>
+                                <label><span>AI 반영 비율</span><input name="ai_weight" type="number" min="0" max="1" step="0.05"></label>
+                                <label><span>전략 유형</span><select name="strategy_type"><option value="conservative">안정형</option><option value="balanced">균형형</option><option value="momentum">모멘텀</option><option value="aggressive">공격형</option><option value="custom">사용자 정의</option></select></label>
+                                <label><span>위험 수준</span><select name="risk_level"><option value="conservative">낮음</option><option value="balanced">보통</option><option value="aggressive">높음</option></select></label>
+                                <label><span>최소 규칙 점수</span><input name="min_rule_score_for_ai" type="number" min="0" max="5" step="0.1"></label>
+                                <label><span>최소 AI 신뢰도</span><input name="min_ai_confidence" type="number" min="0" max="1" step="0.05"></label>
+                                <label><span>종목당 위험 한도(%)</span><input name="max_risk_per_trade_pct" type="number" min="0.01" max="100" step="0.1"></label>
+                                <label><span>전략 총 노출 한도(%)</span><input name="max_strategy_exposure_pct" type="number" min="0.1" max="100" step="0.5"></label>
+                                <label><span>현금 보유 하한(%)</span><input name="min_cash_reserve_pct" type="number" min="0" max="99" step="1"></label>
+                                <label><span>일일 최대 주문</span><input name="max_daily_ai_orders" type="number" min="1" max="100" step="1"></label>
+                            </div>
+                            <label class="check-field"><input name="allow_candidate_promotion" type="checkbox"><span>AI 점수로 규칙 미달 후보 승격 허용</span></label>
+                            <label><span>허용 시장 국면 (쉼표 구분)</span><input name="market_regime_filter" placeholder="bull, neutral, high_volatility"></label>
+                            <details class="strategy-profile-advanced">
+                                <summary>전체 세부 프로필 JSON</summary>
+                                <p class="section-help">화면에 없는 focus, avoid, 데이터 신선도 등 모든 기준을 직접 편집할 수 있습니다.</p>
+                                <textarea name="profile_json" rows="14" spellcheck="false"></textarea>
+                            </details>
+                            <div class="ai-strategy-detail-actions">
+                                <span class="section-help">스케줄 적용 여부는 왼쪽 목록의 선택 항목에서 변경합니다.</span>
+                                <button type="submit" class="button-primary">변경사항 저장</button>
+                            </div>
+                        </form>
+                    </aside>
+                    </div>
+                    <div class="panel-sub" id="strategy-audit-panel" style="margin-top: 1.5rem;" hidden>
+                        <div class="panel-header split-header">
+                            <div>
+                                <h3>전략 운영 감사</h3>
+                                <p class="section-help" id="strategy-audit-title">전략을 선택하면 최근 성과와 이벤트가 표시됩니다.</p>
+                            </div>
+                            <button type="button" id="btn-refresh-strategy-audit" class="button-ghost compact-button">감사 새로고침</button>
+                        </div>
+                        <div class="ai-strategy-summary">
+                            <div><span>후보 수</span><strong id="strategy-audit-candidates">-</strong><small>최근 30일</small></div>
+                            <div><span>평균 점수</span><strong id="strategy-audit-score">-</strong><small>final/rule/AI</small></div>
+                            <div><span>모델 상태</span><strong id="strategy-audit-status">-</strong><small id="strategy-audit-optimizer">-</small></div>
+                            <div><span>5일 성과</span><strong id="strategy-audit-review">-</strong><small id="strategy-audit-warning">-</small></div>
+                        </div>
+                        <div class="table-responsive">
+                            <table id="table-strategy-events" style="width: 100%; border-collapse: collapse;">
+                                <thead>
+                                    <tr>
+                                        <th>시간</th>
+                                        <th>이벤트</th>
+                                        <th>버전</th>
+                                        <th>요약</th>
+                                    </tr>
+                                </thead>
+                                <tbody></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </section>
+
+                <section class="card glass panel-add-ai-strategy" style="margin-top: 2rem;" hidden>
+                    <div class="panel-header">
+                        <h2>신규 AI 매수 전략 등록</h2>
+                        <p class="section-help">나만의 AI 랭킹 파라미터를 입력하여 고유한 AI 전략을 시스템에 신설합니다.</p>
+                    </div>
+                    <form class="manual-order-form" id="form-add-ai-strategy" style="display: grid; grid-template-columns: repeat(3, 1fr) !important; gap: 1rem; margin-top: 1.5rem;">
+                        <label style="display: flex; flex-direction: column; gap: 4px;">
+                            <span style="font-size: 0.8rem; color: rgba(255,255,255,0.5);">전략 이름</span>
+                            <input type="text" name="strat_name" placeholder="예: 단기 공격적 랭커 (GPT-4o)" required style="background: rgba(30, 41, 59, 0.85); color: #fff; border: 1px solid rgba(255,255,255,0.1); padding: 8px 12px; border-radius: 6px; font-size: 0.85rem;">
+                        </label>
+                        <label style="display: flex; flex-direction: column; gap: 4px;">
+                            <span style="font-size: 0.8rem; color: rgba(255,255,255,0.5);">타겟 AI 모델</span>
+                            <select name="strat_model" required style="background: rgba(30, 41, 59, 0.85); color: #fff; border: 1px solid rgba(255,255,255,0.1); padding: 8px 12px; border-radius: 6px; font-size: 0.85rem; height: 38px;">
+                                <option value="gpt-5-mini">🤖 gpt-5-mini (추천)</option>
+                                <option value="gpt-4o">🔥 gpt-4o</option>
+                                <option value="none">⚙️ none (로컬 룰베이스 전용)</option>
+                            </select>
+                        </label>
+                        <label style="display: flex; flex-direction: column; gap: 4px;">
+                            <span style="font-size: 0.8rem; color: rgba(255,255,255,0.5);">AI 가중치 (0.0 ~ 1.0)</span>
+                            <input type="number" name="strat_weight" step="0.1" min="0.0" max="1.0" value="0.4" required style="background: rgba(30, 41, 59, 0.85); color: #fff; border: 1px solid rgba(255,255,255,0.1); padding: 8px 12px; border-radius: 6px; font-size: 0.85rem;">
+                        </label>
+                        <label style="display: flex; flex-direction: column; gap: 4px;">
+                            <span style="font-size: 0.8rem; color: rgba(255,255,255,0.5);">최소 룰 점수 (1차 필터)</span>
+                            <input type="number" name="strat_min_rule_score" step="0.1" min="0.0" max="5.0" value="1.5" required style="background: rgba(30, 41, 59, 0.85); color: #fff; border: 1px solid rgba(255,255,255,0.1); padding: 8px 12px; border-radius: 6px; font-size: 0.85rem;">
+                        </label>
+                        <label style="display: flex; flex-direction: column; gap: 4px;">
+                            <span style="font-size: 0.8rem; color: rgba(255,255,255,0.5);">최소 AI 신뢰도 게이트</span>
+                            <input type="number" name="strat_min_confidence" step="0.05" min="0.0" max="1.0" value="0.6" required style="background: rgba(30, 41, 59, 0.85); color: #fff; border: 1px solid rgba(255,255,255,0.1); padding: 8px 12px; border-radius: 6px; font-size: 0.85rem;">
+                        </label>
+                        <label style="display: flex; flex-direction: column; gap: 4px;">
+                            <span style="font-size: 0.8rem; color: rgba(255,255,255,0.5);">AI 후보 승격 허용</span>
+                            <select name="strat_allow_promotion" required style="background: rgba(30, 41, 59, 0.85); color: #fff; border: 1px solid rgba(255,255,255,0.1); padding: 8px 12px; border-radius: 6px; font-size: 0.85rem; height: 38px;">
+                                <option value="false">❌ 미허용 (기본값)</option>
+                                <option value="true">✅ 허용 (룰 미달도 AI 점수로 승격)</option>
+                            </select>
+                        </label>
+                        <label style="grid-column: span 3; display: flex; flex-direction: column; gap: 4px;">
+                            <span style="font-size: 0.8rem; color: rgba(255,255,255,0.5);">전략 상세 설명</span>
+                            <textarea name="strat_desc" placeholder="이 전략의 핵심 튜닝 성격이나 의도를 적어주세요." style="background: rgba(30, 41, 59, 0.85); color: #fff; border: 1px solid rgba(255,255,255,0.1); padding: 8px 12px; border-radius: 6px; font-size: 0.85rem; min-height: 60px; resize: vertical; font-family: inherit;"></textarea>
+                        </label>
+                        <div style="grid-column: span 3; text-align: right; margin-top: 0.5rem;">
+                            <button type="submit" style="background: #3b82f6; color: white; border: none; padding: 10px 24px; border-radius: 6px; font-size: 0.88rem; font-weight: 500; cursor: pointer; transition: background 0.2s;" onmouseover="this.style.background='#2563eb'" onmouseout="this.style.background='#3b82f6'">신규 AI 전략 등록</button>
+                        </div>
+                    </form>
+                </section>
+
+                <style>
+                .switch-toggle { position: relative; display: inline-block; width: 46px; height: 24px; }
+                .switch-toggle input { opacity: 0; width: 0; height: 0; }
+                .slider-toggle { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(255,255,255,0.15); transition: .3s; border-radius: 24px; border: 1px solid rgba(255,255,255,0.1); }
+                .slider-toggle:before { position: absolute; content: ""; height: 16px; width: 16px; left: 3px; bottom: 3px; background-color: white; transition: .3s; border-radius: 50%; }
+                input:checked + .slider-toggle { background-color: #10b981; }
+                input:checked + .slider-toggle:before { transform: translateX(22px); }
+
+                #table-watchlist thead th {
+                    position: sticky;
+                    top: 0;
+                    background-color: #182234; /* Opaque card background theme */
+                    z-index: 10;
+                    box-shadow: inset 0 -1px 0 rgba(255, 255, 255, 0.12);
+                }
+                </style>
+
+                <section class="card glass panel-watchlist-control" style="margin-top: 2rem; display: none;">
+                    <!-- Dummy block so replace works perfectly without breaking structure -->
+                </section>
+            </section>
+
+            <section class="dashboard-section" id="dashboard-tab-watchlist">
+                <div class="watchlist-overview-grid">
+                    <section class="card glass watchlist-summary-card" aria-labelledby="watchlist-summary-title">
+                        <div class="watchlist-card-heading">
+                            <div>
+                                <h2 id="watchlist-summary-title">관심종목 요약</h2>
+                                <p class="section-help">목록 건수와 정책 충족 여부, 섹터 편중을 한눈에 확인합니다.</p>
+                            </div>
+                            <span class="watchlist-policy-state" id="watchlist-policy-state">정책 확인 중</span>
+                        </div>
+                        <div class="watchlist-stat-grid">
+                            <div class="watchlist-stat">
+                                <span>전체 종목</span>
+                                <strong id="watchlist-total-count">0</strong>
+                            </div>
+                            <div class="watchlist-stat is-success">
+                                <span>조건 충족</span>
+                                <strong id="watchlist-eligible-count">0</strong>
+                            </div>
+                            <div class="watchlist-stat is-warning">
+                                <span>미충족</span>
+                                <strong id="watchlist-ineligible-count">0</strong>
+                            </div>
+                            <div class="watchlist-stat">
+                                <span>가격 미수집</span>
+                                <strong id="watchlist-unknown-count">0</strong>
+                            </div>
+                            <div class="watchlist-stat">
+                                <span>섹터 수</span>
+                                <strong id="watchlist-sector-count">0</strong>
+                            </div>
+                        </div>
+                        <div class="watchlist-sector-summary" id="watchlist-sector-summary">
+                            <span class="watchlist-empty-copy">섹터 통계를 불러오는 중입니다.</span>
+                        </div>
+                    </section>
+
+                    <section class="card glass watchlist-policy-card" aria-labelledby="watchlist-policy-title">
+                        <div class="watchlist-card-heading">
+                            <div>
+                                <h2 id="watchlist-policy-title">등록 제약 조건</h2>
+                                <p class="section-help">저장 후 수동 등록과 AI 자동 추가에 즉시 적용됩니다.</p>
+                            </div>
+                        </div>
+                        <form id="form-watchlist-policy" class="watchlist-policy-form">
+                            <label class="watchlist-policy-toggle">
+                                <input type="checkbox" id="chk-watchlist-policy-enabled" checked>
+                                <span>등록 정책 사용</span>
+                            </label>
+                            <label>
+                                <span>최소 현재가</span>
+                                <span class="watchlist-input-unit">
+                                    <input type="number" id="num-watchlist-min-price" min="0" max="10000000" step="100" value="5000" required>
+                                    <em>원</em>
+                                </span>
+                            </label>
+                            <label>
+                                <span>최소 시가총액</span>
+                                <span class="watchlist-input-unit">
+                                    <input type="number" id="num-watchlist-min-market-cap" min="0" max="100000000" step="100" value="3000" required>
+                                    <em>억원</em>
+                                </span>
+                            </label>
+                            <label class="watchlist-policy-check">
+                                <input type="checkbox" id="chk-watchlist-mid-large-fallback" checked>
+                                <span>시총 미수집 시 중대형주 유니버스 확인</span>
+                            </label>
+                            <button type="submit" class="button-primary">정책 저장·적용</button>
+                        </form>
+                        <p class="watchlist-policy-note">
+                            기존 등록 종목은 삭제하지 않고 목록에서 미충족 사유만 표시합니다.
+                        </p>
+                    </section>
+                </div>
+
+                <!-- 관심종목 컨트롤 바 (관심종목 위로 이동) -->
+                <div class="card glass panel-watchlist-control" style="display: flex; flex-wrap: wrap; gap: 1.5rem; align-items: center; justify-content: space-between; margin-bottom: 1.5rem; padding: 1.25rem;">
+                    
+                    <!-- Left: AI 자동 추가 토글 & 임계값 설정 -->
+                    <div style="display: flex; align-items: center; gap: 1.25rem; flex: 1; min-width: 320px;">
+                        <div style="display: flex; align-items: center; gap: 0.75rem;">
+                            <label class="switch-toggle" style="margin-bottom: 0;">
+                                <input type="checkbox" id="chk-watchlist-ai-auto">
+                                <span class="slider-toggle"></span>
+                            </label>
+                            <div>
+                                <h3 style="font-size: 0.95rem; font-weight: 600; color: #fff; margin: 0;">AI 자동 추가 적용</h3>
+                                <p style="font-size: 0.75rem; color: rgba(255,255,255,0.45); margin: 2px 0 0 0; line-height: 1.2;">
+                                    기준 점수 포착 시 관심종목 자동 등록
+                                </p>
+                            </div>
+                        </div>
+                        <div style="display: flex; align-items: center; gap: 8px; background: rgba(255,255,255,0.03); padding: 6px 12px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.04);">
+                            <span style="font-size: 0.8rem; color: rgba(255,255,255,0.7); font-weight: 500;">자동 추가 기준 점수</span>
+                            <input type="number" id="num-watchlist-ai-threshold" min="1.0" max="10.0" step="0.5" value="3.0" style="width: 60px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.15); color: #fff; text-align: center; border-radius: 4px; padding: 2px 4px; font-size: 0.82rem; font-weight: bold;">
+                            <span style="font-size: 0.8rem; color: rgba(255,255,255,0.4);">점 이상</span>
+                        </div>
+                    </div>
+
+                    <!-- Right: 수동 종목 코드 추가 & AI 즉시 스캔 가동 -->
+                    <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 1.25rem; justify-content: flex-end; flex: 1.5; min-width: 480px;">
+                        <!-- 수동 추가 폼 -->
+                        <form id="form-watchlist-add" style="display: flex; gap: 8px; align-items: center; margin-bottom: 0;">
+                            <span style="font-size: 0.85rem; color: rgba(255,255,255,0.7); white-space: nowrap; font-weight: 500;">수동 종목 코드 추가</span>
+                            <input type="text" name="watchlist_code" placeholder="예: 005930" required maxlength="6" style="width: 110px; background: rgba(30, 41, 59, 0.85); color: #fff; border: 1px solid rgba(255,255,255,0.1); padding: 8px 12px; border-radius: 6px; font-size: 0.85rem;">
+                            <button type="submit" style="background: #3b82f6; color: white; border: none; padding: 8px 16px; border-radius: 6px; font-size: 0.85rem; font-weight: 500; cursor: pointer; transition: background 0.2s;" onmouseover="this.style.background='#2563eb'" onmouseout="this.style.background='#3b82f6'">추가</button>
+                        </form>
+
+                        <div style="height: 28px; width: 1px; background: rgba(255,255,255,0.08);"></div>
+
+                        <!-- AI 자동 즉시 스캔 가동 버튼 -->
+                        <div>
+                            <button type="button" id="btn-watchlist-ai-scan" style="background: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.25); padding: 8px 16px; border-radius: 6px; font-size: 0.85rem; font-weight: 600; cursor: pointer; transition: all 0.2s; white-space: nowrap;" onmouseover="this.style.background='rgba(16, 185, 129, 0.25)'" onmouseout="this.style.background='rgba(16, 185, 129, 0.15)'">
+                                🔍 AI 자동추가 즉시 스캔 가동
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 관심 종목 테이블 -->
+                <div class="card glass" style="display: flex; flex-direction: column; gap: 1rem; padding: 1.5rem;">
+                    <div class="panel-header split-header" style="margin-bottom: 0.5rem;">
+                        <div>
+                            <h2>현재 포트폴리오 관심 종목 (Watchlist)</h2>
+                            <p class="section-help">지정된 종목들은 AI 매수후보 스캔 시 항시 스캔 모수에 병합되어 우선 연산됩니다.</p>
+                        </div>
+                        <div class="watchlist-table-filters" aria-label="관심종목 목록 필터">
+                            <label>
+                                <span>조건</span>
+                                <select id="select-watchlist-policy-filter">
+                                    <option value="all">전체</option>
+                                    <option value="eligible">충족</option>
+                                    <option value="ineligible">미충족</option>
+                                    <option value="unknown">가격 미수집</option>
+                                </select>
+                            </label>
+                            <label>
+                                <span>섹터</span>
+                                <select id="select-watchlist-sector-filter">
+                                    <option value="all">전체 섹터</option>
+                                </select>
+                            </label>
+                        </div>
+                    </div>
+                    <div class="table-responsive" style="max-height: 600px; overflow-y: auto;">
+                        <table id="table-watchlist" style="width: 100%; border-collapse: collapse;">
+                            <thead>
+                                <tr>
+                                    <th style="width: 60px; text-align: center; cursor: pointer; user-select: none;" class="sort-header" data-sort="index">순번 <span class="sort-icon" style="font-size: 0.72rem; margin-left: 2px;"></span></th>
+                                    <th style="width: 100px; text-align: center; cursor: pointer; user-select: none;" class="sort-header" data-sort="symbol">종목코드 <span class="sort-icon" style="font-size: 0.72rem; margin-left: 2px;"></span></th>
+                                    <th style="cursor: pointer; user-select: none;" class="sort-header" data-sort="name">종목명 <span class="sort-icon" style="font-size: 0.72rem; margin-left: 2px;"></span></th>
+                                    <th style="text-align: center; width: 100px; cursor: pointer; user-select: none;" class="sort-header" data-sort="sector">섹터 <span class="sort-icon" style="font-size: 0.72rem; margin-left: 2px;"></span></th>
+                                    <th style="text-align: right; width: 140px; cursor: pointer; user-select: none;" class="sort-header" data-sort="price">현재가(등락률) <span class="sort-icon" style="font-size: 0.72rem; margin-left: 2px;"></span></th>
+                                    <th style="text-align: center; width: 100px; cursor: pointer; user-select: none;" class="sort-header" data-sort="policy_status">등록 조건 <span class="sort-icon" style="font-size: 0.72rem; margin-left: 2px;"></span></th>
+                                    <th style="text-align: center; width: 90px; cursor: pointer; user-select: none;" class="sort-header" data-sort="score">AI 점수 <span class="sort-icon" style="font-size: 0.72rem; margin-left: 2px;"></span></th>
+                                    <th style="text-align: center; width: 90px; cursor: pointer; user-select: none;" class="sort-header" data-sort="rsi">RSI 지표 <span class="sort-icon" style="font-size: 0.72rem; margin-left: 2px;"></span></th>
+                                    <th style="cursor: pointer; user-select: none;" class="sort-header" data-sort="reason">대표 조건 <span class="sort-icon" style="font-size: 0.72rem; margin-left: 2px;"></span></th>
+                                    <th style="text-align: center; width: 90px; cursor: pointer; user-select: none;" class="sort-header" data-sort="updated_at">분석시각 <span class="sort-icon" style="font-size: 0.72rem; margin-left: 2px;"></span></th>
+                                    <th style="width: 60px; text-align: center;">작업</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <!-- JS 동적 렌더링 -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section> <!-- closes watchlist -->
+
+            <!-- 급락반등 탭 섹션 -->
+            <section class="dashboard-section" id="dashboard-tab-plunge-bounce">
+                <!-- CSS styles specific to Plunge Bounce Strategy -->
+                <style>
+                    .pb-tabs-container {
+                        display: flex;
+                        gap: 8px;
+                        margin-bottom: 1.5rem;
+                        border-bottom: 1px solid rgba(255,255,255,0.08);
+                        padding-bottom: 10px;
+                    }
+                    .pb-tab {
+                        background: none;
+                        border: none;
+                        color: rgba(255,255,255,0.5);
+                        padding: 8px 16px;
+                        cursor: pointer;
+                        font-size: 0.9rem;
+                        font-weight: 500;
+                        border-bottom: 2px solid transparent;
+                        transition: all 0.2s;
+                    }
+                    .pb-tab:hover {
+                        color: #fff;
+                    }
+                    .pb-tab.active {
+                        color: #60a5fa;
+                        border-bottom: 2px solid #60a5fa;
+                    }
+                    .pb-section {
+                        display: none;
+                    }
+                    .pb-section.active {
+                        display: block;
+                    }
+                    .pb-grid {
+                        display: grid;
+                        grid-template-columns: 1fr 1fr;
+                        gap: 1.5rem;
+                        margin-bottom: 2rem;
+                    }
+                    @media (max-width: 1024px) {
+                        .pb-grid {
+                            grid-template-columns: 1fr;
+                        }
+                    }
+                    .metric-value.positive {
+                        color: #10b981;
+                        text-shadow: 0 0 10px rgba(16, 185, 129, 0.2);
+                    }
+                    .metric-value.negative {
+                        color: #ef4444;
+                        text-shadow: 0 0 10px rgba(239, 68, 68, 0.2);
+                    }
+                    .badge {
+                        padding: 4px 8px;
+                        border-radius: 4px;
+                        font-size: 0.75rem;
+                        font-weight: 600;
+                    }
+                    .badge.buy {
+                        background: rgba(16, 185, 129, 0.15);
+                        color: #10b981;
+                        border: 1px solid rgba(16, 185, 129, 0.3);
+                    }
+                    .badge.sell {
+                        background: rgba(239, 68, 68, 0.15);
+                        color: #ef4444;
+                        border: 1px solid rgba(239, 68, 68, 0.3);
+                    }
+                    .badge.status-ok {
+                        background: rgba(59, 130, 246, 0.15);
+                        color: #3b82f6;
+                        border: 1px solid rgba(59, 130, 246, 0.3);
+                    }
+                    .badge.status-fail {
+                        background: rgba(107, 114, 128, 0.15);
+                        color: #9ca3af;
+                        border: 1px solid rgba(107, 114, 128, 0.3);
+                    }
+                    .scan-reason-list {
+                        font-size: 0.75rem;
+                        color: rgba(255,255,255,0.6);
+                        margin: 0;
+                        padding-left: 14px;
+                    }
+                    .scan-reason-list li {
+                        margin-bottom: 2px;
+                    }
+                    .loading-spinner {
+                        display: inline-block;
+                        width: 1rem;
+                        height: 1rem;
+                        border: 2px solid rgba(255,255,255,0.3);
+                        border-radius: 50%;
+                        border-top-color: #fff;
+                        animation: spin 1s ease-in-out infinite;
+                        margin-right: 6px;
+                        vertical-align: middle;
+                    }
+                    @keyframes spin {
+                        to { transform: rotate(360deg); }
+                    }
+                </style>
+
+                <!-- 서브 탭 이동 네비게이션 -->
+                <nav class="pb-tabs-container" aria-label="급락반등 상세 탭">
+                    <button type="button" class="pb-tab active" data-pb-tab="trading">자동매매 & 실시간 스캔</button>
+                    <button type="button" class="pb-tab" data-pb-tab="performance">전략 성과분석 (일/월)</button>
+                </nav>
+
+                <!-- 탭 1: 스캔 & 자동매매 관리 -->
+                <section class="pb-section active" id="pb-tab-trading">
+                    <div class="pb-grid">
+                        <!-- 수동 실행 및 설정 관리 -->
+                        <section class="card glass">
+                            <h2>전략 실행 및 파라미터 제어</h2>
+                            <p class="section-help">급락반등 5중 필터 매매 엔진을 수동으로 즉시 구동하거나 설정을 점검합니다.</p>
+                            
+                            <div style="display: flex; gap: 12px; margin-top: 1.5rem; margin-bottom: 1rem;">
+                                <button type="button" class="button-primary" id="btn-pb-run-execute" style="flex: 1;">
+                                    <span class="loading-spinner" id="spin-pb-run-execute" style="display:none;"></span>실전 자동매매 강제 실행
+                                </button>
+                                <button type="button" class="button-secondary" id="btn-pb-run-analysis" style="flex: 1;">
+                                    <span class="loading-spinner" id="spin-pb-run-analysis" style="display:none;"></span>스캔 분석 (시뮬레이션)
+                                </button>
+                            </div>
+
+                            <!-- 스케쥴 연결 상태 표시 카드 -->
+                            <div id="pb-schedule-status-box" style="margin-bottom: 2rem; padding: 12px; border-radius: 6px; display: flex; align-items: center; gap: 10px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.05);">
+                                <span class="dot" id="pb-schedule-status-dot" style="width: 8px; height: 8px; border-radius: 50%; background-color: #9ca3af;"></span>
+                                <span id="pb-schedule-status-text" style="font-size: 0.85rem; color: rgba(255,255,255,0.85);">
+                                    스케쥴 상태를 조회하는 중...
+                                </span>
+                            </div>
+
+                            <div style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.05); padding: 16px; border-radius: 8px;">
+                                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                                    <h3 style="margin: 0;">5중 수익 극대화 필터 설정</h3>
+                                    <button type="button" class="button-ghost compact-button" id="btn-save-pb-settings">설정 저장</button>
+                                </div>
+                                <div class="settings-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top:12px;">
+                                    <div>
+                                        <span style="font-size:0.75rem; color:rgba(255,255,255,0.4); display:block; margin-bottom:4px;">일봉 이격도 진입 트리거 (%)</span>
+                                        <input type="number" step="0.1" id="pb-input-dev" style="width:100%; padding: 6px; border-radius: 4px; border:1px solid rgba(255,255,255,0.1); background:rgba(0,0,0,0.3); color:white; font-family:'JetBrains Mono';" value="-15.0">
+                                    </div>
+                                    <div>
+                                        <span style="font-size:0.75rem; color:rgba(255,255,255,0.4); display:block; margin-bottom:4px;">RSI 과매도 상한선</span>
+                                        <input type="number" step="0.1" id="pb-input-rsi" style="width:100%; padding: 6px; border-radius: 4px; border:1px solid rgba(255,255,255,0.1); background:rgba(0,0,0,0.3); color:white; font-family:'JetBrains Mono';" value="30.0">
+                                    </div>
+                                    <div>
+                                        <span style="font-size:0.75rem; color:rgba(255,255,255,0.4); display:block; margin-bottom:4px;">거래량 급증 배수</span>
+                                        <input type="number" step="0.1" id="pb-input-vol" style="width:100%; padding: 6px; border-radius: 4px; border:1px solid rgba(255,255,255,0.1); background:rgba(0,0,0,0.3); color:white; font-family:'JetBrains Mono';" value="1.4">
+                                    </div>
+                                    <div>
+                                        <span style="font-size:0.75rem; color:rgba(255,255,255,0.4); display:block; margin-bottom:4px;">지수 트렌드 필터 사용</span>
+                                        <select id="pb-input-idx" style="width:100%; padding: 6px; border-radius: 4px; border:1px solid rgba(255,255,255,0.1); background:rgba(0,0,0,0.3); color:white; height: 33px;">
+                                            <option value="1">사용 (상승장 매수 허용)</option>
+                                            <option value="0">미사용 (하락장도 매수)</option>
+                                        </select>
+                                    </div>
+                                    <div style="grid-column: span 2;">
+                                        <span style="font-size:0.75rem; color:rgba(255,255,255,0.4); display:block; margin-bottom:4px;">거래대금 허용 범위 (최저 ~ 최고 KRW)</span>
+                                        <div style="display:flex; gap: 8px; align-items:center;">
+                                            <input type="number" id="pb-input-val-min" style="flex:1; padding: 6px; border-radius: 4px; border:1px solid rgba(255,255,255,0.1); background:rgba(0,0,0,0.3); color:white; font-family:'JetBrains Mono';" value="1000000" placeholder="최저">
+                                            <span style="color:rgba(255,255,255,0.4);">~</span>
+                                            <input type="number" id="pb-input-val-max" style="flex:1; padding: 6px; border-radius: 4px; border:1px solid rgba(255,255,255,0.1); background:rgba(0,0,0,0.3); color:white; font-family:'JetBrains Mono';" value="500000000" placeholder="최고">
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </section>
+
+                        <!-- 지수 트렌드 카드 -->
+                        <section class="card glass">
+                            <h2>지수 트렌드 감시 장치</h2>
+                            <p class="section-help">대세 하락장에서 칼날 매수를 금지하기 위해 코스피/코스닥/S&P500의 200일 SMA 돌파 상태를 모니터링합니다.</p>
+                            
+                            <div class="runtime-grid" style="margin-top: 1.5rem;">
+                                <div>
+                                    <span class="label">코스피 지수 (^KS11)</span>
+                                    <strong id="index-kospi">-</strong>
+                                </div>
+                                <div>
+                                    <span class="label">코스닥 지수 (^KQ11)</span>
+                                    <strong id="index-kosdaq">-</strong>
+                                </div>
+                                <div>
+                                    <span class="label">S&P 500 지수 (SPY)</span>
+                                    <strong id="index-spy">-</strong>
+                                </div>
+                            </div>
+                            <p style="font-size: 0.72rem; color: rgba(255,255,255,0.3); margin-top: 1.5rem; text-align: right;">※ 조회 데이터는 병렬 스캔 성능을 위해 1시간 동안 메모리에 캐싱됩니다.</p>
+                        </section>
+                    </div>
+
+                    <!-- 전체 종목 실시간 스캔 결과 -->
+                    <section class="card glass" style="margin-top: 1.5rem;">
+                        <div class="panel-header split-header">
+                            <div>
+                                <h2>전체 종목 실시간 스캔 & 진단</h2>
+                                <p class="section-help">지수 및 종목 필터를 포함한 5중 매수 조건을 실시간으로 적용해 포착 후보와 제외 사유를 목록화합니다.</p>
+                            </div>
+                            <button type="button" class="button-primary" id="btn-realtime-scan">
+                                <span class="loading-spinner" id="spin-realtime-scan" style="display:none;"></span>실시간 스캔 시작
+                            </button>
+                        </div>
+
+                        <div style="margin-top: 1.5rem; display: flex; gap: 12px; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 12px;">
+                            <button type="button" class="button-ghost compact-button active" id="btn-show-candidates">포착 종목 (<span id="count-candidates">0</span>)</button>
+                            <button type="button" class="button-ghost compact-button" id="btn-show-all-scanned">모든 스캔 대상 (<span id="count-scanned">0</span>)</button>
+                        </div>
+
+                        <div class="table-responsive" style="margin-top: 1rem; max-height: 500px; overflow-y: auto;">
+                            <table id="table-pb-scan" style="width:100%;">
+                                <thead>
+                                    <tr>
+                                        <th>종목코드</th>
+                                        <th>종목명</th>
+                                        <th>이격도 (SMA22)</th>
+                                        <th>RSI</th>
+                                        <th>현재가</th>
+                                        <th>판단 스코어</th>
+                                        <th>스캔 판단 상세 사유</th>
+                                        <th>작업</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr>
+                                        <td colspan="8" style="text-align:center; color:rgba(255,255,255,0.4); padding: 3rem 0;">
+                                            실시간 스캔 시작 버튼을 클릭하여 스캔 데이터를 가져오세요.
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </section>
+
+                    <!-- 급락반등 스케쥴 실행 이력 (Schedule Execution History) -->
+                    <section class="card glass" style="margin-top: 1.5rem;">
+                        <div class="panel-header split-header">
+                            <div>
+                                <h2>급락반등 스케쥴 실행 이력</h2>
+                                <p class="section-help">전략의 자동/수동 스케쥴 실행 및 주문 결과 히스토리를 모니터링합니다.</p>
+                            </div>
+                            <button type="button" class="button-secondary compact-button" id="btn-refresh-sched-history">
+                                새로고침
+                            </button>
+                        </div>
+                        <div class="table-responsive" style="margin-top: 1rem; max-height: 350px; overflow-y: auto;">
+                            <table id="table-pb-sched-history" style="width:100%;">
+                                <thead>
+                                    <tr>
+                                        <th>실행 일시</th>
+                                        <th>모드</th>
+                                        <th>상태</th>
+                                        <th>계획/결과 수</th>
+                                        <th>오류 메세지</th>
+                                        <th>상세</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr>
+                                        <td colspan="6" style="text-align:center; color:rgba(255,255,255,0.4); padding: 2rem 0;">
+                                            이력이 없습니다.
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                        <!-- 상세 결과 패널 -->
+                        <div id="pb-sched-detail-panel" style="margin-top: 1.5rem; display: none; padding: 16px; border-radius: 8px; background: rgba(255, 255, 255, 0.02); border: 1px solid rgba(255, 255, 255, 0.05);">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; border-bottom: 1px solid rgba(255, 255, 255, 0.05); padding-bottom: 8px;">
+                                <h3 style="margin: 0; font-size: 1rem; color: #60a5fa;">선택한 스케쥴 실행 상세 결과</h3>
+                                <button type="button" class="button-ghost compact-button" onclick="document.getElementById('pb-sched-detail-panel').style.display = 'none';" style="padding: 2px 8px; font-size: 0.75rem;">닫기</button>
+                            </div>
+                            <div id="pb-sched-detail-content" style="font-size: 0.85rem; line-height: 1.6;">
+                                <!-- content will be generated here -->
+                            </div>
+                        </div>
+                    </section>
+
+                    <!-- 최근 스캔 기록 로그 (Scan History) -->
+                    <section class="card glass" style="margin-top: 1.5rem;">
+                        <div class="panel-header split-header">
+                            <div>
+                                <h2>최근 포착 및 스캔 기록 로그</h2>
+                                <p class="section-help">스케쥴러나 스캔 엔진이 구동되며 조건에 포착되었던 종목들의 역사적 기록입니다.</p>
+                            </div>
+                            <button type="button" class="button-secondary compact-button" id="btn-refresh-scan-history">
+                                새로고침
+                            </button>
+                        </div>
+                        <div class="table-responsive" style="margin-top: 1rem; max-height: 350px; overflow-y: auto;">
+                            <table id="table-pb-scan-history" style="width:100%;">
+                                <thead>
+                                    <tr>
+                                        <th>스캔 일시</th>
+                                        <th>종목코드</th>
+                                        <th>종목명</th>
+                                        <th>현재가</th>
+                                        <th>이격도 (22일)</th>
+                                        <th>RSI</th>
+                                        <th>스코어</th>
+                                        <th>판단 사유</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr>
+                                        <td colspan="8" style="text-align:center; color:rgba(255,255,255,0.4); padding: 2rem 0;">
+                                            기록이 없습니다.
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </section>
+                </section>
+
+                <!-- 탭 2: 전략 성과분석 -->
+                <section class="pb-section" id="pb-tab-performance">
+                    <section class="summary-grid" style="margin-bottom: 2rem;">
+                        <div class="card glass">
+                            <h3>누적 실현 손익</h3>
+                            <div class="value" id="pb-perf-pnl">-</div>
+                        </div>
+                        <div class="card glass">
+                            <h3>전략 승률 (Win Rate)</h3>
+                            <div class="value" id="pb-perf-winrate">-</div>
+                        </div>
+                        <div class="card glass">
+                            <h3>총 체결 주문수</h3>
+                            <div class="value" id="pb-perf-trades">-</div>
+                        </div>
+                        <div class="card glass">
+                            <h3>매매당 평균 손익</h3>
+                            <div class="value" id="pb-perf-avg">-</div>
+                        </div>
+                        <div class="card glass">
+                            <h3>익절/손절 횟수</h3>
+                            <div class="value" id="pb-perf-counts" style="font-size:1.15rem; font-weight:600; margin-top:8px;">-</div>
+                        </div>
+                    </section>
+
+                    <div class="dashboard-two-column">
+                        <!-- 누적 수익금 차트 -->
+                        <section class="card glass panel-chart">
+                            <h2>전략 누적 수익금 추이</h2>
+                            <p class="section-help">급락반등 전략으로 확정 체결된 실현 손익의 누적 추세입니다.</p>
+                            <div class="chart-container" style="height: 300px;">
+                                <canvas id="pbChart"></canvas>
+                            </div>
+                        </section>
+
+                        <!-- 월별 수익 통계 -->
+                        <section class="card glass">
+                            <h2>월별 손익 분석</h2>
+                            <p class="section-help">달력 기준 월별 실현 손익 합산 통계입니다.</p>
+                            <div class="table-responsive" style="margin-top: 1rem;">
+                                <table id="table-pb-monthly" style="width:100%;">
+                                    <thead>
+                                        <tr>
+                                            <th>기준월</th>
+                                            <th style="text-align: right;">실현 손익</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr>
+                                            <td colspan="2" style="text-align:center; color:rgba(255,255,255,0.4); padding:2rem 0;">데이터가 없습니다.</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </section>
+                    </div>
+
+                    <!-- 전략 개별 매매 기록 로그 -->
+                    <section class="card glass" style="margin-top: 2rem;">
+                        <h2>전략 매매 히스토리 로그</h2>
+                        <p class="section-help">Plunge Bounce 전략의 실전 및 시뮬레이션 체결 전체 이력입니다.</p>
+                        <div class="table-responsive" style="margin-top: 1.5rem; max-height: 400px; overflow-y: auto;">
+                            <table id="table-pb-trades" style="width:100%;">
+                                <thead>
+                                    <tr>
+                                        <th>일시</th>
+                                        <th>종목명</th>
+                                        <th>구분</th>
+                                        <th>주문수량</th>
+                                        <th>체결단가</th>
+                                        <th>환경</th>
+                                        <th>상태</th>
+                                        <th>실패/성공 상세 사유</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr>
+                                        <td colspan="8" style="text-align:center; color:rgba(255,255,255,0.4); padding:3rem 0;">체결 내역이 존재하지 않습니다.</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </section>
+                </section>
+            </section>
+
+            <!-- 알파 하이킨아시 탭 섹션 -->
+            <section class="dashboard-section" id="dashboard-tab-heikin-ashi">
+                <nav class="pb-tabs-container" aria-label="알파 하이킨아시 상세 탭">
+                    <button type="button" class="pb-tab active" data-ha-tab="trading">자동매매 & 실시간 스캔</button>
+                    <button type="button" class="pb-tab" data-ha-tab="performance">전략 성과분석</button>
+                </nav>
+
+                <section class="pb-section active" id="ha-tab-trading">
+                    <div class="pb-grid">
+                        <section class="card glass">
+                            <h2>알파 하이킨아시 전략 실행</h2>
+                            <p class="section-help">두 번 평균 처리한 하이킨아시 색상 전환을 EMA와 RSI로 확인해 매수 후보를 찾습니다.</p>
+                            <div style="display: flex; gap: 12px; margin-top: 1.5rem; margin-bottom: 1rem;">
+                                <button type="button" class="button-primary" id="btn-ha-run-execute" style="flex: 1;">
+                                    <span class="loading-spinner" id="spin-ha-run-execute" style="display:none;"></span>실전 자동매매 실행
+                                </button>
+                                <button type="button" class="button-secondary" id="btn-ha-run-analysis" style="flex: 1;">
+                                    <span class="loading-spinner" id="spin-ha-run-analysis" style="display:none;"></span>분석만 실행
+                                </button>
+                            </div>
+                            <div id="ha-schedule-status-box" style="margin-bottom: 2rem; padding: 12px; border-radius: 6px; display: flex; align-items: center; gap: 10px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.05);">
+                                <span class="dot" id="ha-schedule-status-dot" style="width: 8px; height: 8px; border-radius: 50%; background-color: #9ca3af;"></span>
+                                <span id="ha-schedule-status-text" style="font-size: 0.85rem; color: rgba(255,255,255,0.85);">스케줄 상태를 조회하는 중...</span>
+                            </div>
+                        </section>
+
+                        <section class="card glass">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                                <h2 style="margin: 0;">전략 파라미터</h2>
+                                <button type="button" class="button-ghost compact-button" id="btn-save-ha-settings">설정 저장</button>
+                            </div>
+                            <p class="section-help">영상의 EMA10/EMA20, RSI 50선, 거래량 확인 조건을 조정합니다.</p>
+                            <div class="settings-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 1.25rem;">
+                                <div>
+                                    <span style="font-size:0.75rem; color:rgba(255,255,255,0.4); display:block; margin-bottom:4px;">빠른 EMA</span>
+                                    <input type="number" id="ha-input-fast-ema" value="10" min="1" style="width:100%; padding: 6px; border-radius: 4px; border:1px solid rgba(255,255,255,0.1); background:rgba(0,0,0,0.3); color:white; font-family:'JetBrains Mono';">
+                                </div>
+                                <div>
+                                    <span style="font-size:0.75rem; color:rgba(255,255,255,0.4); display:block; margin-bottom:4px;">느린 EMA</span>
+                                    <input type="number" id="ha-input-slow-ema" value="20" min="2" style="width:100%; padding: 6px; border-radius: 4px; border:1px solid rgba(255,255,255,0.1); background:rgba(0,0,0,0.3); color:white; font-family:'JetBrains Mono';">
+                                </div>
+                                <div>
+                                    <span style="font-size:0.75rem; color:rgba(255,255,255,0.4); display:block; margin-bottom:4px;">RSI 기간</span>
+                                    <input type="number" id="ha-input-rsi-period" value="14" min="2" style="width:100%; padding: 6px; border-radius: 4px; border:1px solid rgba(255,255,255,0.1); background:rgba(0,0,0,0.3); color:white; font-family:'JetBrains Mono';">
+                                </div>
+                                <div>
+                                    <span style="font-size:0.75rem; color:rgba(255,255,255,0.4); display:block; margin-bottom:4px;">최소 후보 점수</span>
+                                    <input type="number" step="0.1" id="ha-input-min-score" value="3.5" min="0" max="5" style="width:100%; padding: 6px; border-radius: 4px; border:1px solid rgba(255,255,255,0.1); background:rgba(0,0,0,0.3); color:white; font-family:'JetBrains Mono';">
+                                </div>
+                                <div style="grid-column: span 2;">
+                                    <span style="font-size:0.75rem; color:rgba(255,255,255,0.4); display:block; margin-bottom:4px;">거래량 확인 배수</span>
+                                    <input type="number" step="0.1" id="ha-input-volume-ratio" value="1.2" min="0.1" style="width:100%; padding: 6px; border-radius: 4px; border:1px solid rgba(255,255,255,0.1); background:rgba(0,0,0,0.3); color:white; font-family:'JetBrains Mono';">
+                                </div>
+                            </div>
+                        </section>
+                    </div>
+
+                    <section class="card glass" style="margin-top: 1.5rem;">
+                        <div class="panel-header split-header">
+                            <div>
+                                <h2>실시간 스캔 & 진단</h2>
+                                <p class="section-help">알파 하이킨아시 상승 전환, EMA 추세, RSI 50선, 거래량 조건을 전체 후보군에 적용합니다.</p>
+                            </div>
+                            <button type="button" class="button-primary" id="btn-ha-realtime-scan">
+                                <span class="loading-spinner" id="spin-ha-realtime-scan" style="display:none;"></span>실시간 스캔 시작
+                            </button>
+                        </div>
+                        <div style="margin-top: 1.5rem; display: flex; gap: 12px; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 12px;">
+                            <button type="button" class="button-ghost compact-button active" id="btn-ha-show-candidates">후보 종목 (<span id="count-ha-candidates">0</span>)</button>
+                            <button type="button" class="button-ghost compact-button" id="btn-ha-show-all-scanned">전체 스캔 (<span id="count-ha-scanned">0</span>)</button>
+                        </div>
+                        <div class="table-responsive" style="margin-top: 1rem; max-height: 500px; overflow-y: auto;">
+                            <table id="table-ha-scan" style="width:100%;">
+                                <thead>
+                                    <tr>
+                                        <th>종목코드</th>
+                                        <th>종목명</th>
+                                        <th>현재가</th>
+                                        <th>RSI</th>
+                                        <th>EMA20</th>
+                                        <th>점수</th>
+                                        <th>판단 사유</th>
+                                        <th>작업</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr><td colspan="8" style="text-align:center; color:rgba(255,255,255,0.4); padding: 3rem 0;">실시간 스캔 시작 버튼을 눌러 주세요.</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </section>
+
+                    <section class="card glass" style="margin-top: 1.5rem;">
+                        <div class="panel-header split-header">
+                            <div>
+                                <h2>알파 하이킨아시 스케줄 실행 이력</h2>
+                                <p class="section-help">전략 자동/수동 실행과 주문 결과 이력을 확인합니다.</p>
+                            </div>
+                            <button type="button" class="button-secondary compact-button" id="btn-refresh-ha-sched-history">새로고침</button>
+                        </div>
+                        <div class="table-responsive" style="margin-top: 1rem; max-height: 350px; overflow-y: auto;">
+                            <table id="table-ha-sched-history" style="width:100%;">
+                                <thead>
+                                    <tr>
+                                        <th>실행 일시</th>
+                                        <th>모드</th>
+                                        <th>상태</th>
+                                        <th>계획/결과 수</th>
+                                        <th>오류 메시지</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr><td colspan="5" style="text-align:center; color:rgba(255,255,255,0.4); padding: 2rem 0;">이력이 없습니다.</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </section>
+
+                    <section class="card glass" style="margin-top: 1.5rem;">
+                        <div class="panel-header split-header">
+                            <div>
+                                <h2>최근 후보 및 스캔 기록</h2>
+                                <p class="section-help">알파 하이킨아시 스캔 결과를 최신순으로 표시합니다.</p>
+                            </div>
+                            <button type="button" class="button-secondary compact-button" id="btn-refresh-ha-scan-history">새로고침</button>
+                        </div>
+                        <div class="table-responsive" style="margin-top: 1rem; max-height: 350px; overflow-y: auto;">
+                            <table id="table-ha-scan-history" style="width:100%;">
+                                <thead>
+                                    <tr>
+                                        <th>스캔 일시</th>
+                                        <th>종목코드</th>
+                                        <th>종목명</th>
+                                        <th>현재가</th>
+                                        <th>RSI</th>
+                                        <th>EMA20</th>
+                                        <th>점수</th>
+                                        <th>판단 사유</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr><td colspan="8" style="text-align:center; color:rgba(255,255,255,0.4); padding: 2rem 0;">기록이 없습니다.</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </section>
+                </section>
+
+                <section class="pb-section" id="ha-tab-performance">
+                    <section class="summary-grid" style="margin-bottom: 2rem;">
+                        <div class="card glass"><h3>누적 실현 손익</h3><div class="value" id="ha-perf-pnl">-</div></div>
+                        <div class="card glass"><h3>승률</h3><div class="value" id="ha-perf-winrate">-</div></div>
+                        <div class="card glass"><h3>총 체결 주문</h3><div class="value" id="ha-perf-trades">-</div></div>
+                        <div class="card glass"><h3>매매당 평균 손익</h3><div class="value" id="ha-perf-avg">-</div></div>
+                    </section>
+                    <div class="dashboard-two-column">
+                        <section class="card glass panel-chart">
+                            <h2>전략 누적 손익 추이</h2>
+                            <p class="section-help">알파 하이킨아시 전략으로 확정 체결된 실현 손익 추세입니다.</p>
+                            <div class="chart-container" style="height: 300px;"><canvas id="haChart"></canvas></div>
+                        </section>
+                        <section class="card glass">
+                            <h2>월별 손익 분석</h2>
+                            <div class="table-responsive" style="margin-top: 1rem;">
+                                <table id="table-ha-monthly" style="width:100%;">
+                                    <thead><tr><th>기준월</th><th style="text-align: right;">실현 손익</th></tr></thead>
+                                    <tbody><tr><td colspan="2" style="text-align:center; color:rgba(255,255,255,0.4); padding:2rem 0;">데이터가 없습니다.</td></tr></tbody>
+                                </table>
+                            </div>
+                        </section>
+                    </div>
+                    <section class="card glass" style="margin-top: 2rem;">
+                        <h2>전략 매매 히스토리</h2>
+                        <p class="section-help">알파 하이킨아시 전략의 실전 및 시뮬레이션 체결 이력입니다.</p>
+                        <div class="table-responsive" style="margin-top: 1.5rem; max-height: 400px; overflow-y: auto;">
+                            <table id="table-ha-trades" style="width:100%;">
+                                <thead>
+                                    <tr>
+                                        <th>일시</th>
+                                        <th>종목명</th>
+                                        <th>구분</th>
+                                        <th>수량</th>
+                                        <th>가격</th>
+                                        <th>환경</th>
+                                        <th>상태</th>
+                                        <th>상세 사유</th>
+                                    </tr>
+                                </thead>
+                                <tbody><tr><td colspan="8" style="text-align:center; color:rgba(255,255,255,0.4); padding:3rem 0;">체결 이력이 없습니다.</td></tr></tbody>
+                            </table>
+                        </div>
+                    </section>
+                </section>
+            </section>
+        </main>
+    </div>
+
+    <div id="aiModal" class="modal" aria-hidden="true">
+        <div class="modal-content ai-modal-card" role="dialog" aria-modal="true" aria-labelledby="aiModalTitle">
+            <button type="button" class="close-modal" aria-label="닫기">&times;</button>
+            <h2 id="aiModalTitle">AI 전략 상세 근거</h2>
+            <p id="aiModalSubtitle" class="ai-modal-subtitle"></p>
+            <div id="aiModalBody" class="ai-modal-body"></div>
+        </div>
+    </div>
+
+    <div id="noCandidatesModal" class="modal" aria-hidden="true">
+        <div class="modal-content ai-modal-card no-candidates-modal" role="dialog" aria-modal="true" aria-labelledby="noCandidatesTitle">
+            <button type="button" class="close-modal" aria-label="닫기">&times;</button>
+            <h2 id="noCandidatesTitle">매수 후보 없음 분석 결과</h2>
+            <p id="noCandidatesSubtitle" class="ai-modal-subtitle"></p>
+            <div id="noCandidatesBody" class="ai-modal-body"></div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const buttons = document.querySelectorAll('.dashboard-tab');
+            const sections = document.querySelectorAll('.dashboard-section');
+            buttons.forEach((button) => {
+                button.addEventListener('click', () => {
+                    const target = button.dataset.dashboardTab;
+                    buttons.forEach((item) => item.classList.toggle('active', item === button));
+                    sections.forEach((section) => {
+                        section.classList.toggle('active', section.id === `dashboard-tab-${target}`);
+                    });
+                    
+                    if (typeof refreshCommonDashboardTab === 'function') {
+                        refreshCommonDashboardTab(target);
+                    }
+                    if (target === 'plunge-bounce') {
+                        if (typeof checkIndexTrend === 'function') checkIndexTrend();
+                        if (typeof loadEnvConfig === 'function') loadEnvConfig();
+                        const activePbTab = document.querySelector('[data-pb-tab].active');
+                        if (activePbTab && activePbTab.dataset.pbTab === 'performance' && typeof loadPerformanceData === 'function') {
+                            loadPerformanceData();
+                        }
+                    }
+                    if (target === 'heikin-ashi') {
+                        if (typeof loadHeikinAshiConfig === 'function') loadHeikinAshiConfig();
+                        const activeHaTab = document.querySelector('[data-ha-tab].active');
+                        if (activeHaTab && activeHaTab.dataset.haTab === 'performance' && typeof loadHeikinAshiPerformance === 'function') {
+                            loadHeikinAshiPerformance();
+                        }
+                    }
+                });
+            });
+
+            // Auto-activate tab from query param if exists
+            const urlParams = new URLSearchParams(window.location.search);
+            const tabParam = urlParams.get('tab');
+            if (tabParam) {
+                const targetTabBtn = document.querySelector(`.dashboard-tab[data-dashboard-tab="${tabParam}"]`);
+                if (targetTabBtn) {
+                    targetTabBtn.click();
+                }
+            }
+        });
+    </script>
+    <script src="/static/js/environment_badge.js?v=1"></script>
+    <script src="/static/js/common-analysis.js?v=1"></script>
+    <script src="/static/js/app.js?v=65"></script>
+
+    <!-- Plunge Bounce Strategy Scripts -->
+    <script>
+        let pbChartObj = null;
+        let lastScanData = null;
+        let showOnlyCandidates = true;
+
+        async function loadEnvConfig() {
+            try {
+                // Fetch dynamic plunge bounce settings from database
+                const res = await fetchJson('/api/strategy/plunge_bounce/settings');
+                if (res && res.ok && res.settings) {
+                    const s = res.settings;
+                    if (document.getElementById('pb-input-dev')) document.getElementById('pb-input-dev').value = s.PLUNGE_DEVIATION_THRESHOLD;
+                    if (document.getElementById('pb-input-rsi')) document.getElementById('pb-input-rsi').value = s.PLUNGE_RSI_THRESHOLD;
+                    if (document.getElementById('pb-input-vol')) document.getElementById('pb-input-vol').value = s.PLUNGE_VOL_RATIO_THRESHOLD;
+                    if (document.getElementById('pb-input-idx')) document.getElementById('pb-input-idx').value = s.PLUNGE_INDEX_FILTER_ENABLED ? "1" : "0";
+                    if (document.getElementById('pb-input-val-min')) document.getElementById('pb-input-val-min').value = s.PLUNGE_MIN_VAL_KRW;
+                    if (document.getElementById('pb-input-val-max')) document.getElementById('pb-input-val-max').value = s.PLUNGE_MAX_VAL_KRW;
+                }
+
+                // Trigger schedule history load to update status card
+                await loadScheduleHistoryData();
+                await loadScanHistoryData();
+            } catch (err) {
+                console.error("Failed to load configs", err);
+            }
+        }
+
+        async function savePlungeBounceSettings() {
+            const btn = document.getElementById('btn-save-pb-settings');
+            if (btn) btn.disabled = true;
+
+            try {
+                const payload = {
+                    PLUNGE_DEVIATION_THRESHOLD: parseFloat(document.getElementById('pb-input-dev').value),
+                    PLUNGE_RSI_THRESHOLD: parseFloat(document.getElementById('pb-input-rsi').value),
+                    PLUNGE_VOL_RATIO_THRESHOLD: parseFloat(document.getElementById('pb-input-vol').value),
+                    PLUNGE_INDEX_FILTER_ENABLED: document.getElementById('pb-input-idx').value === "1",
+                    PLUNGE_MIN_VAL_KRW: parseFloat(document.getElementById('pb-input-val-min').value),
+                    PLUNGE_MAX_VAL_KRW: parseFloat(document.getElementById('pb-input-val-max').value),
+                };
+
+                const res = await postJson('/api/strategy/plunge_bounce/settings', payload);
+                if (res && res.ok) {
+                    alert("급락반등 필터 설정이 성공적으로 저장되었습니다. 다음 스케쥴 및 스캔 실행 시부터 자동 적용됩니다.");
+                } else {
+                    alert("설정 저장 중 에러가 발생했습니다: " + (res.error || "알 수 없는 에러"));
+                }
+            } catch (err) {
+                console.error("Save settings error", err);
+                alert("설정 저장 실패: " + err.message);
+            } finally {
+                if (btn) btn.disabled = false;
+            }
+        }
+
+        async function loadScanHistoryData() {
+            try {
+                const data = await fetchJson('/api/strategy/plunge_bounce/scans-history');
+                const tbody = document.querySelector('#table-pb-scan-history tbody');
+                if (!tbody) return;
+                tbody.innerHTML = '';
+
+                if (!data.ok || !data.history || data.history.length === 0) {
+                    tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; color:rgba(255,255,255,0.4); padding:2rem 0;">최근 스캔 기록이 없습니다.</td></tr>`;
+                    return;
+                }
+
+                data.history.forEach(item => {
+                    const rsi = item.rsi !== null && item.rsi !== undefined ? Math.round(item.rsi) : '-';
+                    const score = item.score;
+                    const price = item.price !== null && item.price !== undefined ? Number(item.price).toLocaleString() + ' 원' : '-';
+                    
+                    let reasonsHtml = '';
+                    const reasonsList = item.reasons ? item.reasons.split(',') : [];
+                    reasonsList.forEach(r => {
+                        reasonsHtml += `<li>${escapeHtml(r)}</li>`;
+                    });
+
+                    const reasonsContainer = reasonsList.length > 0 
+                        ? `<ul class="scan-reason-list">${reasonsHtml}</ul>` 
+                        : `<span style="color:rgba(255,255,255,0.3); font-size:0.75rem;">기준 충족 (필터 통과 대기)</span>`;
+
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `
+                        <td style="font-family:'JetBrains Mono'; font-size:0.8rem; color:rgba(255,255,255,0.5);">${escapeHtml(item.scanned_at)}</td>
+                        <td style="font-family:'JetBrains Mono';">${escapeHtml(item.symbol)}</td>
+                        <td style="font-weight:600;">${escapeHtml(item.name)}</td>
+                        <td style="text-align:right; font-family:'JetBrains Mono';">${price}</td>
+                        <td>${item.sma20 ? '체크됨' : '-'}</td>
+                        <td>${rsi}</td>
+                        <td>
+                            <span class="badge ${score >= 1.0 ? 'buy' : 'status-fail'}">${score >= 1.0 ? '포착 (' + score + ')' : '제외 (' + score + ')'}</span>
+                        </td>
+                        <td>${reasonsContainer}</td>
+                    `;
+                    tbody.appendChild(tr);
+                });
+            } catch (err) {
+                console.error("Load scan history error", err);
+            }
+        }
+
+        async function loadScheduleHistoryData() {
+            try {
+                const data = await fetchJson('/api/strategy/plunge_bounce/schedule-history');
+                const tbody = document.querySelector('#table-pb-sched-history tbody');
+                if (!tbody) return;
+                tbody.innerHTML = '';
+
+                if (!data.ok || !data.history || data.history.length === 0) {
+                    tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; color:rgba(255,255,255,0.4); padding:2rem 0;">스케쥴 실행 이력이 없습니다.</td></tr>`;
+                    updateScheduleStatusBox(null);
+                    return;
+                }
+
+                const latestRun = data.history[0];
+                updateScheduleStatusBox(latestRun);
+
+                data.history.forEach(item => {
+                    const resultData = item.result || {};
+                    const planCount = (resultData.plan || []).length;
+                    const resultsCount = (resultData.results || []).length;
+                    const autoApprovedCount = (resultData.auto_approved || []).length;
+                    const scannedCount = resultData.candidate_scan && resultData.candidate_scan.scanned !== undefined ? resultData.candidate_scan.scanned : '-';
+                    
+                    let statusClass = 'status-ok';
+                    let statusText = '정상 완료';
+                    let errorMsg = '-';
+
+                    if (resultData.errors && resultData.errors.length > 0) {
+                        statusClass = 'status-fail';
+                        statusText = '오류 발생';
+                        errorMsg = resultData.errors[resultData.errors.length - 1].message || '에러 발생';
+                    } else if (resultData.auto_approval_errors && resultData.auto_approval_errors.length > 0) {
+                        statusClass = 'status-fail';
+                        statusText = '승인 에러';
+                        errorMsg = resultData.auto_approval_errors[0].message || '승인 중 에러';
+                    }
+
+                    const recordTime = item.recorded_at ? item.recorded_at.split('.')[0].replace('T', ' ') : '-';
+
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `
+                        <td style="font-family:'JetBrains Mono'; font-size:0.8rem;">${escapeHtml(recordTime)}</td>
+                        <td><code>${escapeHtml(item.mode)}</code></td>
+                        <td><span class="badge ${statusClass}">${statusText}</span></td>
+                        <td>스캔: ${scannedCount} | 계획: ${planCount} | 결과: ${resultsCount} (승인: ${autoApprovedCount})</td>
+                        <td style="font-size:0.75rem; color:rgba(255,255,255,0.5); max-width: 200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${escapeHtml(errorMsg)}">${escapeHtml(errorMsg)}</td>
+                        <td>
+                            <button type="button" class="button-ghost compact-button" onclick="showScheduleDetail(this)">상세보기</button>
+                        </td>
+                    `;
+                    tr.querySelector('button').dataset.detail = JSON.stringify(resultData);
+                    tbody.appendChild(tr);
+                });
+            } catch (err) {
+                console.error("Load schedule history error", err);
+            }
+        }
+
+        function updateScheduleStatusBox(latestRun) {
+            const statusBox = document.getElementById('pb-schedule-status-box');
+            const statusDot = document.getElementById('pb-schedule-status-dot');
+            const statusText = document.getElementById('pb-schedule-status-text');
+
+            if (!statusBox || !statusDot || !statusText) return;
+
+            if (!latestRun) {
+                statusBox.style.background = 'rgba(245, 158, 11, 0.1)';
+                statusBox.style.border = '1px solid rgba(245, 158, 11, 0.2)';
+                statusDot.style.backgroundColor = '#f59e0b';
+                statusDot.className = 'dot';
+                statusText.innerHTML = `<strong>스케쥴 대기 또는 미작동:</strong> 최근 실행 이력이 확인되지 않습니다. VM 크론 스케쥴 설정을 점검하십시오.`;
+                return;
+            }
+
+            const recordTime = latestRun.recorded_at ? latestRun.recorded_at.split('.')[0].replace('T', ' ') : '-';
+            const resultData = latestRun.result || {};
+            const candidatesCount = (resultData.candidate_scan || {}).candidates_count || 0;
+            const hasError = (resultData.errors && resultData.errors.length > 0) || (resultData.auto_approval_errors && resultData.auto_approval_errors.length > 0);
+
+            if (hasError) {
+                statusBox.style.background = 'rgba(239, 68, 68, 0.1)';
+                statusBox.style.border = '1px solid rgba(239, 68, 68, 0.2)';
+                statusDot.style.backgroundColor = '#ef4444';
+                statusDot.className = 'dot live';
+                statusText.innerHTML = `<strong>스케쥴 실행 오류:</strong> 최근 실행 시각: <em>${escapeHtml(recordTime)}</em> (오류가 감지되었습니다. 로그를 확인하세요)`;
+            } else {
+                statusBox.style.background = 'rgba(16, 185, 129, 0.1)';
+                statusBox.style.border = '1px solid rgba(16, 185, 129, 0.2)';
+                statusDot.style.backgroundColor = '#10b981';
+                statusDot.className = 'dot live';
+                statusText.innerHTML = `<strong>스케쥴 정상 작동 중 (다른 전략과 무관):</strong> 최근 실행 시각: <em>${escapeHtml(recordTime)}</em> (모드: <code>${escapeHtml(latestRun.mode)}</code>, 스캔후보: <strong>${candidatesCount}</strong>개)`;
+            }
+        }
+
+        function showScheduleDetail(button) {
+            try {
+                const detail = JSON.parse(button.dataset.detail);
+                console.log("Schedule run detail result:", detail);
+                
+                const panel = document.getElementById('pb-sched-detail-panel');
+                const content = document.getElementById('pb-sched-detail-content');
+                if (!panel || !content) return;
+
+                let html = '';
+
+                const plan = detail.plan || [];
+                const results = detail.results || [];
+                const autoApproved = detail.auto_approved || [];
+                const errors = detail.errors || [];
+                const candidateScan = detail.candidate_scan || {};
+                
+                html += `
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; background: rgba(255,255,255,0.01); padding: 12px; border-radius: 6px;">
+                        <div>
+                            <strong>총 분석 대상:</strong> ${candidateScan.scanned || 0} 개 종목<br>
+                            <strong>조건 포착 후보:</strong> ${(candidateScan.candidates || []).length} 개 종목
+                        </div>
+                        <div>
+                            <strong>생성된 계획:</strong> ${plan.length} 건<br>
+                            <strong>최종 집행 결과:</strong> ${results.length} 건 (자동 승인: ${autoApproved.length} 건)
+                        </div>
+                    </div>
+                `;
+
+                if (errors.length > 0) {
+                    html += `<div style="background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.2); color: #fca5a5; padding: 10px; border-radius: 6px; margin-bottom: 16px;">`;
+                    html += `<strong>⚠️ 에러 발생:</strong>`;
+                    html += `<ul style="margin: 4px 0 0 16px; padding: 0;">`;
+                    errors.forEach(err => {
+                        html += `<li>${escapeHtml(err.type || 'Error')}: ${escapeHtml(err.message || '')}</li>`;
+                    });
+                    html += `</ul></div>`;
+                }
+
+                const appErrors = detail.auto_approval_errors || [];
+                if (appErrors.length > 0) {
+                    html += `<div style="background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.2); color: #fca5a5; padding: 10px; border-radius: 6px; margin-bottom: 16px;">`;
+                    html += `<strong>⚠️ 자동 승인 에러:</strong>`;
+                    html += `<ul style="margin: 4px 0 0 16px; padding: 0;">`;
+                    appErrors.forEach(err => {
+                        html += `<li>${escapeHtml(err.type || 'Error')}: ${escapeHtml(err.message || '')}</li>`;
+                    });
+                    html += `</ul></div>`;
+                }
+
+                if (plan.length === 0) {
+                    html += `<p style="color: rgba(255,255,255,0.4); text-align: center; margin: 12px 0;">계획된 주문이나 포착된 대상이 없습니다.</p>`;
+                } else {
+                    html += `
+                        <h4 style="margin: 0 0 8px 0; font-size: 0.9rem; color: #60a5fa;">📋 매매 계획 및 집행 상세 내역</h4>
+                        <table style="width: 100%; border-collapse: collapse; font-size: 0.8rem; text-align: left; margin-bottom: 12px;">
+                            <thead>
+                                <tr style="border-bottom: 1px solid rgba(255,255,255,0.1); color: rgba(255,255,255,0.5);">
+                                    <th style="padding: 6px 4px;">종목</th>
+                                    <th style="padding: 6px 4px;">구분</th>
+                                    <th style="padding: 6px 4px; text-align: right;">수량</th>
+                                    <th style="padding: 6px 4px; text-align: right;">가격</th>
+                                    <th style="padding: 6px 4px;">결정 상태</th>
+                                    <th style="padding: 6px 4px;">판단 및 오류 메세지</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                    `;
+
+                    plan.forEach((p, idx) => {
+                        const res = results[idx] || {};
+                        const actionText = p.action === 'buy' ? '<span class="badge buy" style="padding: 1px 4px;">매수</span>' : '<span class="badge sell" style="padding: 1px 4px;">매도</span>';
+                        let decisionText = '';
+                        let decisionClass = '';
+                        
+                        const decision = res.decision || 'skip';
+                        const isOk = res.ok !== false;
+
+                        if (decision === 'execute' && isOk) {
+                            decisionText = '체결/주문완료';
+                            decisionClass = 'status-ok';
+                        } else if (decision === 'queue') {
+                            decisionText = '승인대기';
+                            decisionClass = 'status-ok';
+                        } else if (decision === 'skip') {
+                            decisionText = '제외/패스';
+                            decisionClass = 'status-fail';
+                        } else {
+                            decisionText = '실패';
+                            decisionClass = 'status-fail';
+                        }
+
+                        html += `
+                            <tr style="border-bottom: 1px solid rgba(255,255,255,0.03);">
+                                <td style="padding: 8px 4px;"><strong>${escapeHtml(p.name)}</strong><br><span style="font-family: 'JetBrains Mono'; color: rgba(255,255,255,0.4); font-size: 0.75rem;">${escapeHtml(p.symbol)}</span></td>
+                                <td style="padding: 8px 4px;">${actionText}</td>
+                                <td style="padding: 8px 4px; text-align: right; font-family: 'JetBrains Mono';">${(p.qty || 0).toLocaleString()}</td>
+                                <td style="padding: 8px 4px; text-align: right; font-family: 'JetBrains Mono';">${(p.price || 0).toLocaleString()}원</td>
+                                <td style="padding: 8px 4px;"><span class="badge ${decisionClass}" style="padding: 2px 6px; font-size: 0.75rem;">${decisionText}</span></td>
+                                <td style="padding: 8px 4px; font-size: 0.75rem; color: rgba(255,255,255,0.7); max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${escapeHtml(p.reason || '')}">${escapeHtml(p.reason || '-')}</td>
+                            </tr>
+                        `;
+                    });
+
+                    html += `
+                            </tbody>
+                        </table>
+                    `;
+                }
+
+                content.innerHTML = html;
+                panel.style.display = 'block';
+                panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            } catch (e) {
+                console.error("Detail parse error:", e);
+                alert("상세를 불러올 수 없습니다.");
+            }
+        }
+
+
+        async function checkIndexTrend() {
+            try {
+                const checkStatus = (isAbove) => {
+                    return isAbove 
+                        ? `<span class="badge buy">상승장 (진입허용)</span>` 
+                        : `<span class="badge sell">하락장 (보류)</span>`;
+                };
+                
+                // Trigger trend evaluation via scan endpoint
+                await fetchJson('/api/strategy/plunge_bounce/scan');
+                
+                document.getElementById('index-kospi').innerHTML = checkStatus(true);
+                document.getElementById('index-kosdaq').innerHTML = checkStatus(true);
+                document.getElementById('index-spy').innerHTML = checkStatus(true);
+            } catch (err) {
+                console.error("Index check error", err);
+            }
+        }
+
+        async function runRealtimeScan() {
+            const btn = document.getElementById('btn-realtime-scan');
+            const spinner = document.getElementById('spin-realtime-scan');
+            if (btn) btn.disabled = true;
+            if (spinner) spinner.style.display = 'inline-block';
+
+            try {
+                const data = await fetchJson('/api/strategy/plunge_bounce/scan');
+                if (data.ok) {
+                    lastScanData = data;
+                    document.getElementById('count-candidates').innerText = data.candidates_count;
+                    document.getElementById('count-scanned').innerText = data.scanned_count;
+                    renderScanTable();
+                    // Load updated history list
+                    loadScanHistoryData();
+                } else {
+                    alert("스캔 분석 중 에러가 발생했습니다.");
+                }
+            } catch (err) {
+                console.error("Scan error", err);
+                alert("통신 지연이 발생했거나 스캔에 실패했습니다.");
+            } finally {
+                if (btn) btn.disabled = false;
+                if (spinner) spinner.style.display = 'none';
+            }
+        }
+
+        function renderScanTable() {
+            const tbody = document.querySelector('#table-pb-scan tbody');
+            if (!tbody) return;
+            tbody.innerHTML = '';
+
+            if (!lastScanData) return;
+
+            const items = showOnlyCandidates ? lastScanData.candidates : lastScanData.scan_summary;
+
+            if (items.length === 0) {
+                const scannedText = lastScanData.scanned_count !== undefined ? lastScanData.scanned_count : (lastScanData.scanned !== undefined ? lastScanData.scanned : 0);
+                const msg = showOnlyCandidates 
+                    ? `현재 포착된 급락반등 조건 충족 종목이 없습니다. (총 ${scannedText}개 종목 진단 완료)`
+                    : `스캔된 종목이 없습니다. (총 ${scannedText}개 종목 진단 완료)`;
+                tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; color:rgba(255,255,255,0.4); padding: 3rem 0;">${msg}</td></tr>`;
+                return;
+            }
+
+            items.forEach(item => {
+                const symbol = item.symbol || item.ticker;
+                const name = item.name || symbol;
+                const price = item.price || item.current_price;
+                const score = item.score;
+                const rsi = item.rsi !== undefined ? Math.round(item.rsi) : '-';
+                
+                let reasonsHtml = '';
+                const reasonsList = item.reasons || [];
+                reasonsList.forEach(r => {
+                    reasonsHtml += `<li>${escapeHtml(r)}</li>`;
+                });
+
+                const reasonsContainer = reasonsList.length > 0 
+                    ? `<ul class="scan-reason-list">${reasonsHtml}</ul>` 
+                    : `<span style="color:rgba(255,255,255,0.3); font-size:0.75rem;">기준 충족 (필터 통과 대기)</span>`;
+
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td style="font-family:'JetBrains Mono';">${escapeHtml(symbol)}</td>
+                    <td style="font-weight:600;">${escapeHtml(name)}</td>
+                    <td>${item.sma20 ? '체크됨' : '-'}</td>
+                    <td>${rsi}</td>
+                    <td style="text-align:right; font-family:'JetBrains Mono';">${Number(price).toLocaleString()} 원</td>
+                    <td>
+                        <span class="badge ${score >= 5.0 ? 'buy' : 'status-fail'}">${score >= 5.0 ? '포착 (5.0)' : '제외 (0.0)'}</span>
+                    </td>
+                    <td>${reasonsContainer}</td>
+                    <td>
+                        <button type="button" class="button-ghost compact-button" onclick="addToWatchlist('${escapeHtml(symbol)}')">관심추가</button>
+                    </td>
+                `;
+                tbody.appendChild(row);
+            });
+        }
+
+        async function addToWatchlist(symbol) {
+            try {
+                const strategyId = document.getElementById('select-ai-ranker')?.value
+                    || localStorage.getItem('hanstock_ai_ranker')
+                    || '';
+                const res = await postJson('/api/watchlist', {
+                    symbol: symbol,
+                    strategy_id: strategyId || null,
+                });
+                if (res.ok) {
+                    alert(`${symbol} 종목이 한스톡 관심종목에 등록되었습니다.`);
+                    if (typeof renderWatchlist === 'function') {
+                        await renderWatchlist();
+                    }
+                } else {
+                    alert(res.error || "추가 실패");
+                }
+            } catch (err) {
+                console.error("Watchlist add error", err);
+            }
+        }
+
+        async function runTraderCycle(mode) {
+            const spinId = mode === 'execute' ? 'spin-pb-run-execute' : 'spin-pb-run-analysis';
+            const btnId = mode === 'execute' ? 'btn-pb-run-execute' : 'btn-pb-run-analysis';
+            const spinner = document.getElementById(spinId);
+            const btn = document.getElementById(btnId);
+
+            if (btn) btn.disabled = true;
+            if (spinner) spinner.style.display = 'inline-block';
+
+            try {
+                const res = await postJson('/api/strategy/plunge_bounce/run-trader', { mode: mode, auto_approve: true });
+                if (res.status === 'started') {
+                    // Alert deleted per request
+                    setTimeout(loadScheduleHistoryData, 3000);
+                    setTimeout(loadScheduleHistoryData, 8000);
+                    setTimeout(loadScanHistoryData, 8000);
+                } else {
+                    alert(res.detail || "실행 거부되었습니다.");
+                }
+            } catch (err) {
+                console.error("Run trader error", err);
+                alert(`실행 중 에러가 발생했습니다:\n${err.message || err}`);
+            } finally {
+                if (btn) btn.disabled = false;
+                if (spinner) spinner.style.display = 'none';
+            }
+        }
+
+        async function loadPerformanceData() {
+            try {
+                const data = await fetchJson('/api/strategy/plunge_bounce/performance');
+                if (!data.ok) return;
+
+                const m = data.metrics;
+                const pnlEl = document.getElementById('pb-perf-pnl');
+                if (pnlEl) {
+                    pnlEl.innerText = `${m.realized_pnl >= 0 ? '+' : ''}${m.realized_pnl.toLocaleString()} 원`;
+                    pnlEl.className = `value ${m.realized_pnl >= 0 ? 'positive' : 'negative'}`;
+                }
+
+                const winrateEl = document.getElementById('pb-perf-winrate');
+                if (winrateEl) winrateEl.innerText = `${m.win_rate} %`;
+
+                const tradesEl = document.getElementById('pb-perf-trades');
+                if (tradesEl) tradesEl.innerText = `${m.total_trades} 건 (청산 ${m.sell_trades}건)`;
+
+                const avgEl = document.getElementById('pb-perf-avg');
+                if (avgEl) avgEl.innerText = `${m.avg_profit_per_trade >= 0 ? '+' : ''}${Math.round(m.avg_profit_per_trade).toLocaleString()} 원`;
+
+                const countsEl = document.getElementById('pb-perf-counts');
+                if (countsEl) countsEl.innerText = `익절 ${m.winning_trades}회 | 손절 ${m.losing_trades}회`;
+
+                // Monthly Table
+                const monthlyTbody = document.querySelector('#table-pb-monthly tbody');
+                if (monthlyTbody) {
+                    monthlyTbody.innerHTML = '';
+                    if (data.monthly_pnl.length === 0) {
+                        monthlyTbody.innerHTML = `<tr><td colspan="2" style="text-align:center; color:rgba(255,255,255,0.4); padding:2rem 0;">데이터가 없습니다.</td></tr>`;
+                    } else {
+                        data.monthly_pnl.forEach(item => {
+                            const tr = document.createElement('tr');
+                            tr.innerHTML = `
+                                <td>${escapeHtml(item.month)}</td>
+                                <td style="text-align:right; font-weight:600; font-family:'JetBrains Mono';" class="${item.pnl >= 0 ? 'positive' : 'negative'}">${item.pnl >= 0 ? '+' : ''}${item.pnl.toLocaleString()} 원</td>
+                            `;
+                            monthlyTbody.appendChild(tr);
+                        });
+                    }
+                }
+
+                // Trades Table
+                const tradesTbody = document.querySelector('#table-pb-trades tbody');
+                if (tradesTbody) {
+                    tradesTbody.innerHTML = '';
+                    if (data.trades.length === 0) {
+                        tradesTbody.innerHTML = `<tr><td colspan="8" style="text-align:center; color:rgba(255,255,255,0.4); padding:3rem 0;">체결 내역이 존재하지 않습니다.</td></tr>`;
+                    } else {
+                        data.trades.forEach(t => {
+                            const tr = document.createElement('tr');
+                            tr.innerHTML = `
+                                <td style="font-family:'JetBrains Mono'; font-size:0.8rem; color:rgba(255,255,255,0.5);">${escapeHtml(t.ts)}</td>
+                                <td style="font-weight:600;">${escapeHtml(t.name)}</td>
+                                <td><span class="badge ${escapeHtml(t.action)}">${t.action === 'buy' ? '매수' : '매도'}</span></td>
+                                <td style="font-family:'JetBrains Mono';">${t.qty}</td>
+                                <td style="text-align:right; font-family:'JetBrains Mono';">${t.price.toLocaleString()} 원</td>
+                                <td><span style="font-size:0.8rem; color:rgba(255,255,255,0.6);">${escapeHtml(t.env)}</span></td>
+                                <td>
+                                    <span class="badge ${t.ok ? 'status-ok' : 'status-fail'}">${escapeHtml(t.order_status || (t.ok ? '체결완료' : '실패'))}</span>
+                                </td>
+                                <td style="font-size:0.75rem; color:rgba(255,255,255,0.5); max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${escapeHtml(t.reason || t.response_msg)}">${escapeHtml(t.reason || t.response_msg || '-')}</td>
+                            `;
+                            tradesTbody.appendChild(tr);
+                        });
+                    }
+                }
+
+                // Cumulative PnL Chart
+                renderPbChart(data.daily_pnl);
+            } catch (err) {
+                console.error("Load performance error", err);
+            }
+        }
+
+        function renderPbChart(dailyData) {
+            const canvas = document.getElementById('pbChart');
+            if (!canvas) return;
+            const ctx = canvas.getContext('2d');
+            if (pbChartObj) {
+                pbChartObj.destroy();
+            }
+
+            const labels = dailyData.map(d => d.date);
+            const dataset = dailyData.map(d => d.pnl);
+
+            pbChartObj = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: '누적 수익금',
+                        data: dataset,
+                        borderColor: '#60a5fa',
+                        backgroundColor: 'rgba(96, 165, 250, 0.1)',
+                        borderWidth: 2,
+                        tension: 0.2,
+                        fill: true
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false }
+                    },
+                    scales: {
+                        x: {
+                            grid: { color: 'rgba(255,255,255,0.05)' },
+                            ticks: { color: 'rgba(255,255,255,0.5)', font: { size: 10 } }
+                        },
+                        y: {
+                            grid: { color: 'rgba(255,255,255,0.05)' },
+                            ticks: { color: 'rgba(255,255,255,0.5)', font: { size: 10 } }
+                        }
+                    }
+                }
+            });
+        }
+
+        // Initialize setup for PB sub-navigation tabs
+        document.addEventListener('DOMContentLoaded', () => {
+            const pbTabButtons = document.querySelectorAll('.pb-tab[data-pb-tab]');
+            const pbSections = document.querySelectorAll('#dashboard-tab-plunge-bounce .pb-section');
+
+            pbTabButtons.forEach(button => {
+                button.addEventListener('click', () => {
+                    const target = button.dataset.pbTab;
+                    pbTabButtons.forEach(btn => btn.classList.toggle('active', btn === button));
+                    pbSections.forEach(sec => sec.classList.toggle('active', sec.id === `pb-tab-${target}`));
+
+                    if (target === 'performance') {
+                        loadPerformanceData();
+                    }
+                });
+            });
+
+            const btnRealtimeScan = document.getElementById('btn-realtime-scan');
+            if (btnRealtimeScan) btnRealtimeScan.addEventListener('click', runRealtimeScan);
+            
+            const btnShowCandidates = document.getElementById('btn-show-candidates');
+            if (btnShowCandidates) btnShowCandidates.addEventListener('click', () => {
+                showOnlyCandidates = true;
+                btnShowCandidates.classList.add('active');
+                document.getElementById('btn-show-all-scanned').classList.remove('active');
+                renderScanTable();
+            });
+            
+            const btnShowAllScanned = document.getElementById('btn-show-all-scanned');
+            if (btnShowAllScanned) btnShowAllScanned.addEventListener('click', () => {
+                showOnlyCandidates = false;
+                btnShowAllScanned.classList.add('active');
+                document.getElementById('btn-show-candidates').classList.remove('active');
+                renderScanTable();
+            });
+
+            const btnRunExecute = document.getElementById('btn-pb-run-execute');
+            if (btnRunExecute) btnRunExecute.addEventListener('click', () => runTraderCycle('execute'));
+
+            const btnRunAnalysis = document.getElementById('btn-pb-run-analysis');
+            if (btnRunAnalysis) btnRunAnalysis.addEventListener('click', () => runTraderCycle('analysis_only'));
+
+            const btnRefreshSchedHistory = document.getElementById('btn-refresh-sched-history');
+            if (btnRefreshSchedHistory) btnRefreshSchedHistory.addEventListener('click', loadScheduleHistoryData);
+
+            const btnRefreshScanHistory = document.getElementById('btn-refresh-scan-history');
+            if (btnRefreshScanHistory) btnRefreshScanHistory.addEventListener('click', loadScanHistoryData);
+
+            const btnSavePbSettings = document.getElementById('btn-save-pb-settings');
+            if (btnSavePbSettings) btnSavePbSettings.addEventListener('click', savePlungeBounceSettings);
+        });
+    </script>
+
+    <!-- Alpha Heikin Ashi Strategy Scripts -->
+    <script>
+        let haChartObj = null;
+        let lastHaScanData = null;
+        let showOnlyHaCandidates = true;
+
+        function haMoney(value) {
+            const n = Number(value || 0);
+            return `${n >= 0 ? '+' : ''}${n.toLocaleString()} 원`;
+        }
+
+        async function loadHeikinAshiConfig() {
+            try {
+                const res = await fetchJson('/api/strategy/heikin_ashi_scalping/settings');
+                if (res && res.ok && res.settings) {
+                    const s = res.settings;
+                    document.getElementById('ha-input-fast-ema').value = s.HEIKIN_FAST_EMA;
+                    document.getElementById('ha-input-slow-ema').value = s.HEIKIN_SLOW_EMA;
+                    document.getElementById('ha-input-rsi-period').value = s.HEIKIN_RSI_PERIOD;
+                    document.getElementById('ha-input-min-score').value = s.HEIKIN_MIN_SCORE;
+                    document.getElementById('ha-input-volume-ratio').value = s.HEIKIN_VOLUME_RATIO;
+                }
+                await loadHeikinAshiScheduleHistory();
+                await loadHeikinAshiScanHistory();
+            } catch (err) {
+                console.error('Failed to load Heikin Ashi config', err);
+            }
+        }
+
+        async function saveHeikinAshiSettings() {
+            const payload = {
+                HEIKIN_FAST_EMA: Number(document.getElementById('ha-input-fast-ema').value),
+                HEIKIN_SLOW_EMA: Number(document.getElementById('ha-input-slow-ema').value),
+                HEIKIN_RSI_PERIOD: Number(document.getElementById('ha-input-rsi-period').value),
+                HEIKIN_MIN_SCORE: Number(document.getElementById('ha-input-min-score').value),
+                HEIKIN_VOLUME_RATIO: Number(document.getElementById('ha-input-volume-ratio').value),
+            };
+            const res = await postJson('/api/strategy/heikin_ashi_scalping/settings', payload);
+            if (!res.ok) {
+                alert(res.error || '알파 하이킨아시 설정 저장에 실패했습니다.');
+                return;
+            }
+            alert('알파 하이킨아시 설정이 저장되었습니다.');
+        }
+
+        async function runHeikinAshiScan() {
+            const spinner = document.getElementById('spin-ha-realtime-scan');
+            const button = document.getElementById('btn-ha-realtime-scan');
+            try {
+                if (spinner) spinner.style.display = 'inline-block';
+                if (button) button.disabled = true;
+                const data = await fetchJson('/api/strategy/heikin_ashi_scalping/scan', 120000);
+                lastHaScanData = data;
+                renderHeikinAshiScanTable();
+                await loadHeikinAshiScanHistory();
+            } catch (err) {
+                alert(`알파 하이킨아시 스캔 실패: ${err.message}`);
+            } finally {
+                if (spinner) spinner.style.display = 'none';
+                if (button) button.disabled = false;
+            }
+        }
+
+        function renderHeikinAshiScanTable() {
+            const tbody = document.querySelector('#table-ha-scan tbody');
+            if (!tbody) return;
+            tbody.innerHTML = '';
+            const candidates = lastHaScanData?.candidates || [];
+            const scanSummary = lastHaScanData?.scan_summary || [];
+            const rows = showOnlyHaCandidates ? candidates : scanSummary;
+            document.getElementById('count-ha-candidates').textContent = String(candidates.length);
+            document.getElementById('count-ha-scanned').textContent = String(scanSummary.length);
+
+            if (!rows.length) {
+                const scanned = lastHaScanData ? `${scanSummary.length}` : '-';
+                tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; color:rgba(255,255,255,0.4); padding: 3rem 0;">현재 알파 하이킨아시 조건 충족 종목이 없습니다. (스캔 ${scanned}개)</td></tr>`;
+                return;
+            }
+
+            rows.forEach((item) => {
+                const symbol = item.ticker || item.symbol || '-';
+                const name = item.name || symbol;
+                const price = Number(item.current_price || item.price || 0);
+                const score = Number(item.score || item.final_score || 0);
+                const reasons = Array.isArray(item.reasons) ? item.reasons : String(item.reasons || '').split(',').filter(Boolean);
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td style="font-family:'JetBrains Mono'; font-weight:600;">${escapeHtml(symbol)}</td>
+                    <td>${escapeHtml(name)}</td>
+                    <td style="text-align:right; font-family:'JetBrains Mono';">${price ? price.toLocaleString() : '-'}</td>
+                    <td style="font-family:'JetBrains Mono';">${item.rsi !== undefined && item.rsi !== null ? Number(item.rsi).toFixed(1) : '-'}</td>
+                    <td style="font-family:'JetBrains Mono';">${item.sma20 !== undefined && item.sma20 !== null ? Number(item.sma20).toLocaleString() : '-'}</td>
+                    <td><span class="badge ${score >= 3.5 ? 'status-ok' : 'status-fail'}">${score.toFixed(2)}</span></td>
+                    <td><ul class="scan-reason-list">${reasons.slice(0, 4).map(r => `<li>${escapeHtml(r.trim())}</li>`).join('')}</ul></td>
+                    <td><button type="button" class="button-ghost compact-button queue-order" data-symbol="${escapeHtml(symbol)}" data-name="${escapeHtml(name)}" data-action="buy" data-qty="1" data-price="${price}" data-reason="알파 하이킨아시 후보" data-source="heikin_ashi_scalping" data-strategy-id="heikin_ashi_scalping_strategy">승인요청</button></td>
+                `;
+                tbody.appendChild(tr);
+            });
+            if (typeof bindQueueButtons === 'function') bindQueueButtons();
+        }
+
+        async function runHeikinAshiTraderCycle(mode) {
+            const spinner = document.getElementById(mode === 'execute' ? 'spin-ha-run-execute' : 'spin-ha-run-analysis');
+            try {
+                if (spinner) spinner.style.display = 'inline-block';
+                const res = await postJson('/api/strategy/heikin_ashi_scalping/run-trader', { mode, auto_approve: true });
+                alert(res.status === 'started' ? '알파 하이킨아시 실행을 시작했습니다.' : JSON.stringify(res));
+                setTimeout(loadHeikinAshiScheduleHistory, 3000);
+            } catch (err) {
+                alert(`알파 하이킨아시 실행 실패: ${err.message}`);
+            } finally {
+                if (spinner) spinner.style.display = 'none';
+            }
+        }
+
+        async function loadHeikinAshiScheduleHistory() {
+            const data = await fetchJson('/api/strategy/heikin_ashi_scalping/schedule-history');
+            const tbody = document.querySelector('#table-ha-sched-history tbody');
+            if (!tbody) return;
+            tbody.innerHTML = '';
+            const rows = data.history || [];
+            const statusText = document.getElementById('ha-schedule-status-text');
+            const statusDot = document.getElementById('ha-schedule-status-dot');
+            if (!rows.length) {
+                tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; color:rgba(255,255,255,0.4); padding: 2rem 0;">이력이 없습니다.</td></tr>`;
+                if (statusText) statusText.textContent = '아직 실행 이력이 없습니다.';
+                if (statusDot) statusDot.style.backgroundColor = '#9ca3af';
+                return;
+            }
+            const latest = rows[0];
+            const latestResult = latest.result?.result || latest.result || {};
+            const latestOk = latestResult.ok !== false && latestResult.status !== 'failed';
+            if (statusText) statusText.textContent = `최근 실행: ${latest.recorded_at} · ${latestOk ? '정상' : '실패'}`;
+            if (statusDot) statusDot.style.backgroundColor = latestOk ? '#10b981' : '#ef4444';
+            rows.forEach((row) => {
+                const result = row.result?.result || row.result || {};
+                const plans = result.plans?.length || result.results?.length || result.orders?.length || 0;
+                const errors = result.errors || [];
+                const ok = result.ok !== false && result.status !== 'failed';
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td style="font-family:'JetBrains Mono'; font-size:0.8rem;">${escapeHtml(row.recorded_at || '-')}</td>
+                    <td>${escapeHtml(row.mode || '-')}</td>
+                    <td><span class="badge ${ok ? 'status-ok' : 'status-fail'}">${ok ? '정상' : '실패'}</span></td>
+                    <td style="font-family:'JetBrains Mono';">${plans}</td>
+                    <td style="font-size:0.78rem; color:rgba(255,255,255,0.55);">${escapeHtml(errors[0]?.message || result.error || '-')}</td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        async function loadHeikinAshiScanHistory() {
+            const data = await fetchJson('/api/strategy/heikin_ashi_scalping/scans-history');
+            const tbody = document.querySelector('#table-ha-scan-history tbody');
+            if (!tbody) return;
+            tbody.innerHTML = '';
+            const rows = data.history || [];
+            if (!rows.length) {
+                tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; color:rgba(255,255,255,0.4); padding: 2rem 0;">기록이 없습니다.</td></tr>`;
+                return;
+            }
+            rows.forEach((row) => {
+                const reasons = String(row.reasons || '').split(',').filter(Boolean);
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td style="font-family:'JetBrains Mono'; font-size:0.8rem;">${escapeHtml(row.scanned_at || '-')}</td>
+                    <td style="font-family:'JetBrains Mono';">${escapeHtml(row.symbol || '-')}</td>
+                    <td>${escapeHtml(row.name || row.symbol || '-')}</td>
+                    <td style="text-align:right; font-family:'JetBrains Mono';">${Number(row.price || 0).toLocaleString()}</td>
+                    <td style="font-family:'JetBrains Mono';">${row.rsi !== null && row.rsi !== undefined ? Number(row.rsi).toFixed(1) : '-'}</td>
+                    <td style="font-family:'JetBrains Mono';">${row.sma20 !== null && row.sma20 !== undefined ? Number(row.sma20).toLocaleString() : '-'}</td>
+                    <td><span class="badge ${Number(row.score || 0) >= 3.5 ? 'status-ok' : 'status-fail'}">${Number(row.score || 0).toFixed(2)}</span></td>
+                    <td><ul class="scan-reason-list">${reasons.slice(0, 3).map(r => `<li>${escapeHtml(r.trim())}</li>`).join('')}</ul></td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        async function loadHeikinAshiPerformance() {
+            const data = await fetchJson('/api/strategy/heikin_ashi_scalping/performance');
+            if (!data.ok) return;
+            const metrics = data.metrics || {};
+            document.getElementById('ha-perf-pnl').textContent = haMoney(metrics.realized_pnl);
+            document.getElementById('ha-perf-pnl').className = `value ${Number(metrics.realized_pnl || 0) >= 0 ? 'positive' : 'negative'}`;
+            document.getElementById('ha-perf-winrate').textContent = `${metrics.win_rate || 0}%`;
+            document.getElementById('ha-perf-trades').textContent = String(metrics.total_trades || 0);
+            document.getElementById('ha-perf-avg').textContent = haMoney(metrics.avg_profit_per_trade);
+
+            const monthlyTbody = document.querySelector('#table-ha-monthly tbody');
+            if (monthlyTbody) {
+                monthlyTbody.innerHTML = '';
+                if (!data.monthly_pnl.length) {
+                    monthlyTbody.innerHTML = `<tr><td colspan="2" style="text-align:center; color:rgba(255,255,255,0.4); padding:2rem 0;">데이터가 없습니다.</td></tr>`;
+                } else {
+                    data.monthly_pnl.forEach((item) => {
+                        const tr = document.createElement('tr');
+                        tr.innerHTML = `<td>${escapeHtml(item.month)}</td><td style="text-align:right; font-weight:600; font-family:'JetBrains Mono';" class="${item.pnl >= 0 ? 'positive' : 'negative'}">${haMoney(item.pnl)}</td>`;
+                        monthlyTbody.appendChild(tr);
+                    });
+                }
+            }
+
+            const tradesTbody = document.querySelector('#table-ha-trades tbody');
+            if (tradesTbody) {
+                tradesTbody.innerHTML = '';
+                if (!data.trades.length) {
+                    tradesTbody.innerHTML = `<tr><td colspan="8" style="text-align:center; color:rgba(255,255,255,0.4); padding:3rem 0;">체결 이력이 없습니다.</td></tr>`;
+                } else {
+                    data.trades.forEach((t) => {
+                        const tr = document.createElement('tr');
+                        tr.innerHTML = `
+                            <td style="font-family:'JetBrains Mono'; font-size:0.8rem;">${escapeHtml(t.ts)}</td>
+                            <td style="font-weight:600;">${escapeHtml(t.name || t.symbol)}</td>
+                            <td><span class="badge ${escapeHtml(t.action)}">${t.action === 'buy' ? '매수' : '매도'}</span></td>
+                            <td style="font-family:'JetBrains Mono';">${t.qty}</td>
+                            <td style="text-align:right; font-family:'JetBrains Mono';">${Number(t.price || 0).toLocaleString()} 원</td>
+                            <td>${escapeHtml(t.env || '-')}</td>
+                            <td><span class="badge ${t.ok ? 'status-ok' : 'status-fail'}">${escapeHtml(t.order_status || (t.ok ? '체결완료' : '실패'))}</span></td>
+                            <td style="font-size:0.75rem; color:rgba(255,255,255,0.5); max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${escapeHtml(t.reason || t.response_msg || '')}">${escapeHtml(t.reason || t.response_msg || '-')}</td>
+                        `;
+                        tradesTbody.appendChild(tr);
+                    });
+                }
+            }
+            renderHeikinAshiChart(data.daily_pnl || []);
+        }
+
+        function renderHeikinAshiChart(dailyData) {
+            const canvas = document.getElementById('haChart');
+            if (!canvas) return;
+            const ctx = canvas.getContext('2d');
+            if (haChartObj) haChartObj.destroy();
+            haChartObj = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: dailyData.map(d => d.date),
+                    datasets: [{
+                        label: '누적 손익',
+                        data: dailyData.map(d => d.pnl),
+                        borderColor: '#a78bfa',
+                        backgroundColor: 'rgba(167, 139, 250, 0.12)',
+                        borderWidth: 2,
+                        tension: 0.2,
+                        fill: true
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        x: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: 'rgba(255,255,255,0.5)', font: { size: 10 } } },
+                        y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: 'rgba(255,255,255,0.5)', font: { size: 10 } } }
+                    }
+                }
+            });
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            const haTabButtons = document.querySelectorAll('.pb-tab[data-ha-tab]');
+            const haSections = document.querySelectorAll('#dashboard-tab-heikin-ashi .pb-section');
+            haTabButtons.forEach((button) => {
+                button.addEventListener('click', () => {
+                    const target = button.dataset.haTab;
+                    haTabButtons.forEach(btn => btn.classList.toggle('active', btn === button));
+                    haSections.forEach(sec => sec.classList.toggle('active', sec.id === `ha-tab-${target}`));
+                    if (target === 'performance') loadHeikinAshiPerformance();
+                });
+            });
+            document.getElementById('btn-ha-realtime-scan')?.addEventListener('click', runHeikinAshiScan);
+            document.getElementById('btn-ha-run-execute')?.addEventListener('click', () => runHeikinAshiTraderCycle('execute'));
+            document.getElementById('btn-ha-run-analysis')?.addEventListener('click', () => runHeikinAshiTraderCycle('analysis_only'));
+            document.getElementById('btn-save-ha-settings')?.addEventListener('click', saveHeikinAshiSettings);
+            document.getElementById('btn-refresh-ha-sched-history')?.addEventListener('click', loadHeikinAshiScheduleHistory);
+            document.getElementById('btn-refresh-ha-scan-history')?.addEventListener('click', loadHeikinAshiScanHistory);
+            document.getElementById('btn-ha-show-candidates')?.addEventListener('click', () => {
+                showOnlyHaCandidates = true;
+                document.getElementById('btn-ha-show-candidates').classList.add('active');
+                document.getElementById('btn-ha-show-all-scanned').classList.remove('active');
+                renderHeikinAshiScanTable();
+            });
+            document.getElementById('btn-ha-show-all-scanned')?.addEventListener('click', () => {
+                showOnlyHaCandidates = false;
+                document.getElementById('btn-ha-show-all-scanned').classList.add('active');
+                document.getElementById('btn-ha-show-candidates').classList.remove('active');
+                renderHeikinAshiScanTable();
+            });
+        });
+    </script>
+
+</body>
+
+</html>

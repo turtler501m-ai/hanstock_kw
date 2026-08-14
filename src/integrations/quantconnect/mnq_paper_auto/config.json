@@ -1,0 +1,11 @@
+{
+  "algorithm-language": "Python",
+  "algorithm-location": "main.py",
+  "description": "QuantConnect Paper Trading auto strategy for CME MNQ futures.",
+  "parameters": {
+    "FAST_PERIOD": "12",
+    "SLOW_PERIOD": "48",
+    "MAX_CONTRACTS": "3",
+    "DAILY_LOSS_LIMIT": "750"
+  }
+}

@@ -1,0 +1,81 @@
+<!-- Telegram 연결 설정 -->
+<div class="settings-section">
+  <h3>Telegram 연결 설정</h3>
+
+  <!-- API 설정 -->
+  <div class="form-group">
+    <label>API ID</label>
+    <input type="text" id="tg-api-id" placeholder="12345678">
+  </div>
+  <div class="form-group">
+    <label>API Hash</label>
+    <input type="text" id="tg-api-hash" placeholder="abcdef1234...">
+  </div>
+  <div class="form-group">
+    <label>타겟 채널 (쉼표 구분)</label>
+    <input type="text" id="tg-channels" placeholder="@channel1, @channel2">
+  </div>
+  <button onclick="saveTelegramSettings()">설정 저장</button>
+
+  <!-- 단계별 인증 -->
+  <div class="auth-steps">
+    <h4>Telegram 인증</h4>
+
+    <!-- Step 1 -->
+    <div id="auth-step-1">
+      <div class="form-group">
+        <label>전화번호 (국제 형식)</label>
+        <input type="text" id="tg-phone" placeholder="+821012345678">
+      </div>
+      <button onclick="startTelegramAuth()">인증 코드 발송</button>
+    </div>
+
+    <!-- Step 2 (코드 발송 후 표시) -->
+    <div id="auth-step-2" style="display:none">
+      <div class="form-group">
+        <label>SMS 인증 코드</label>
+        <input type="text" id="tg-code" placeholder="12345">
+      </div>
+      <button onclick="verifyTelegramAuth()">인증 완료</button>
+    </div>
+
+    <div id="auth-status" class="auth-status"></div>
+  </div>
+</div>
+
+<!-- 실행 설정 -->
+<div class="settings-section">
+  <h3>실행 설정</h3>
+  <div class="form-group">
+    <label>폴링 간격 (초)</label>
+    <input type="number" id="polling-interval" min="10" max="300" value="30"
+           onchange="updateExecutorState('polling_interval_sec', parseInt(this.value))">
+  </div>
+  <div class="switch-item">
+    <label>Mock 시뮬레이터</label>
+    <label class="toggle-switch">
+      <input type="checkbox" id="switch-mock" checked
+             onchange="updateExecutorState('mock_enabled', this.checked)">
+      <span class="slider"></span>
+    </label>
+  </div>
+  <div class="switch-item">
+    <label>KIS 모의계좌</label>
+    <label class="toggle-switch">
+      <input type="checkbox" id="switch-kis-demo" checked
+             onchange="updateExecutorState('kis_demo_enabled', this.checked)">
+      <span class="slider"></span>
+    </label>
+  </div>
+</div>
+
+<!-- 검증 기준 -->
+<div class="settings-section">
+  <h3>검증 기준</h3>
+  <p style="color: var(--muted, #aaa); font-size: 0.85rem; margin-bottom: 0.75rem;">현재 화면에서 사용하는 백테스트 해석 기준입니다.</p>
+  <div class="verification-rules">
+    <div><span>기본 검증 기간</span><strong>24시간</strong></div>
+    <div><span>TP/SL 동일 캔들</span><strong>ambiguous 표시</strong></div>
+    <div><span>주문 연결</span><strong>비활성화</strong></div>
+  </div>
+</div>

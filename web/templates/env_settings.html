@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="theme-color" content="#030712">
+    <title>한스톡 환경설정</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&family=Noto+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/style.css?v=28">
+    <style>
+        .env-tabs {
+            display: flex;
+            gap: 0.5rem;
+            margin-bottom: 1.5rem;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+            padding-bottom: 0.5rem;
+            overflow-x: auto;
+        }
+        .env-tab-button {
+            background: none;
+            border: none;
+            color: #9ca3af;
+            padding: 0.6rem 1.2rem;
+            font-size: 0.95rem;
+            font-weight: 500;
+            cursor: pointer;
+            border-radius: 6px;
+            transition: all 0.2s ease;
+            white-space: nowrap;
+        }
+        .env-tab-button:hover {
+            color: #f3f4f6;
+            background: rgba(255, 255, 255, 0.05);
+        }
+        .env-tab-button.active {
+            color: #60a5fa;
+            background: rgba(96, 165, 250, 0.1);
+            font-weight: 600;
+        }
+        .env-input-with-unit {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        .env-input-with-unit input,
+        .env-input-with-unit select {
+            flex: 1 1 auto;
+            min-width: 0;
+        }
+        .env-input-unit {
+            flex: 0 0 auto;
+            min-width: 3rem;
+            padding: 0.45rem 0.6rem;
+            border: 1px solid rgba(148, 163, 184, 0.18);
+            border-radius: 0.5rem;
+            background: rgba(15, 23, 42, 0.55);
+            color: #cbd5e1;
+            font-size: 0.82rem;
+            text-align: center;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="dashboard-container">
+        <header class="app-header">
+            <div>
+                <p class="eyebrow">KIS 국내주식 자동매매</p>
+                <h1>한스톡 <span class="highlight">대시보드</span></h1>
+            </div>
+            <div class="header-actions">
+                <a class="nav-button" href="/">한스톡</a>
+                <a class="nav-button" href="/mistock">미스톡</a>
+                <a class="nav-button" href="/narrative-momentum">내러티브</a>
+                <a class="nav-button futures-nav-button" href="/futures-signals">해외선물</a>
+                <a class="nav-button" href="/voice-dashboard">음성</a>
+                <a class="nav-button" href="/env-settings">환경설정</a>
+                <a class="nav-button" href="javascript:window.location.reload()">새로고침</a>
+                <div class="status-indicator">
+                    <span class="dot live"></span> 자동 갱신 중
+                </div>
+            </div>
+        </header>
+
+        <main>
+            <section class="status-banner" id="status-banner" hidden></section>
+
+            <section class="card glass page-banner">
+                <div>
+                    <p class="eyebrow">환경설정</p>
+                    <h2>실행 환경과 자동매매 설정 관리</h2>
+                    <p class="section-help">KIS 계좌, 실행 모드, AI 전략과 OpenAI 연결 값을 저장합니다. 저장 즉시 런타임에 반영되며 일부 값은 서버 재시작 후 완전히 적용됩니다.</p>
+                </div>
+            </section>
+
+            <section class="card glass env-page-panel">
+                <div class="panel-header split-header">
+                    <div>
+                        <h2>환경설정</h2>
+                        <p class="section-help">gpt-5-mini 연결은 AI Strategy Enabled, OpenAI API Key, OpenAI Model 값을 저장한 뒤 AI 전략의 API검증으로 확인할 수 있습니다.</p>
+                    </div>
+                    <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; justify-content: flex-end;">
+                        <button type="button" id="btn-env-online-block" class="button-ghost">온라인 차단</button>
+                        <button type="button" id="btn-env-reset-db" class="button-ghost" style="background-color: rgba(239, 68, 68, 0.1); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.2); transition: all 0.2s ease;">DB 및 캐시 완전 초기화</button>
+                        <button type="button" id="btn-env-reload" class="button-ghost">다시 불러오기</button>
+                    </div>
+                </div>
+                <div class="env-tabs" id="env-tabs"></div>
+                <form id="env-form" class="env-form">
+                    <div class="env-grid env-page-grid" id="env-grid"></div>
+                    <div class="env-actions">
+                        <span class="time-muted" id="env-meta">-</span>
+                        <button type="submit" id="btn-env-save">저장</button>
+                    </div>
+                </form>
+            </section>
+        </main>
+    </div>
+
+    <script src="/static/js/environment_badge.js?v=1"></script>
+    <script src="/static/js/env_settings.js?v=13"></script>
+</body>
+
+</html>
