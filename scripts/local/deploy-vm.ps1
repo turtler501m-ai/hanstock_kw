@@ -163,7 +163,7 @@ if [ -n "$conflicting_shell_files" ]; then
   done
 fi
 
-./scripts/vm/update.sh "$BRANCH"
+bash ./scripts/vm/update.sh "$BRANCH"
 '@
 
 $remoteCommand = $remoteCommand.
