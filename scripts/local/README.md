@@ -57,7 +57,7 @@
 host: 168.110.102.249 (http://168.110.102.249:8000)
 user: ubuntu
 key: ~/.ssh/id_ed25519
-repo: ~/hanstock
+repo: ~/hanstock_kw
 ```
 
 Oracle VM 기본 대상:
@@ -66,8 +66,8 @@ Oracle VM 기본 대상:
 host: 168.110.102.249 (http://168.110.102.249:8000)
 user: ubuntu
 key: ~/.ssh/id_ed25519
-repo: ~/hanstock
-source: https://github.com/turtler501m-ai/hanstock_ora.git
+repo: ~/hanstock_kw
+source: https://github.com/turtler501m-ai/hanstock_kw.git
 ```
 
 > 참고: 이 gcloud 계정은 신규 프로젝트의 `compute.instances.get` 권한이 없어
@@ -79,7 +79,7 @@ source: https://github.com/turtler501m-ai/hanstock_ora.git
 ```powershell
 $env:HANSTOCK_VM_HOST="168.110.102.249"
 $env:HANSTOCK_VM_USER="ubuntu"
-$env:HANSTOCK_VM_PATH="~/hanstock"
+$env:HANSTOCK_VM_PATH="~/hanstock_kw"
 # gcloud 해석을 쓰는 경우에만 필요(권한 있는 프로젝트):
 $env:HANSTOCK_GCP_ZONE="us-central1-c"
 ```

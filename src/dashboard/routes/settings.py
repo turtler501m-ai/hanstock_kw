@@ -84,6 +84,7 @@ def _current_env_field_value(key: str, raw_values: dict[str, str]) -> str:
         return raw_values.get(key, "")
     runtime_values = {
         "DOMESTIC_STOCK_BROKER": getattr(trader.config, "domestic_stock_broker", "kis"),
+        "MISTOCK_STOCK_BROKER": raw_values.get("MISTOCK_STOCK_BROKER", "kis"),
         "KIWOOM_TRADING_ENV": getattr(trader.config, "kiwoom_trading_env", "demo"),
         "KIWOOM_DOMESTIC_DEMO_ACCOUNT": getattr(trader.config, "kiwoom_domestic_demo_account", ""),
         "KIWOOM_DOMESTIC_DEMO_APP_KEY": getattr(trader.config, "kiwoom_domestic_demo_app_key", ""),
@@ -91,6 +92,12 @@ def _current_env_field_value(key: str, raw_values: dict[str, str]) -> str:
         "KIWOOM_DOMESTIC_REAL_ACCOUNT": getattr(trader.config, "kiwoom_domestic_real_account", ""),
         "KIWOOM_DOMESTIC_REAL_APP_KEY": getattr(trader.config, "kiwoom_domestic_real_app_key", ""),
         "KIWOOM_DOMESTIC_REAL_APP_SECRET": getattr(trader.config, "kiwoom_domestic_real_app_secret", ""),
+        "KIWOOM_US_DEMO_ACCOUNT": getattr(trader.config, "kiwoom_us_demo_account", ""),
+        "KIWOOM_US_DEMO_APP_KEY": getattr(trader.config, "kiwoom_us_demo_app_key", ""),
+        "KIWOOM_US_DEMO_APP_SECRET": getattr(trader.config, "kiwoom_us_demo_app_secret", ""),
+        "KIWOOM_US_REAL_ACCOUNT": getattr(trader.config, "kiwoom_us_real_account", ""),
+        "KIWOOM_US_REAL_APP_KEY": getattr(trader.config, "kiwoom_us_real_app_key", ""),
+        "KIWOOM_US_REAL_APP_SECRET": getattr(trader.config, "kiwoom_us_real_app_secret", ""),
         "TRADING_ENV": getattr(trader.config, "trading_env", trader.runtime_flags().trading_env),
         "DRY_RUN": str(bool(getattr(trader.config, "dry_run", trader.runtime_flags().dry_run))).lower(),
         "ENABLE_LIVE_TRADING": str(bool(getattr(trader.config, "enable_live_trading", trader.runtime_flags().enable_live_trading))).lower(),

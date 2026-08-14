@@ -35,6 +35,7 @@ class DashboardSettingsSchemaTests(unittest.TestCase):
     def test_kiwoom_domestic_fields_are_editable_and_credentials_are_secret(self):
         expected = {
             "DOMESTIC_STOCK_BROKER",
+            "MISTOCK_STOCK_BROKER",
             "KIWOOM_TRADING_ENV",
             "KIWOOM_DOMESTIC_DEMO_ACCOUNT",
             "KIWOOM_DOMESTIC_DEMO_APP_KEY",
@@ -45,10 +46,26 @@ class DashboardSettingsSchemaTests(unittest.TestCase):
         }
         self.assertTrue(expected <= set(ENV_FIELD_MAP))
         self.assertEqual(ENV_FIELD_MAP["DOMESTIC_STOCK_BROKER"]["options"], ["kis", "kiwoom"])
+        self.assertEqual(ENV_FIELD_MAP["MISTOCK_STOCK_BROKER"]["options"], ["kis", "kiwoom"])
         self.assertEqual(ENV_FIELD_MAP["KIWOOM_TRADING_ENV"]["options"], ["demo", "real"])
         for key in expected:
             if key.endswith(("APP_KEY", "APP_SECRET")):
                 self.assertTrue(ENV_FIELD_MAP[key]["secret"])
+
+    def test_kiwoom_us_fields_are_editable_and_credentials_are_secret(self):
+        expected = {
+            "KIWOOM_US_DEMO_ACCOUNT",
+            "KIWOOM_US_DEMO_APP_KEY",
+            "KIWOOM_US_DEMO_APP_SECRET",
+            "KIWOOM_US_REAL_ACCOUNT",
+            "KIWOOM_US_REAL_APP_KEY",
+            "KIWOOM_US_REAL_APP_SECRET",
+        }
+        self.assertTrue(expected <= set(ENV_FIELD_MAP))
+        for key in expected:
+            field = ENV_FIELD_MAP[key]
+            self.assertTrue(field["restart_required"])
+            self.assertEqual(field["secret"], key.endswith(("APP_KEY", "APP_SECRET")))
 
 
 if __name__ == "__main__":

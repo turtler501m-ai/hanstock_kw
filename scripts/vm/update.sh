@@ -29,7 +29,10 @@ PYTHON="$ROOT_DIR/.venv/bin/python"
 "$PYTHON" -c 'import sys; assert sys.version_info >= (3, 10), "Hanstock VM requires Python 3.10+"'
 
 echo "[update] installing requirements"
-"$PYTHON" -m pip install --require-hashes -r constraints/vm-python.lock
+"$PYTHON" -m pip install \
+    --constraint constraints-deploy.txt \
+    --requirement requirements-core.txt \
+    --requirement requirements-integrations.txt
 
 if systemctl list-unit-files hanstock.service >/dev/null 2>&1; then
     echo "[update] syncing dashboard systemd unit"

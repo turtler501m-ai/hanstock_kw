@@ -430,6 +430,8 @@ class DashboardCoreTests(unittest.TestCase):
             dashboard.ENV_PATH = MemoryTextPath(
                 "KISTOCK_APP_KEY=app-key-secret\n"
                 "KIWOOM_DOMESTIC_DEMO_APP_SECRET=kiwoom-demo-secret\n"
+                "KIWOOM_US_DEMO_APP_KEY=kiwoom-us-key\n"
+                "KIWOOM_US_DEMO_ACCOUNT=9876543210\n"
                 "KISTOCK_ACCOUNT=1234567801\n"
                 "TRADING_ENV=demo\n"
             )
@@ -445,6 +447,11 @@ class DashboardCoreTests(unittest.TestCase):
             self.assertEqual(fields["KIWOOM_DOMESTIC_DEMO_APP_SECRET"]["value"], "")
             self.assertEqual(fields["KIWOOM_DOMESTIC_DEMO_APP_SECRET"]["masked"], "ki**************et")
             self.assertTrue(fields["KIWOOM_DOMESTIC_DEMO_APP_SECRET"]["secret"])
+            self.assertEqual(fields["KIWOOM_US_DEMO_APP_KEY"]["value"], "")
+            self.assertEqual(fields["KIWOOM_US_DEMO_APP_KEY"]["masked"], "ki*********ey")
+            self.assertTrue(fields["KIWOOM_US_DEMO_APP_KEY"]["has_value"])
+            self.assertEqual(fields["KIWOOM_US_DEMO_ACCOUNT"]["value"], "9876543210")
+            self.assertEqual(fields["KIWOOM_US_DEMO_ACCOUNT"]["masked"], "")
             self.assertEqual(fields["KISTOCK_ACCOUNT"]["value"], "1234567801")
             self.assertEqual(fields["KISTOCK_ACCOUNT"]["masked"], "")
             self.assertEqual(fields["KISTOCK_ACCOUNT"]["type"], "text")

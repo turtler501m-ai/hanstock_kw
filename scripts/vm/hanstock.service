@@ -5,14 +5,14 @@ After=network.target
 [Service]
 Type=simple
 User=ubuntu
-WorkingDirectory=/home/ubuntu/hanstock
-ExecStart=/home/ubuntu/hanstock/.venv/bin/uvicorn src.dashboard:app --host 0.0.0.0 --port 8000 --log-level error
+WorkingDirectory=/home/ubuntu/hanstock_kw
+ExecStart=/home/ubuntu/hanstock_kw/.venv/bin/uvicorn src.dashboard:app --host 0.0.0.0 --port 8000 --log-level error
 Restart=always
 RestartSec=5
-Environment=PATH=/home/ubuntu/hanstock/.venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-EnvironmentFile=/home/ubuntu/hanstock/.env
-StandardOutput=append:/home/ubuntu/hanstock/logs/dashboard-server.log
-StandardError=append:/home/ubuntu/hanstock/logs/dashboard-server.err.log
+Environment=PATH=/home/ubuntu/hanstock_kw/.venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+EnvironmentFile=/home/ubuntu/hanstock_kw/.env
+StandardOutput=append:/home/ubuntu/hanstock_kw/logs/dashboard-server.log
+StandardError=append:/home/ubuntu/hanstock_kw/logs/dashboard-server.err.log
 
 [Install]
 WantedBy=multi-user.target

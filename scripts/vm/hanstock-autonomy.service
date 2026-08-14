@@ -6,15 +6,15 @@ Wants=network-online.target
 [Service]
 Type=simple
 User=ubuntu
-WorkingDirectory=/home/ubuntu/hanstock
-ExecStart=/home/ubuntu/hanstock/.venv/bin/python -m src.autonomy_service
+WorkingDirectory=/home/ubuntu/hanstock_kw
+ExecStart=/home/ubuntu/hanstock_kw/.venv/bin/python -m src.autonomy_service
 Restart=on-failure
 RestartSec=15
-Environment=PATH=/home/ubuntu/hanstock/.venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-Environment=AUTONOMY_RUNTIME_DIR=/home/ubuntu/hanstock/.runtime/autonomy
-EnvironmentFile=/home/ubuntu/hanstock/.env
-StandardOutput=append:/home/ubuntu/hanstock/logs/autonomy-service.log
-StandardError=append:/home/ubuntu/hanstock/logs/autonomy-service.err.log
+Environment=PATH=/home/ubuntu/hanstock_kw/.venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+Environment=AUTONOMY_RUNTIME_DIR=/home/ubuntu/hanstock_kw/.runtime/autonomy
+EnvironmentFile=/home/ubuntu/hanstock_kw/.env
+StandardOutput=append:/home/ubuntu/hanstock_kw/logs/autonomy-service.log
+StandardError=append:/home/ubuntu/hanstock_kw/logs/autonomy-service.err.log
 
 [Install]
 WantedBy=multi-user.target

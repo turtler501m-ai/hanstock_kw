@@ -159,9 +159,29 @@ def _holdings_from_overseas_balance(balance_data: dict[str, Any]) -> list[dict[s
 def _get_kis_client():
     from src.online_access import require_online_access
 
-    require_online_access("KIS overseas stock API access")
+    require_online_access(f"{config.stock_broker.upper()} overseas stock API access")
     global _kis_client_cache
     if _kis_client_cache is None:
+        if config.stock_broker == "kiwoom":
+            from src.broker.kiwoom_client import KiwoomRestClient
+            from src.broker.kiwoom_us_adapter import KiwoomUSStockAdapter
+            from src.config import config as main_config
+
+            env = str(config.trading_env or "demo").lower()
+            if env != "demo":
+                raise RuntimeError("Kiwoom US integration is read-only and demo-only")
+            app_key = str(main_config.kiwoom_us_demo_app_key or "").strip()
+            app_secret = str(main_config.kiwoom_us_demo_app_secret or "").strip()
+            account_no = str(main_config.kiwoom_us_demo_account or "").strip()
+            if not app_key or not app_secret or not account_no:
+                raise RuntimeError("Kiwoom US demo account, App Key and App Secret are required")
+            _kis_client_cache = KiwoomUSStockAdapter(
+                KiwoomRestClient(app_key, app_secret, environment="mock"),
+                account_no=account_no,
+            )
+            return _kis_client_cache
+        if config.stock_broker != "kis":
+            raise RuntimeError(f"Unsupported mistock broker: {config.stock_broker!r}")
         from src.kis_client import KISClient, KISClientConfig
         from src.config import config as main_config
         from src.api.kis_api import HTTP
@@ -195,6 +215,8 @@ def runtime_flags() -> dict[str, Any]:
 
 
 def broker_submission_available(balance: dict[str, Any] | None = None) -> bool:
+    if config.stock_broker == "kiwoom":
+        return False
     if config.trading_env == "demo":
         balance = balance or get_balance()
         return balance.get("balance_source") != "demo_config_fallback"
@@ -534,7 +556,7 @@ def get_balance() -> dict[str, Any]:
             # 다만, demo 환경에서 예수금이 잡히지 않은 경우 broker_total_eval과 stock_eval 차이로부터 복구한다.
             if config.trading_env == "demo" and cash <= 0 and broker_total_eval > 0:
                 cash = max(0.0, broker_total_eval - stock_eval)
-            balance_source = "kis"
+            balance_source = config.stock_broker
             if config.trading_env == "demo" and local_shadow_eval > 0 and broker_total_eval <= 0:
                 cash = _demo_shadow_cash(exchange_rate)
                 balance_source = "demo_local_shadow"

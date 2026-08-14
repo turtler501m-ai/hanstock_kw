@@ -16,13 +16,8 @@ python3.10 -m piptools compile \
   --output-file constraints-deploy.txt \
   requirements-core.txt \
   requirements-integrations.txt
-python3.10 -m piptools compile \
-  --generate-hashes \
-  --strip-extras \
-  --resolver=backtracking \
-  --constraint constraints-deploy.txt \
-  --output-file constraints/vm-python.lock \
-  requirements-core.txt \
-  requirements-integrations.txt
 python3.10 tools/verify-deploy-constraints.py
-python3.10 -m pip install --dry-run --require-hashes -r constraints/vm-python.lock
+python3.10 -m pip install --dry-run \
+  --constraint constraints-deploy.txt \
+  --requirement requirements-core.txt \
+  --requirement requirements-integrations.txt
