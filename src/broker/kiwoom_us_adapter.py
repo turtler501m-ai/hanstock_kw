@@ -1,4 +1,4 @@
-"""Read-only Kiwoom US-stock adapter for the legacy mistock service."""
+"""Kiwoom US-stock adapter for the legacy mistock service."""
 
 from __future__ import annotations
 
@@ -12,17 +12,15 @@ def _text(value: Any) -> str:
 
 
 class KiwoomUSStockAdapter:
-    """Expose Kiwoom US account data in the KIS-shaped format mistock uses.
-
-    This adapter deliberately has no order methods.  Activating it cannot make
-    an existing mistock order path submit a Kiwoom order accidentally.
-    """
+    """Expose Kiwoom US account and demo-order APIs in Mistock's legacy shape."""
 
     broker_name = "kiwoom"
 
-    def __init__(self, client: KiwoomRestClient, *, account_no: str = "") -> None:
+    def __init__(self, client: KiwoomRestClient, *, account_no: str = "", order_submission_enabled: bool = False, default_exchange: str = "ND") -> None:
         self.client = client
         self.account_no = account_no.strip()
+        self.order_submission_enabled = bool(order_submission_enabled)
+        self.default_exchange = default_exchange.strip().upper() or "ND"
 
     def get_overseas_balance(self) -> dict[str, Any]:
         pages = self.client.post_all_pages(
@@ -55,6 +53,61 @@ class KiwoomUSStockAdapter:
             "_account_configured": bool(self.account_no),
         }
 
+    def place_overseas_order(self, symbol: str, action: str, price: float, qty: float) -> dict[str, Any]:
+        if not self.order_submission_enabled:
+            raise RuntimeError("Kiwoom US order submission is disabled")
+        side = str(action).strip().lower()
+        if side not in {"buy", "sell"}:
+            raise ValueError("action must be buy or sell")
+        page = self.client.post(
+            "/api/us/ordr",
+            api_id="ust20000" if side == "buy" else "ust20001",
+            body={"stex_tp": self.default_exchange, "stk_cd": _text(symbol).upper(), "ord_qty": self._quantity(qty), "ord_uv": self._price(price), "trde_tp": "00"},
+            request_kind="order",
+        )
+        return self._order_response(page.data)
+
+    def revise_overseas_order(self, symbol: str, order_no: str, *, qty: float, price: float) -> dict[str, Any]:
+        return self._change_order("ust20002", symbol, order_no, qty=qty, price=price)
+
+    def cancel_overseas_order(self, symbol: str, order_no: str, *, qty: float = 0) -> dict[str, Any]:
+        return self._change_order("ust20003", symbol, order_no, qty=qty, price=0)
+
+    def _change_order(self, api_id: str, symbol: str, order_no: str, *, qty: float, price: float) -> dict[str, Any]:
+        if not self.order_submission_enabled:
+            raise RuntimeError("Kiwoom US order submission is disabled")
+        body = {"stex_tp": self.default_exchange, "stk_cd": _text(symbol).upper(), "ord_no": _text(order_no), "ord_qty": self._quantity(qty)}
+        if api_id == "ust20002":
+            body.update({"ord_uv": self._price(price), "trde_tp": "00"})
+        page = self.client.post("/api/us/ordr", api_id=api_id, body=body, request_kind="order")
+        return self._order_response(page.data)
+
+    @staticmethod
+    def _quantity(value: float) -> str:
+        quantity = int(float(value))
+        if quantity <= 0 or quantity != float(value):
+            raise ValueError("quantity must be a positive whole number")
+        return str(quantity)
+
+    @staticmethod
+    def _price(value: float) -> str:
+        price = float(value)
+        if price <= 0:
+            raise ValueError("price must be positive")
+        return f"{price:.4f}".rstrip("0").rstrip(".")
+
+    @staticmethod
+    def _order_response(payload: Mapping[str, Any]) -> dict[str, Any]:
+        return {"rt_cd": "0", "msg1": _text(payload.get("return_msg")) or "Kiwoom order accepted", "output": {"ODNO": _text(payload.get("ord_no"))}, "_broker": "kiwoom", "raw": dict(payload)}
+
+    @staticmethod
+    def circuit_status() -> dict[str, Any]:
+        return {"opened": False, "error_count": 0, "max_errors": 0, "opened_at": None}
+
+    @staticmethod
+    def reset_circuit() -> None:
+        return None
+
     @staticmethod
     def _holding(item: Mapping[str, Any]) -> dict[str, Any]:
         return {
@@ -68,4 +121,3 @@ class KiwoomUSStockAdapter:
             "evlu_pfls_rt1": _text(item.get("pl_rt")),
             "ovrs_excg_cd": _text(item.get("stex_nm")),
         }
-

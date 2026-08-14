@@ -97,6 +97,8 @@ def write_env_values(updates: dict[str, str], path: Path) -> None:
             continue
         key = stripped.split("=", 1)[0].strip()
         if key in updates:
+            if key in seen:
+                continue
             value_part = line.split("=", 1)[1]
             suffix = ""
             comment_index = value_part.find(" #")

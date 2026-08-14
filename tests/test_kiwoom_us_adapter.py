@@ -41,16 +41,39 @@ class KiwoomUSStockAdapterTests(unittest.TestCase):
         result = KiwoomUSStockAdapter(client).get_overseas_balance()
         self.assertEqual([row["pdno"] for row in result["output1"]], ["AAPL", "MSFT"])
 
+    def test_demo_buy_uses_official_kiwoom_us_order_tr(self):
+        client = Mock()
+        client.post.return_value = KiwoomPage(data={"ord_no": "123456789", "return_msg": "accepted"})
+        adapter = KiwoomUSStockAdapter(client, order_submission_enabled=True)
+
+        result = adapter.place_overseas_order("AAPL", "buy", 190.25, 2)
+
+        self.assertEqual(result["rt_cd"], "0")
+        self.assertEqual(result["output"]["ODNO"], "123456789")
+        client.post.assert_called_once_with(
+            "/api/us/ordr",
+            api_id="ust20000",
+            body={"stex_tp": "ND", "stk_cd": "AAPL", "ord_qty": "2", "ord_uv": "190.25", "trde_tp": "00"},
+            request_kind="order",
+        )
+
+    def test_order_fails_closed_until_submission_is_enabled(self):
+        adapter = KiwoomUSStockAdapter(Mock())
+        with self.assertRaisesRegex(RuntimeError, "disabled"):
+            adapter.place_overseas_order("AAPL", "buy", 190, 1)
+
 
 class KiwoomUSStockWiringTests(unittest.TestCase):
     def setUp(self):
         self.original_broker = mistock_config.stock_broker
         self.original_env = mistock_config.trading_env
+        self.original_dry_run = mistock_config.dry_run
         trader._kis_client_cache = None
 
     def tearDown(self):
         mistock_config.stock_broker = self.original_broker
         mistock_config.trading_env = self.original_env
+        mistock_config.dry_run = self.original_dry_run
         trader._kis_client_cache = None
 
     @patch("src.online_access.require_online_access")
@@ -59,6 +82,7 @@ class KiwoomUSStockWiringTests(unittest.TestCase):
     def test_demo_credentials_select_distinct_us_client(self, client_type, settings, _online):
         mistock_config.stock_broker = "kiwoom"
         mistock_config.trading_env = "demo"
+        mistock_config.dry_run = True
         settings.kiwoom_us_demo_app_key = "us-key"
         settings.kiwoom_us_demo_app_secret = "us-secret"
         settings.kiwoom_us_demo_account = "us-account"
@@ -67,7 +91,24 @@ class KiwoomUSStockWiringTests(unittest.TestCase):
 
         client_type.assert_called_once_with("us-key", "us-secret", environment="mock")
         self.assertEqual(result.account_no, "us-account")
+        self.assertFalse(result.order_submission_enabled)
         self.assertFalse(trader.broker_submission_available())
+
+    @patch("src.online_access.require_online_access")
+    @patch("src.config.config")
+    @patch("src.broker.kiwoom_client.KiwoomRestClient")
+    def test_demo_order_adapter_activates_only_when_dry_run_is_off(self, client_type, settings, _online):
+        mistock_config.stock_broker = "kiwoom"
+        mistock_config.trading_env = "demo"
+        mistock_config.dry_run = False
+        settings.kiwoom_us_demo_app_key = "us-key"
+        settings.kiwoom_us_demo_app_secret = "us-secret"
+        settings.kiwoom_us_demo_account = "us-account"
+
+        result = trader._get_kis_client()
+
+        self.assertTrue(result.order_submission_enabled)
+        self.assertTrue(trader.broker_submission_available())
 
     @patch("src.online_access.require_online_access")
     @patch("src.config.config")

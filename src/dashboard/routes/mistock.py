@@ -186,7 +186,7 @@ def _apply_mistock_env_updates(updates: dict[str, str]) -> None:
             setattr(mistock_config, attr, float(value))
         else:
             setattr(mistock_config, attr, value)
-    if any(key in updates for key in {"MISTOCK_TRADING_ENV", "KISTOCK_ACCOUNT", "KISTOCK_APP_KEY", "KISTOCK_APP_SECRET"}):
+    if any(key in updates for key in {"MISTOCK_TRADING_ENV", "MISTOCK_STOCK_BROKER", "KISTOCK_ACCOUNT", "KISTOCK_APP_KEY", "KISTOCK_APP_SECRET", "KIWOOM_US_DEMO_ACCOUNT", "KIWOOM_US_DEMO_APP_KEY", "KIWOOM_US_DEMO_APP_SECRET"}):
         mistock_trader._kis_client_cache = None
 
 
@@ -198,6 +198,8 @@ def read_mistock_dashboard():
 @router.get("/api/mistock/health")
 def mistock_health():
     flags = mistock_trader.runtime_flags()
+    broker = str(mistock_config.stock_broker or "kiwoom").lower()
+    broker_ready = broker == "kiwoom" and mistock_config.trading_env == "demo"
     return {
         "ok": True,
         "missing": [],
@@ -207,15 +209,16 @@ def mistock_health():
         "active_model_version": "mistock-v1",
         "ai_analysis": _mistock_ai_analysis(),
         "auto_approval_enabled": mistock_db.get_setting("auto_approval", "false") == "true",
-        "demo_trading_ready": True,
+        "broker": broker,
+        "demo_trading_ready": broker_ready,
         "demo_trading_readiness": {
-            "ready": True,
+            "ready": broker_ready,
             "mode": "mistock_demo",
             **flags,
             "checks": [
                 {"key": "demo_environment", "ok": True, "message": "MISTOCK_TRADING_ENV=demo", "critical": True},
                 {"key": "separate_db", "ok": True, "message": str(mistock_config.trade_db_path), "critical": True},
-                {"key": "broker_api", "ok": True, "message": "KIS 모의투자(demo) 주문 집행이 활성화되어 있습니다", "critical": False},
+                {"key": "broker_api", "ok": broker_ready, "message": f"{broker.upper()} 미국주식 모의투자 API가 선택되었습니다", "critical": True},
             ],
         },
         "kill_switch_active": False,
@@ -239,7 +242,11 @@ def mistock_config_api():
     flags = mistock_trader.runtime_flags()
     watchlist = [item["symbol"] for item in mistock_trader.get_watchlist()]
     from src.config import config as main_config
-    account_no = main_config.kistock_account if mistock_config.trading_env in {"demo", "real"} else "MISTOCK-DEMO"
+    account_no = (
+        main_config.kiwoom_us_demo_account
+        if mistock_config.stock_broker == "kiwoom"
+        else main_config.kistock_account
+    )
     exchange_rate = get_usd_krw_rate()
     total_capital_usd = (
         float(mistock_config.total_capital) / exchange_rate
@@ -248,6 +255,8 @@ def mistock_config_api():
     )
     return {
         **flags,
+        "broker": mistock_config.stock_broker,
+        "broker_account": account_no,
         "kistock_account": account_no,
         "split_n": mistock_config.split_n,
         "stop_loss_pct": mistock_config.stop_loss_pct,

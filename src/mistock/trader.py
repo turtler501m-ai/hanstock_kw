@@ -169,7 +169,7 @@ def _get_kis_client():
 
             env = str(config.trading_env or "demo").lower()
             if env != "demo":
-                raise RuntimeError("Kiwoom US integration is read-only and demo-only")
+                raise RuntimeError("Kiwoom US integration is demo-only")
             app_key = str(main_config.kiwoom_us_demo_app_key or "").strip()
             app_secret = str(main_config.kiwoom_us_demo_app_secret or "").strip()
             account_no = str(main_config.kiwoom_us_demo_account or "").strip()
@@ -178,6 +178,7 @@ def _get_kis_client():
             _kis_client_cache = KiwoomUSStockAdapter(
                 KiwoomRestClient(app_key, app_secret, environment="mock"),
                 account_no=account_no,
+                order_submission_enabled=runtime_flags()["order_submission_enabled"],
             )
             return _kis_client_cache
         if config.stock_broker != "kis":
@@ -216,7 +217,7 @@ def runtime_flags() -> dict[str, Any]:
 
 def broker_submission_available(balance: dict[str, Any] | None = None) -> bool:
     if config.stock_broker == "kiwoom":
-        return False
+        return config.trading_env == "demo" and runtime_flags()["order_submission_enabled"]
     if config.trading_env == "demo":
         balance = balance or get_balance()
         return balance.get("balance_source") != "demo_config_fallback"
@@ -569,7 +570,7 @@ def get_balance() -> dict[str, Any]:
                     effective_total = cash + stock_eval
                     if effective_total > configured_cap:
                         cash = max(0.0, configured_cap - stock_eval)
-                        balance_source = "kis_config_capped"
+                        balance_source = f"{balance_data.get('_broker', 'kis')}_config_capped"
             total_eval = cash + stock_eval
             return {
                 "cash": cash,
