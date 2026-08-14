@@ -28,3 +28,4 @@
 - `HANSTOCK_TESTING=1`, `ONLINE_ACCESS_BLOCKED=true`에서 애플리케이션 import 성공
 - 필수 화면 `/`, `/mistock`, `/env-settings` 라우트 등록 확인
 - `.runtime/`과 `data/`가 Git ignore 대상임을 확인
+- 최초 기준선 커밋 `1930e4d`를 GitHub `main` 브랜치에 push 완료
