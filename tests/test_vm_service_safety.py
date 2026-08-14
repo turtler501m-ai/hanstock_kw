@@ -17,6 +17,8 @@ class VmServiceSafetyTest(unittest.TestCase):
             self.assertIn(f"WorkingDirectory={expected_root}", unit)
             self.assertIn(f"EnvironmentFile={expected_root}/.env", unit)
             self.assertNotIn("/home/ubuntu/hanstock/", unit)
+            self.assertNotIn("StandardOutput=append:", unit)
+            self.assertNotIn("StandardError=append:", unit)
 
     def test_deploy_defaults_target_hanstock_kw_repository(self):
         deploy_script = (ROOT / "scripts/local/deploy-vm.ps1").read_text(
@@ -42,6 +44,8 @@ class VmServiceSafetyTest(unittest.TestCase):
         self.assertNotIn("constraints/vm-python.lock", update_script)
         self.assertIn('bash "$ROOT_DIR/scripts/vm/server.sh" restart', update_script)
         self.assertIn('mkdir -p "$ROOT_DIR/logs" "$ROOT_DIR/.runtime"', update_script)
+        self.assertIn('scripts/vm/hanstock-autonomy.service', update_script)
+        self.assertIn("s#/home/ubuntu/hanstock/#/home/ubuntu/hanstock_kw/#g", update_script)
 
     def test_dashboard_systemd_listens_on_public_interface(self):
         server_script = (ROOT / "scripts/vm/server.sh").read_text(encoding="utf-8")

@@ -12,8 +12,6 @@ Restart=on-failure
 RestartSec=15
 Environment=PATH=/home/ubuntu/hanstock_kw/.venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 EnvironmentFile=/home/ubuntu/hanstock_kw/.env
-StandardOutput=append:/home/ubuntu/hanstock_kw/logs/condition-monitor.log
-StandardError=append:/home/ubuntu/hanstock_kw/logs/condition-monitor.err.log
 
 [Install]
 WantedBy=multi-user.target

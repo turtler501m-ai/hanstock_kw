@@ -13,8 +13,6 @@ RestartSec=15
 Environment=PATH=/home/ubuntu/hanstock_kw/.venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 Environment=AUTONOMY_RUNTIME_DIR=/home/ubuntu/hanstock_kw/.runtime/autonomy
 EnvironmentFile=/home/ubuntu/hanstock_kw/.env
-StandardOutput=append:/home/ubuntu/hanstock_kw/logs/autonomy-service.log
-StandardError=append:/home/ubuntu/hanstock_kw/logs/autonomy-service.err.log
 
 [Install]
 WantedBy=multi-user.target

@@ -49,6 +49,15 @@ bash "$ROOT_DIR/scripts/vm/server.sh" restart
 bash "$ROOT_DIR/scripts/vm/server.sh" status
 
 if systemctl list-unit-files hanstock-autonomy.service >/dev/null 2>&1; then
+    echo "[update] syncing autonomy systemd unit"
+    sudo install -m 0644 \
+        "$ROOT_DIR/scripts/vm/hanstock-autonomy.service" \
+        /etc/systemd/system/hanstock-autonomy.service
+    legacy_override=/etc/systemd/system/hanstock-autonomy.service.d/override.conf
+    if sudo test -f "$legacy_override" && sudo grep -q '/home/ubuntu/hanstock/' "$legacy_override"; then
+        sudo sed -i 's#/home/ubuntu/hanstock/#/home/ubuntu/hanstock_kw/#g' "$legacy_override"
+    fi
+    sudo systemctl daemon-reload
     echo "[update] restarting autonomy service"
     sudo systemctl restart hanstock-autonomy.service
     systemctl status hanstock-autonomy.service --no-pager
