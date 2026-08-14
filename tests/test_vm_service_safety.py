@@ -78,6 +78,15 @@ class VmServiceSafetyTest(unittest.TestCase):
         self.assertIn("[int]$LocalPort = 18001", tunnel_script)
         self.assertIn("[int]$RemotePort = 8001", tunnel_script)
 
+    def test_kiwoom_mistock_cron_has_separate_marker(self):
+        installer = (ROOT / "scripts/vm/install-mistock-cron.sh").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("# hanstock-kw-mistock-auto begin", installer)
+        self.assertIn("# hanstock-kw-mistock-auto end", installer)
+        self.assertIn("scripts/vm/mistock-auto.sh", installer)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -19,19 +19,19 @@ MONITOR_RUN="cd $ROOT_DIR && PYTHONPATH=. .venv/bin/python3 src/mistock/monitor.
 
 existing="$(mktemp)"
 crontab -l 2>/dev/null | awk '
-    /# hanstock-mistock-auto begin/ { skip = 1; next }
-    /# hanstock-mistock-auto end/ { skip = 0; next }
+    /# hanstock-kw-mistock-auto begin/ { skip = 1; next }
+    /# hanstock-kw-mistock-auto end/ { skip = 0; next }
     skip != 1 { print }
 ' > "$existing" || true
 {
     cat "$existing"
-    echo "# hanstock-mistock-auto begin"
+    echo "# hanstock-kw-mistock-auto begin"
     echo "CRON_TZ=$CRON_TZ_VALUE"
     echo "$EVENING_SPEC $RUN"
     echo "$MORNING_SPEC $RUN"
     echo "$EVENING_MONITOR_SPEC $MONITOR_RUN"
     echo "$MORNING_MONITOR_SPEC $MONITOR_RUN"
-    echo "# hanstock-mistock-auto end"
+    echo "# hanstock-kw-mistock-auto end"
 } | crontab -
 rm -f "$existing"
 
@@ -42,7 +42,7 @@ echo "[cron]   evening monitor: $EVENING_MONITOR_SPEC $MONITOR_RUN"
 echo "[cron]   morning monitor: $MORNING_MONITOR_SPEC $MONITOR_RUN"
 echo "[cron] current matching entries:"
 crontab -l | awk '
-    /# hanstock-mistock-auto begin/ { show = 1 }
+    /# hanstock-kw-mistock-auto begin/ { show = 1 }
     show == 1 { print }
-    /# hanstock-mistock-auto end/ { show = 0 }
+    /# hanstock-kw-mistock-auto end/ { show = 0 }
 '
