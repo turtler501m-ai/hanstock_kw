@@ -297,12 +297,14 @@ class DashboardCoreTests(unittest.TestCase):
         self.assertIn("MAX_POSITIONS=5 # 최대보유주식종목", path.content)
 
     def test_env_writer_collapses_duplicate_merged_keys(self):
-        path = MemoryTextPath("DOMESTIC_STOCK_BROKER=kis\nDOMESTIC_STOCK_BROKER=kiwoom\n")
+        path = MemoryTextPath("DOMESTIC_STOCK_BROKER=kis\nDOMESTIC_STOCK_BROKER=kiwoom\nKIWOOM_TRADING_ENV=real\nKIWOOM_TRADING_ENV=demo\n")
 
         dashboard._write_env_values({"DOMESTIC_STOCK_BROKER": "kiwoom"}, path)
 
         self.assertEqual(path.content.count("DOMESTIC_STOCK_BROKER="), 1)
         self.assertIn("DOMESTIC_STOCK_BROKER=kiwoom", path.content)
+        self.assertEqual(path.content.count("KIWOOM_TRADING_ENV="), 1)
+        self.assertIn("KIWOOM_TRADING_ENV=demo", path.content)
 
     def test_env_reader_strips_inline_comments_from_numbers(self):
         path = MemoryTextPath("MAX_POSITIONS=10 # 최대보유주식종목\nACTIVE_MODEL_VERSION=v1\n")

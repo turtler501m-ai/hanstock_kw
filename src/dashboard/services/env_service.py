@@ -88,17 +88,22 @@ def serialize_env_value(value: str) -> str:
 
 def write_env_values(updates: dict[str, str], path: Path) -> None:
     lines = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
+    last_key_line: dict[str, int] = {}
+    for index, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped and not stripped.startswith("#") and "=" in stripped:
+            last_key_line[stripped.split("=", 1)[0].strip()] = index
     seen: set[str] = set()
     output: list[str] = []
-    for line in lines:
+    for index, line in enumerate(lines):
         stripped = line.strip()
         if not stripped or stripped.startswith("#") or "=" not in stripped:
             output.append(line)
             continue
         key = stripped.split("=", 1)[0].strip()
+        if last_key_line.get(key) != index:
+            continue
         if key in updates:
-            if key in seen:
-                continue
             value_part = line.split("=", 1)[1]
             suffix = ""
             comment_index = value_part.find(" #")
