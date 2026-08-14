@@ -92,6 +92,7 @@ class KiwoomBrokerAdapterTests(unittest.TestCase):
     def test_volume_rank_normalizes_codes_and_limits_results(self):
         result = self.adapter.fetch_volume_rank(top_n=2)
         self.assertEqual(self.client.last_pages[0:2], ("/api/dostk/rkinfo", "ka10030"))
+        self.assertEqual(self.client.last_pages[2]["stex_tp"], "1")
         self.assertEqual(result, ["005930", "000660"])
 
     def test_malformed_numbers_are_zero(self):

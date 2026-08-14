@@ -176,6 +176,7 @@ class KiwoomBrokerAdapter:
             body={
                 "mrkt_tp": "000", "sort_tp": "1", "mang_stk_incls": "0", "crd_tp": "0",
                 "trde_qty_tp": "0", "pric_tp": "0", "trde_prica_tp": "0", "mrkt_open_tp": "0",
+                "stex_tp": "1",
             },
         )
         rows = [
