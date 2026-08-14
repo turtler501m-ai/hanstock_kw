@@ -331,6 +331,16 @@ class DashboardCoreTests(unittest.TestCase):
         self.assertIn("/api/kis/orders/revise", paths)
         self.assertIn("/api/kis/rehearsal", paths)
 
+    def test_kiwoom_dashboard_does_not_start_legacy_kis_websocket(self):
+        from src.dashboard.routes import settings as settings_routes
+
+        with patch.object(settings_routes.trader.config, "domestic_stock_broker", "kiwoom"), \
+                patch.object(settings_routes.trader.config, "kis_websocket_enabled", True), \
+                patch.object(settings_routes, "_start_kis_websocket") as start:
+            settings_routes.start_kis_websocket_if_enabled()
+
+        start.assert_not_called()
+
     def test_kis_env_settings_apply_without_restart(self):
         original_env_path = dashboard.ENV_PATH
         original_values = {

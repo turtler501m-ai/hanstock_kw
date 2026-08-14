@@ -103,7 +103,15 @@ class KiwoomBrokerAdapter:
         holdings = tuple(self._holding(row) for row in holding_rows)
         cash = _number(_first(deposit, "ord_alow_amt", "entr", "cash", "dnca_tot_amt"))
         stock_value = _number(_first(balance, "tot_evlt_amt", "tot_evlu_amt", "stock_value"))
-        total_equity = _number(_first(balance, "tot_asst_amt", "estimated_deposit", "total_equity"))
+        # kt00018 names the estimated deposit assets field differently from
+        # the legacy KIS-shaped response consumed by the dashboard.
+        total_equity = _number(_first(
+            balance,
+            "prsm_dpst_aset_amt",
+            "tot_asst_amt",
+            "estimated_deposit",
+            "total_equity",
+        ))
         if not total_equity:
             total_equity = cash + stock_value
         return AccountBalance(

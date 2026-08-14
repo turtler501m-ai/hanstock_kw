@@ -649,7 +649,7 @@ def _get_balance_data(api: KIStockAPI, allow_cache: bool = True) -> dict:
                 total_equity=float(parsed_balance.get("total_eval") or 0),
                 cash=float(parsed_balance.get("cash") or 0),
                 stock_value=float(parsed_balance.get("stock_eval") or 0),
-                source="kis_balance",
+                source="kiwoom_balance",
                 raw_summary_hash=summary_hash,
             )
         except (sqlite3.Error, OSError, ValueError, TypeError) as exc:

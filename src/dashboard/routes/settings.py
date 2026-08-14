@@ -53,6 +53,10 @@ def _stop_kis_websocket() -> dict:
 
 
 def start_kis_websocket_if_enabled():
+    # The Kiwoom dashboard must not open the retired KIS realtime transport,
+    # even when a merged legacy .env still contains KIS_WEBSOCKET_ENABLED=true.
+    if str(getattr(trader.config, "domestic_stock_broker", "kiwoom")).lower() != "kis":
+        return
     if bool(getattr(trader.config, "kis_websocket_enabled", False)):
         _start_kis_websocket()
 

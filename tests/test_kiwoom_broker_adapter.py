@@ -74,6 +74,20 @@ class KiwoomBrokerAdapterTests(unittest.TestCase):
         self.assertEqual(result.total_equity, 1000)
         self.client.post = original
 
+    def test_balance_uses_kiwoom_estimated_deposit_assets_as_total_equity(self):
+        self.client.post = lambda path, **kwargs: FakePage(
+            {
+                "prsm_dpst_aset_amt": "2,345,678",
+                "tot_evlt_amt": "345,678",
+                "acnt_evlt_remn_indv_tot": [],
+            }
+            if kwargs["api_id"] == "kt00018" else {"ord_alow_amt": "2,000,000"}
+        )
+        result = self.adapter.fetch_balance()
+        self.assertEqual(result.total_equity, 2345678)
+        self.assertEqual(result.cash, 2000000)
+        self.assertEqual(result.stock_value, 345678)
+
     def test_quote_normalizes_signed_fields(self):
         result = self.adapter.fetch_quote("005930")
         self.assertEqual(result.symbol, "005930")
