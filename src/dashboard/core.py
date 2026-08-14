@@ -977,6 +977,12 @@ def _ai_analysis_config() -> dict:
     ai_enabled = bool(getattr(trader.config, "ai_strategy_enabled", False))
     score_weight = max(0.0, min(1.0, float(getattr(trader.config, "ai_score_weight", 0.0) or 0.0)))
     candidate_limit = int(getattr(trader.config, "ai_candidate_limit", 5) or 5)
+    kiwoom_environment = str(getattr(trader.config, "kiwoom_trading_env", "demo") or "demo").lower()
+    kiwoom_account = str(getattr(
+        trader.config,
+        f"kiwoom_domestic_{kiwoom_environment}_account",
+        "",
+    ) or "")
     return {
         "enabled": ai_enabled,
         "provider": "openai_responses",
@@ -984,9 +990,9 @@ def _ai_analysis_config() -> dict:
         "model_name": model_name,
         "model_type": "OpenAI text model",
         "model_available": bool(api_key),
-        "account_priority": "current_kis_account",
-        "account": trader.config.kistock_account,
-        "account_label": "현재 KIS 계좌 1순위",
+        "account_priority": "current_kiwoom_account",
+        "account": kiwoom_account,
+        "account_label": "현재 키움 계좌 1순위",
         "openai_account_priority": "openai_api_first",
         "openai_api_configured": bool(api_key),
         "score_weight": score_weight if ai_enabled else 0.0,
@@ -997,7 +1003,7 @@ def _ai_analysis_config() -> dict:
         "require_backtest_pass": bool(getattr(trader.config, "ai_require_backtest_pass", True)),
         "fallback_mode": "rule_based" if (not ai_enabled or not api_key) else "",
         "flow": [
-            "현재 KIS 계좌의 보유/현금/리스크 상태를 1순위 기준으로 읽습니다.",
+            "현재 키움 계좌의 보유/현금/리스크 상태를 1순위 기준으로 읽습니다.",
             "관심종목과 거래량 상위 종목의 RSI, MACD, Bollinger, 추세, 거래량 피처를 계산합니다.",
             f"AI가 켜져 있고 OPENAI_API_KEY가 있으면 OpenAI Responses API로 상위 {candidate_limit}개 후보만 우선 평가합니다.",
             "최종 점수는 룰 점수와 AI 점수를 AI_SCORE_WEIGHT 비율로 결합합니다.",
@@ -1268,18 +1274,20 @@ def _vendor_status(slug: str, meta: dict) -> dict:
 
 def _demo_trading_readiness() -> dict:
     missing = _required_env_missing()
-    account_warning = _account_format_warning(trader.config.kistock_account)
+    environment = str(getattr(trader.config, "kiwoom_trading_env", "demo") or "demo").lower()
+    account = str(getattr(trader.config, f"kiwoom_domestic_{environment}_account", "") or "")
+    account_warning = _account_format_warning(account)
     checks = [
         {
             "key": "required_env",
             "ok": not missing,
-            "message": "Required KIS environment values are configured" if not missing else f"Missing: {', '.join(missing)}",
+            "message": "Required Kiwoom environment values are configured" if not missing else f"Missing: {', '.join(missing)}",
             "critical": True,
         },
         {
             "key": "account_format",
             "ok": not account_warning,
-            "message": "KIS account format is valid" if not account_warning else account_warning,
+            "message": "Kiwoom account format is valid" if not account_warning else account_warning,
             "critical": True,
         },
         {
@@ -1322,7 +1330,7 @@ def _demo_trading_readiness() -> dict:
     critical_ready = all(item["ok"] for item in checks if item["critical"])
     return {
         "ready": critical_ready,
-        "mode": "kis_demo_auto",
+        "mode": "kiwoom_demo_auto",
         "trading_env": trader.runtime_flags().trading_env,
         "dry_run": trader.runtime_flags().dry_run,
         "enable_live_trading": trader.runtime_flags().enable_live_trading,

@@ -516,16 +516,18 @@ class DashboardCoreTests(unittest.TestCase):
             dashboard.trader.config.openai_model = original_model
 
     def test_config_response_returns_account(self):
-        original_account = dashboard.trader.config.kistock_account
+        original_environment = dashboard.trader.config.kiwoom_trading_env
+        original_account = dashboard.trader.config.kiwoom_domestic_demo_account
         try:
-            dashboard.trader.config.kistock_account = "1234567801"
+            dashboard.trader.config.kiwoom_trading_env = "demo"
+            dashboard.trader.config.kiwoom_domestic_demo_account = "12345678"
             config = dashboard.get_config()
-            self.assertEqual(config["kistock_account"], "1234567801")
-            self.assertEqual(config["ai_analysis"]["account"], "1234567801")
-            self.assertEqual(config["ai_analysis"]["account_priority"], "current_kis_account")
+            self.assertEqual(config["ai_analysis"]["account"], "12345678")
+            self.assertEqual(config["ai_analysis"]["account_priority"], "current_kiwoom_account")
             self.assertEqual(config["ai_analysis"]["provider"], "openai_responses")
         finally:
-            dashboard.trader.config.kistock_account = original_account
+            dashboard.trader.config.kiwoom_trading_env = original_environment
+            dashboard.trader.config.kiwoom_domestic_demo_account = original_account
 
     def test_demo_trading_readiness_requires_demo_submission_without_live_switch(self):
         original_values = {
@@ -534,26 +536,27 @@ class DashboardCoreTests(unittest.TestCase):
             "enable_live_trading": dashboard.trader.config.enable_live_trading,
             "order_submission_enabled": dashboard.trader.runtime_flags().order_submission_enabled,
             "real_orders_enabled": dashboard.trader.runtime_flags().real_orders_enabled,
-            "account": dashboard.trader.config.kistock_account,
+            "account": dashboard.trader.config.kiwoom_domestic_demo_account,
         }
         original_required_env_missing = dashboard._required_env_missing
         try:
             dashboard.trader.config.trading_env = "demo"
             dashboard.trader.config.dry_run = False
             dashboard.trader.config.enable_live_trading = False
-            dashboard.trader.config.kistock_account = "1234567801"
+            dashboard.trader.config.kiwoom_domestic_demo_account = "12345678"
             dashboard._required_env_missing = lambda: []
 
             readiness = dashboard.get_demo_trading_readiness()
 
             self.assertTrue(readiness["ready"])
+            self.assertEqual(readiness["mode"], "kiwoom_demo_auto")
             self.assertTrue(all(check["ok"] for check in readiness["checks"] if check["critical"]))
             self.assertFalse(readiness["real_orders_enabled"])
         finally:
             dashboard.trader.config.trading_env = original_values["trading_env"]
             dashboard.trader.config.dry_run = original_values["dry_run"]
             dashboard.trader.config.enable_live_trading = original_values["enable_live_trading"]
-            dashboard.trader.config.kistock_account = original_values["account"]
+            dashboard.trader.config.kiwoom_domestic_demo_account = original_values["account"]
             dashboard._required_env_missing = original_required_env_missing
 
     def test_env_update_applies_strategy_settings_without_restart(self):
