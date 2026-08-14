@@ -566,6 +566,14 @@ def _balance_cache_age_seconds(balance_data: dict) -> float | None:
     cached_at = balance_data.get("_cache", {}).get("cached_at", "")
     if not cached_at:
         return None
+
+
+def _mark_balance_cache_fresh(balance_data: dict) -> dict:
+    result = dict(balance_data)
+    metadata = dict(result.get("_cache") or {})
+    metadata["stale"] = False
+    result["_cache"] = metadata
+    return result
     try:
         return (trader.datetime.now(trader.KST) - trader.datetime.fromisoformat(cached_at)).total_seconds()
     except DashboardOperationError:
@@ -593,7 +601,7 @@ def _get_balance_data(api: KIStockAPI, allow_cache: bool = True) -> dict:
         if cached is not None:
             age = _balance_cache_age_seconds(cached)
             if age is not None and age < BALANCE_CACHE_TTL_SECONDS:
-                return cached
+                return _mark_balance_cache_fresh(cached)
 
     with _balance_fetch_lock:
         if allow_cache:
@@ -601,7 +609,7 @@ def _get_balance_data(api: KIStockAPI, allow_cache: bool = True) -> dict:
             if cached is not None:
                 age = _balance_cache_age_seconds(cached)
                 if age is not None and age < BALANCE_CACHE_TTL_SECONDS:
-                    return cached
+                    return _mark_balance_cache_fresh(cached)
         try:
             balance_data = _run_with_timeout(api.get_balance, BALANCE_FETCH_TIMEOUT_SECONDS)
         except concurrent.futures.TimeoutError:

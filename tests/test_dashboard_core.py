@@ -268,6 +268,19 @@ class DashboardCoreTests(unittest.TestCase):
 
         self.assertEqual(result, cached)
 
+    def test_recent_balance_cache_is_marked_fresh(self):
+        cached = {
+            "output1": [],
+            "output2": [{"dnca_tot_amt": "1000", "tot_evlu_amt": "1000"}],
+            "_cache": {"cached_at": "2026-08-14T17:52:00+09:00", "stale": True},
+        }
+        with patch.object(dashboard_core, "_load_balance_cache", return_value=cached), \
+                patch.object(dashboard_core, "_balance_cache_age_seconds", return_value=5):
+            result = dashboard_core._get_balance_data(object())
+
+        self.assertFalse(result["_cache"]["stale"])
+        self.assertTrue(cached["_cache"]["stale"])
+
     def test_kis_http_error_message_does_not_expose_account_url(self):
         from src.api.kis_api import KIStockAPI
 
