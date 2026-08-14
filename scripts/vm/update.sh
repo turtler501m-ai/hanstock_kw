@@ -43,8 +43,8 @@ if systemctl list-unit-files hanstock.service >/dev/null 2>&1; then
 fi
 
 echo "[update] restarting dashboard"
-"$ROOT_DIR/scripts/vm/server.sh" restart
-"$ROOT_DIR/scripts/vm/server.sh" status
+bash "$ROOT_DIR/scripts/vm/server.sh" restart
+bash "$ROOT_DIR/scripts/vm/server.sh" status
 
 if systemctl list-unit-files hanstock-autonomy.service >/dev/null 2>&1; then
     echo "[update] restarting autonomy service"
