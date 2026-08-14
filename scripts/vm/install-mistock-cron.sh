@@ -19,8 +19,8 @@ MONITOR_RUN="cd $ROOT_DIR && PYTHONPATH=. .venv/bin/python3 src/mistock/monitor.
 
 existing="$(mktemp)"
 crontab -l 2>/dev/null | awk '
-    /# hanstock-kw-mistock-auto begin/ { skip = 1; next }
-    /# hanstock-kw-mistock-auto end/ { skip = 0; next }
+    /# hanstock(-kw)?-mistock-auto begin/ { skip = 1; next }
+    /# hanstock(-kw)?-mistock-auto end/ { skip = 0; next }
     skip != 1 { print }
 ' > "$existing" || true
 {
