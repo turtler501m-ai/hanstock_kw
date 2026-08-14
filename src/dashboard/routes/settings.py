@@ -7,60 +7,6 @@ globals().update({k: v for k, v in _core.__dict__.items() if not k.startswith('_
 
 router = APIRouter(tags=["settings"])
 
-_kis_websocket_client = None
-_kis_websocket_lock = threading.Lock()
-
-
-def _kis_websocket_status() -> dict:
-    client = _kis_websocket_client
-    running = bool(client and client.running and client.is_alive())
-    return {
-        "enabled": bool(getattr(trader.config, "kis_websocket_enabled", False)),
-        "running": running,
-        "trading_env": trader.runtime_flags().trading_env,
-        "hts_id": getattr(trader.config, "kistock_hts_id", "") or "",
-        "subscriptions": sorted([f"{tr_id}:{tr_key}" for tr_id, tr_key in getattr(client, "active_subscriptions", set())]) if client else [],
-        "reconnect_count": int(getattr(client, "reconnect_count", 0) or 0) if client else 0,
-        "last_message_at": getattr(client, "last_message_at", None) if client else None,
-        "last_error": getattr(client, "last_error", "") if client else "",
-        "last_quotes": getattr(client, "last_quotes", {}) if client else {},
-        "last_orderbooks": getattr(client, "last_orderbooks", {}) if client else {},
-    }
-
-
-def _start_kis_websocket() -> dict:
-    global _kis_websocket_client
-    from src.online_access import require_online_access
-
-    require_online_access("KIS WebSocket")
-    with _kis_websocket_lock:
-        if _kis_websocket_client and _kis_websocket_client.running and _kis_websocket_client.is_alive():
-            return {"ok": True, **_kis_websocket_status()}
-        from src.api.kis_websocket import KISWebSocketClient
-
-        _kis_websocket_client = KISWebSocketClient()
-        _kis_websocket_client.start()
-        return {"ok": True, **_kis_websocket_status()}
-
-
-def _stop_kis_websocket() -> dict:
-    global _kis_websocket_client
-    with _kis_websocket_lock:
-        if _kis_websocket_client:
-            _kis_websocket_client.stop()
-            _kis_websocket_client = None
-        return {"ok": True, **_kis_websocket_status()}
-
-
-def start_kis_websocket_if_enabled():
-    # The Kiwoom dashboard must not open the retired KIS realtime transport,
-    # even when a merged legacy .env still contains KIS_WEBSOCKET_ENABLED=true.
-    if str(getattr(trader.config, "domestic_stock_broker", "kiwoom")).lower() != "kis":
-        return
-    if bool(getattr(trader.config, "kis_websocket_enabled", False)):
-        _start_kis_websocket()
-
-
 def start_snapshot_refresher_if_enabled():
     # DASHBOARD_SNAPSHOT_REFRESH_ENABLED=true일 때만 백그라운드로 DB 스냅샷을 데운다.
     try:
@@ -78,7 +24,6 @@ def start_auto_approval_sweeper_on_boot():
 
 
 def run_dashboard_startup_tasks() -> None:
-    start_kis_websocket_if_enabled()
     start_snapshot_refresher_if_enabled()
     start_auto_approval_sweeper_on_boot()
 
@@ -126,7 +71,6 @@ def _current_env_field_value(key: str, raw_values: dict[str, str]) -> str:
         "CASH_BUFFER": getattr(trader.config, "cash_buffer", trader.CASH_BUFFER),
         "MAX_DAILY_LOSS_PCT": getattr(trader.config, "max_daily_loss_pct", trader.MAX_DAILY_LOSS_PCT),
         "SCAN_UNIVERSE_SIZE": getattr(trader.config, "scan_universe_size", trader.SCAN_UNIVERSE_SIZE),
-        "KIS_CIRCUIT_COOLDOWN_SECONDS": getattr(trader.config, "kis_circuit_cooldown_seconds", ""),
         "TRADE_DB_PATH": getattr(trader.config, "trade_db_path", ""),
         "ACTIVE_MODEL_VERSION": getattr(trader.config, "active_model_version", ""),
         "AI_STRATEGY_ENABLED": str(bool(getattr(trader.config, "ai_strategy_enabled", False))).lower(),
@@ -143,12 +87,6 @@ def _current_env_field_value(key: str, raw_values: dict[str, str]) -> str:
         "TELEGRAM_API_ID": getattr(trader.config, "telegram_api_id", "") or "",
         "TELEGRAM_API_HASH": getattr(trader.config, "telegram_api_hash", "") or "",
         "TELEGRAM_TARGET_CHANNELS": getattr(trader.config, "telegram_target_channels", "") or "",
-        "KISTOCK_HTS_ID": getattr(trader.config, "kistock_hts_id", "") or "",
-        "KIS_WEBSOCKET_ENABLED": str(bool(getattr(trader.config, "kis_websocket_enabled", False))).lower(),
-        "KIS_CONDITION_SEARCH_ENABLED": str(bool(getattr(trader.config, "kis_condition_search_enabled", False))).lower(),
-        "KIS_CONDITION_USER_ID": getattr(trader.config, "kis_condition_user_id", "") or "",
-        "KIS_CONDITION_SEQ": getattr(trader.config, "kis_condition_seq", "") or "",
-        "KIS_CONDITION_NAME": getattr(trader.config, "kis_condition_name", "") or "",
         "MISTOCK_EXCHANGE_MAP": os.environ.get("MISTOCK_EXCHANGE_MAP", ""),
         "MISTOCK_UNIVERSE": ",".join(sys.modules["src.mistock.config"].config.universe_list) if "src.mistock.config" in sys.modules else os.environ.get("MISTOCK_UNIVERSE", ""),
     }
@@ -287,21 +225,11 @@ def update_env_settings(payload: dict = Body(...)):
         _write_env_values(updates, _public_value("ENV_PATH", ENV_PATH))
         _apply_runtime_env_updates(updates)
         _apply_strategy_env_updates(updates)
-        if _env_bool_value(updates, "ONLINE_ACCESS_BLOCKED", False):
-            _stop_kis_websocket()
     return {
         "ok": True,
         "updated": sorted(updates.keys()),
         "requires_restart": False,
     }
-
-
-
-
-@router.post("/api/circuit-breaker/reset")
-def reset_circuit_breaker():
-    KIStockAPI.reset_circuit()
-    return {"ok": True, "circuit_breaker": KIStockAPI.circuit_status()}
 
 
 
@@ -336,88 +264,11 @@ def set_runtime_order_mode(payload: dict = Body(...)):
     }
 
 
-@router.get("/api/kis/condition-search/list")
-def get_kis_condition_search_list(user_id: str | None = None):
-    from src.online_access import require_online_access
-
-    require_online_access("KIS condition search")
-    lookup_user_id = (user_id or getattr(trader.config, "kis_condition_user_id", "") or getattr(trader.config, "kistock_hts_id", "") or "").strip()
-    if not lookup_user_id:
-        raise HTTPException(status_code=400, detail="KIS condition user_id or KISTOCK_HTS_ID is required")
-    api = KIStockAPI()
-    return {"ok": True, "user_id": lookup_user_id, "conditions": api.get_condition_search_list(lookup_user_id)}
-
-
-@router.get("/api/kis/condition-search/result")
-def get_kis_condition_search_result(
-    seq: str | None = None,
-    name: str | None = None,
-    user_id: str | None = None,
-):
-    from src.online_access import require_online_access
-
-    require_online_access("KIS condition search")
-    lookup_user_id = (user_id or getattr(trader.config, "kis_condition_user_id", "") or getattr(trader.config, "kistock_hts_id", "") or "").strip()
-    condition_seq = (seq or getattr(trader.config, "kis_condition_seq", "") or "").strip()
-    condition_name = (name or getattr(trader.config, "kis_condition_name", "") or "").strip()
-    if not lookup_user_id:
-        raise HTTPException(status_code=400, detail="KIS condition user_id or KISTOCK_HTS_ID is required")
-    if not condition_seq or not condition_name:
-        raise HTTPException(status_code=400, detail="KIS condition seq and name are required")
-    api = KIStockAPI()
-    codes = api.get_condition_search_result(lookup_user_id, condition_seq, condition_name)
-    return {"ok": True, "user_id": lookup_user_id, "seq": condition_seq, "name": condition_name, "codes": codes, "count": len(codes)}
-
-
-@router.get("/api/kis/websocket/status")
-def get_kis_websocket_status():
-    return {"ok": True, **_kis_websocket_status()}
-
-
-@router.post("/api/kis/websocket/start")
-def start_kis_websocket():
-    from src.online_access import require_online_access
-
-    require_online_access("KIS WebSocket")
-    if not bool(getattr(trader.config, "kis_websocket_enabled", False)):
-        raise HTTPException(status_code=409, detail="KIS_WEBSOCKET_ENABLED is false")
-    if not (getattr(trader.config, "kistock_hts_id", "") or trader.config.kistock_account):
-        raise HTTPException(status_code=400, detail="KISTOCK_HTS_ID or KISTOCK_ACCOUNT is required")
-    return _start_kis_websocket()
-
-
-@router.post("/api/kis/websocket/stop")
-def stop_kis_websocket():
-    return _stop_kis_websocket()
-
-
-@router.post("/api/kis/websocket/subscribe")
-def subscribe_kis_websocket(payload: dict = Body(...)):
-    from src.online_access import require_online_access
-
-    require_online_access("KIS WebSocket subscription")
-    client = _kis_websocket_client
-    if not client:
-        raise HTTPException(status_code=409, detail="KIS WebSocket is not running")
-    symbol = str(payload.get("symbol") or "").strip()
-    stream = str(payload.get("stream") or "quote").strip().lower()
-    if not symbol:
-        raise HTTPException(status_code=400, detail="symbol is required")
-    if stream == "quote":
-        client.subscribe_quote(symbol)
-    elif stream in {"orderbook", "askbid"}:
-        client.subscribe_orderbook(symbol)
-    else:
-        raise HTTPException(status_code=400, detail="stream must be quote or orderbook")
-    return {"ok": True, **_kis_websocket_status()}
-
-
 @router.post("/api/domestic-stock/orders/cancel")
-@router.post("/api/kis/orders/cancel")
-def cancel_kis_stock_order(payload: dict = Body(...)):
+def cancel_domestic_stock_order(payload: dict = Body(...)):
     from src.online_access import require_online_access
 
-    require_online_access("KIS order cancellation")
+    require_online_access("Kiwoom order cancellation")
     order_no = str(payload.get("order_no") or payload.get("original_order_no") or "").strip()
     if not order_no:
         raise HTTPException(status_code=400, detail="order_no is required")
@@ -435,11 +286,10 @@ def cancel_kis_stock_order(payload: dict = Body(...)):
 
 
 @router.post("/api/domestic-stock/orders/revise")
-@router.post("/api/kis/orders/revise")
-def revise_kis_stock_order(payload: dict = Body(...)):
+def revise_domestic_stock_order(payload: dict = Body(...)):
     from src.online_access import require_online_access
 
-    require_online_access("KIS order revision")
+    require_online_access("Kiwoom order revision")
     order_no = str(payload.get("order_no") or payload.get("original_order_no") or "").strip()
     qty = _to_int(payload.get("qty"))
     price = _to_int(payload.get("price"))
@@ -457,48 +307,6 @@ def revise_kis_stock_order(payload: dict = Body(...)):
         exchange_id=str(payload.get("exchange_id") or "KRX"),
     )
     return {"ok": result.get("rt_cd") == "0", "result": result}
-
-
-@router.get("/api/kis/rehearsal")
-def get_kis_rehearsal():
-    checks = []
-    required = {
-        "KISTOCK_APP_KEY": bool(str(getattr(trader.config, "kistock_app_key", "") or "").strip()),
-        "KISTOCK_APP_SECRET": bool(str(getattr(trader.config, "kistock_app_secret", "") or "").strip()),
-        "KISTOCK_ACCOUNT": bool(str(getattr(trader.config, "kistock_account", "") or "").strip()),
-    }
-    for key, ok in required.items():
-        checks.append({"key": key, "ok": ok, "critical": True})
-
-    checks.append({"key": "DRY_RUN", "ok": bool(trader.runtime_flags().dry_run), "critical": False})
-    checks.append({"key": "ORDER_SUBMISSION_ENABLED", "ok": bool(trader.runtime_flags().order_submission_enabled), "critical": False})
-    checks.append({"key": "WEBSOCKET_CONFIGURED", "ok": bool(getattr(trader.config, "kistock_hts_id", "") or trader.config.kistock_account), "critical": False})
-    checks.append({"key": "CONDITION_SEARCH_CONFIGURED", "ok": bool(
-        getattr(trader.config, "kis_condition_seq", "")
-        and getattr(trader.config, "kis_condition_name", "")
-        and (getattr(trader.config, "kis_condition_user_id", "") or getattr(trader.config, "kistock_hts_id", ""))
-    ), "critical": False})
-
-    sample_order = {
-        "CANO": str(getattr(trader.config, "kistock_account", "") or "")[:8],
-        "ACNT_PRDT_CD": str(getattr(trader.config, "kistock_account", "") or "")[8:] or "01",
-        "PDNO": "005930",
-        "ORD_DVSN": "01",
-        "ORD_QTY": "1",
-        "ORD_UNPR": "0",
-        "EXCG_ID_DVSN_CD": "KRX",
-    }
-    critical_ok = all(item["ok"] for item in checks if item["critical"])
-    return {
-        "ok": critical_ok,
-        "trading_env": trader.runtime_flags().trading_env,
-        "dry_run": bool(trader.runtime_flags().dry_run),
-        "order_submission_enabled": bool(trader.runtime_flags().order_submission_enabled),
-        "real_orders_enabled": bool(trader.runtime_flags().real_orders_enabled),
-        "checks": checks,
-        "sample_order_payload": sample_order,
-        "websocket": _kis_websocket_status(),
-    }
 
 
 @router.post("/api/config/reset-database")
@@ -535,17 +343,6 @@ def reset_database_and_clear_cache():
     except Exception as e:
         results.append(f"미국주식 DB 초기화 실패: {str(e)}")
 
-    # 3. KIS 토큰 캐시 파일 일괄 제거
-    token_files = ["data/kis_token.json", "data/kis_token_01.json", "data/kis_token_mistock_demo.json"]
-    for t_file in token_files:
-        p = Path(t_file)
-        if p.exists():
-            try:
-                p.unlink()
-                results.append(f"토큰 캐시 제거 완료: {p.name}")
-            except Exception as e:
-                results.append(f"토큰 캐시 제거 실패 ({p.name}): {str(e)}")
-                
     # 4. 잔고 스냅샷 및 DB 캐시 제거
     cache_files = [".runtime/balance_snapshot.json", ".runtime/db_cache.sqlite"]
     for c_file in cache_files:
@@ -561,13 +358,6 @@ def reset_database_and_clear_cache():
     try:
         _clear_balance_cache()
         results.append("메모리 잔고 캐시 초기화 완료")
-    except Exception:
-        pass
-        
-    try:
-        import src.mistock.trader as mistock_trader
-        mistock_trader._kis_client_cache = None
-        results.append("미국주식 클라이언트 캐시 초기화 완료")
     except Exception:
         pass
         

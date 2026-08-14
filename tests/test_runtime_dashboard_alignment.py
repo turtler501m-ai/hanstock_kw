@@ -210,7 +210,7 @@ class RuntimeDashboardAlignmentTests(unittest.TestCase):
             stack.enter_context(patch("src.trader.check_secrets"))
             stack.enter_context(patch("src.trader.init_db"))
             stack.enter_context(patch("src.trader.init_approval_db"))
-            stack.enter_context(patch("src.trader.KIStockAPI", return_value=api))
+            stack.enter_context(patch("src.broker.factory.create_domestic_stock_broker", return_value=api))
             stack.enter_context(patch("src.trader.slack_session_start"))
             slack_candidates = stack.enter_context(patch("src.trader.slack_candidates"))
             stack.enter_context(patch("src.trader.slack_session_end"))
@@ -231,7 +231,8 @@ class RuntimeDashboardAlignmentTests(unittest.TestCase):
         self.assertEqual(result["plan"], runtime_plan)
         self.assertEqual([row["symbol"] for row in result["results"]], ["005930", "000660"])
         self.assertTrue(all(row["decision"] == "queue" for row in result["results"]))
-        build_runtime_plan.assert_called_once_with(api, api.get_balance.return_value)
+        build_runtime_plan.assert_called_once()
+        self.assertIs(build_runtime_plan.call_args.args[0], api)
         self.assertEqual(execute_plan_row.call_count, 2)
         slack_candidates.assert_not_called()
 

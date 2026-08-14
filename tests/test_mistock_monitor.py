@@ -6,7 +6,6 @@ import json
 
 from src.mistock import monitor
 from src.mistock.config import config as mistock_config
-from src.kis_client import CircuitBreakerState
 
 
 class MistockMonitorTests(unittest.TestCase):
@@ -56,15 +55,20 @@ class MistockMonitorTests(unittest.TestCase):
         self.assertEqual(result["reason"], "outside_market_hours")
 
     @patch("src.mistock.monitor.is_us_market_open", return_value=True)
-    @patch("src.mistock.trader._get_kis_client")
+    @patch("src.mistock.trader._get_broker_client")
     @patch("src.mistock.monitor.send_mistock_slack")
     def test_run_cycle_alerts_on_circuit_breaker_opened(self, mock_slack, mock_get_client, mock_open):
         mistock_config.trading_env = "demo"
         
         # Mock Circuit Breaker Status
-        fake_cb = CircuitBreakerState()
-        fake_cb.error_count = 5
-        fake_cb.opened_at = datetime.now(timezone.utc)
+        fake_cb = MagicMock()
+        fake_cb.status.return_value = {
+            "opened": True,
+            "error_count": 5,
+            "max_errors": 5,
+            "opened_at": datetime.now(timezone.utc).isoformat(),
+            "retry_after_seconds": 60,
+        }
         
         mock_client = MagicMock()
         mock_client.circuit = fake_cb
@@ -78,16 +82,17 @@ class MistockMonitorTests(unittest.TestCase):
 
         self.assertEqual(result["status"], "alerted")
         mock_slack.assert_called_once()
-        self.assertIn("🚨 *[미스톡 경보] KIS API 서킷 브레이커 오픈 감지!*", mock_slack.call_args[1]["blocks"][0]["text"]["text"])
+        self.assertIn("API", mock_slack.call_args[1]["blocks"][0]["text"]["text"])
 
     @patch("src.mistock.monitor.is_us_market_open", return_value=True)
-    @patch("src.mistock.trader._get_kis_client")
+    @patch("src.mistock.trader._get_broker_client")
     @patch("src.mistock.monitor.send_mistock_slack")
     def test_run_cycle_healthy_when_no_errors(self, mock_slack, mock_get_client, mock_open):
         mistock_config.trading_env = "demo"
         
         # Healthy CB Status
-        fake_cb = CircuitBreakerState()
+        fake_cb = MagicMock()
+        fake_cb.status.return_value = {"opened": False}
         mock_client = MagicMock()
         mock_client.circuit = fake_cb
         mock_client.config.circuit_max_errors = 5

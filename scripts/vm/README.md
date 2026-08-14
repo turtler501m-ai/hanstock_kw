@@ -27,20 +27,6 @@ VM 또는 Linux 서버에서 사용하는 스크립트입니다. Windows 로컬�
 6. 대시보드 재시작
 7. 서버 상태 출력
 
-## Telegram 시그널 수집
-
-```bash
-./scripts/vm/poll.sh
-./scripts/vm/polld.sh
-./scripts/vm/signals.sh
-```
-
-강제 1회 실행이 필요하면:
-
-```bash
-POLLING_FORCE_RUN=1 ./scripts/vm/poll.sh
-```
-
 ## Daily AI Auto Review/Rebalance
 
 Run one cycle manually:

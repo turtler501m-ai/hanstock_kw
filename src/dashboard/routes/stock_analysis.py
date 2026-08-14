@@ -1238,7 +1238,7 @@ def get_finrl_pipeline():
         "pipeline": [
             {
                 "stage": "Data",
-                "source": "KIS balance + KIS daily chart",
+                "source": "Kiwoom balance + Kiwoom daily chart",
                 "finrl_reference": "meta/data_processor.py",
                 "status": "adapted",
             },
@@ -1263,7 +1263,7 @@ def get_finrl_pipeline():
             },
             {
                 "stage": "Execution",
-                "source": "approval queue + KIS order API",
+                "source": "approval queue + Kiwoom order API",
                 "finrl_reference": "trade.py",
                 "status": "protected by DRY_RUN and approval",
             },

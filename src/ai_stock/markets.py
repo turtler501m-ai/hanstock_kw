@@ -21,7 +21,7 @@ MARKET_META: dict[str, dict[str, Any]] = {
         "code": MARKET_KR,
         "label": "AI한스톡",
         "country": "한국",
-        "provider": "KIS",
+        "provider": "KIWOOM",
         "currency": "KRW",
         "indices": ["KOSPI", "KOSDAQ"],
         "symbol_kind": "numeric6",

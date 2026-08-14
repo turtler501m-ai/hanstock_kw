@@ -37,7 +37,7 @@ def is_us_market_open() -> bool:
 
 def run_monitoring_cycle() -> dict:
     """
-    장중 미스톡 주문 상태 및 KIS API 서킷 브레이커 상태를 모니터링합니다.
+    장중 미스톡 주문 상태 및 키움 API 상태를 모니터링합니다.
     오류 발생 시 슬랙 긴급 알림을 발송합니다.
     """
     logger.info("[MISTOCK MONITOR] Starting health monitoring cycle.")
@@ -49,10 +49,10 @@ def run_monitoring_cycle() -> dict:
 
     alerts = []
 
-    # 1. KIS API 서킷 브레이커 오픈 검사
+    # 1. 키움 API 클라이언트 상태 검사
     try:
         if mistock_config.trading_env in {"demo", "real"}:
-            client = mistock_trader._get_kis_client()
+            client = mistock_trader._get_broker_client()
             now_utc = datetime.now(timezone.utc)
             cb_status = client.circuit.status(
                 now_utc,
@@ -61,11 +61,11 @@ def run_monitoring_cycle() -> dict:
             )
             if cb_status.get("opened", False):
                 err_msg = (
-                    f"🚨 *[미스톡 경보] KIS API 서킷 브레이커 오픈 감지!*\n"
+                    f"🚨 *[미스톡 경보] 키움 API 서킷 브레이커 오픈 감지!*\n"
                     f"연속 오류 횟수: {cb_status['error_count']}/{cb_status['max_errors']}회\n"
                     f"서킷 오픈 시각: {cb_status['opened_at']}\n"
                     f"재시도 대기 시간: {cb_status['retry_after_seconds']}초\n"
-                    f"👉 대시보드에서 KIS API 상태 및 원본 에러 로그를 확인하고 Circuit Breaker를 리셋하세요."
+                    f"👉 대시보드에서 키움 API 상태 및 원본 에러 로그를 확인하고 Circuit Breaker를 리셋하세요."
                 )
                 alerts.append(err_msg)
     except Exception as e:

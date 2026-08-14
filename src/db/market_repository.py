@@ -352,7 +352,7 @@ def save_daily_charts(symbol: str, data: list[dict]) -> None:
         with connect_db() as conn:
             for row in data:
                 date_str = row.get("date") or row.get("stck_bsop_date")
-                # KIS API 날짜 포맷 'YYYYMMDD'을 'YYYY-MM-DD'로 규격화
+                # Broker API 날짜 포맷 'YYYYMMDD'을 'YYYY-MM-DD'로 규격화
                 if date_str and len(date_str) == 8 and date_str.isdigit():
                     date_str = f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:8]}"
                 

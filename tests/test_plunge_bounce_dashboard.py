@@ -43,7 +43,7 @@ class PlungeBounceDashboardTests(unittest.TestCase):
             def get_balance(self):
                 return {"output1": []}
 
-        with patch("src.trader.KIStockAPI", return_value=FakeAPI()), \
+        with patch.object(plunge_bounce, "_get_api", return_value=FakeAPI(), create=True), \
                 patch("src.db.repository.load_strategy_universe_symbols", return_value=[]), \
                 patch("src.strategy.seven_split.find_candidates") as find_candidates:
             result = plunge_bounce._strategy_scan("heikin_ashi_scalping_strategy")
@@ -58,7 +58,7 @@ class PlungeBounceDashboardTests(unittest.TestCase):
             def get_balance(self):
                 return {"output1": []}
 
-        with patch("src.trader.KIStockAPI", return_value=FakeAPI()), \
+        with patch.object(plunge_bounce, "_get_api", return_value=FakeAPI(), create=True), \
                 patch("src.db.repository.load_strategy_universe_symbols", return_value=[]), \
                 patch("src.strategy.seven_split.find_candidates") as find_candidates:
             result = plunge_bounce.run_plunge_bounce_scan()

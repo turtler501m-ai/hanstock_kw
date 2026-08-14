@@ -17,7 +17,7 @@ from src.utils.exchange_rate import get_usd_krw_rate
 from src.utils.logger import logger
 
 
-_kis_client_cache = None
+_broker_client_cache = None
 
 
 @lru_cache(maxsize=512)
@@ -62,13 +62,13 @@ def _overseas_balance_cache_ttl(cached: dict[str, Any] | None) -> float:
 
 
 def _get_overseas_balance_cached() -> dict[str, Any]:
-    """Coalesce dashboard balance polling into one short-lived KIS request."""
+    """Coalesce dashboard balance polling into one short-lived broker request."""
     global _overseas_balance_cache
     global _overseas_balance_cache_client
     global _overseas_balance_cache_at
     global _overseas_balance_failure_count
 
-    client = _get_kis_client()
+    client = _get_broker_client()
     now = time.monotonic()
     cached = _overseas_balance_cache
     ttl = _overseas_balance_cache_ttl(cached)
@@ -91,7 +91,7 @@ def _get_overseas_balance_cached() -> dict[str, Any]:
             return cached
         result = client.get_overseas_balance()
         if not isinstance(result, dict):
-            result = {"output1": [], "output2": {}, "_error": "invalid KIS balance response"}
+            result = {"output1": [], "output2": {}, "_error": "invalid broker balance response"}
         if _overseas_balance_cache_client is not client:
             _overseas_balance_failure_count = 0
         if result.get("_error"):
@@ -181,52 +181,32 @@ def _holdings_from_overseas_balance(balance_data: dict[str, Any]) -> list[dict[s
     return holdings
 
 
-def _get_kis_client():
+def _get_broker_client():
     from src.online_access import require_online_access
 
     require_online_access(f"{config.stock_broker.upper()} overseas stock API access")
-    global _kis_client_cache
-    if _kis_client_cache is None:
-        if config.stock_broker == "kiwoom":
-            from src.broker.kiwoom_client import KiwoomRestClient
-            from src.broker.kiwoom_us_adapter import KiwoomUSStockAdapter
-            from src.config import config as main_config
-
-            env = str(config.trading_env or "demo").lower()
-            if env != "demo":
-                raise RuntimeError("Kiwoom US integration is demo-only")
-            app_key = str(main_config.kiwoom_us_demo_app_key or "").strip()
-            app_secret = str(main_config.kiwoom_us_demo_app_secret or "").strip()
-            account_no = str(main_config.kiwoom_us_demo_account or "").strip()
-            if not app_key or not app_secret or not account_no:
-                raise RuntimeError("Kiwoom US demo account, App Key and App Secret are required")
-            _kis_client_cache = KiwoomUSStockAdapter(
-                KiwoomRestClient(app_key, app_secret, environment="mock"),
-                account_no=account_no,
-                order_submission_enabled=runtime_flags()["order_submission_enabled"],
-                exchange_resolver=_kiwoom_us_exchange,
-            )
-            return _kis_client_cache
-        if config.stock_broker != "kis":
+    global _broker_client_cache
+    if _broker_client_cache is None:
+        if config.stock_broker != "kiwoom":
             raise RuntimeError(f"Unsupported mistock broker: {config.stock_broker!r}")
-        from src.kis_client import KISClient, KISClientConfig
+        from src.broker.kiwoom_client import KiwoomRestClient
+        from src.broker.kiwoom_us_adapter import KiwoomUSStockAdapter
         from src.config import config as main_config
-        from src.api.kis_api import HTTP
-        from pathlib import Path
-        env = config.trading_env
-        if env not in {"demo", "real"}:
-            env = "demo"
-        base_url = "https://openapi.koreainvestment.com:9443" if env == "real" else "https://openapivts.koreainvestment.com:29443"
-        client_config = KISClientConfig(
-            base_url=base_url,
-            app_key=main_config.kistock_app_key,
-            app_secret=main_config.kistock_app_secret,
-            account_no=main_config.kistock_account,
-            trading_env=env,
-            token_cache_path=Path("data") / "kis_token.json",
+        env = str(config.trading_env or "demo").lower()
+        if env != "demo":
+            raise RuntimeError("Kiwoom US integration is demo-only")
+        app_key = str(main_config.kiwoom_us_demo_app_key or "").strip()
+        app_secret = str(main_config.kiwoom_us_demo_app_secret or "").strip()
+        account_no = str(main_config.kiwoom_us_demo_account or "").strip()
+        if not app_key or not app_secret or not account_no:
+            raise RuntimeError("Kiwoom US demo account, App Key and App Secret are required")
+        _broker_client_cache = KiwoomUSStockAdapter(
+            KiwoomRestClient(app_key, app_secret, environment="mock"),
+            account_no=account_no,
+            order_submission_enabled=runtime_flags()["order_submission_enabled"],
+            exchange_resolver=_kiwoom_us_exchange,
         )
-        _kis_client_cache = KISClient(client_config, session=HTTP)
-    return _kis_client_cache
+    return _broker_client_cache
 
 def runtime_flags() -> dict[str, Any]:
     real_orders_enabled = (not config.dry_run) and config.trading_env == "real" and config.enable_live_trading
@@ -463,7 +443,7 @@ def _demo_shadow_cash(exchange_rate: float) -> float:
     return max(0.0, principal - opening_cost - buys + sells - costs)
 
 
-def _kis_demo_order_is_unsupported(msg: str) -> bool:
+def _demo_order_is_unsupported(msg: str) -> bool:
     normalized = str(msg or "")
     return any(
         marker in normalized
@@ -488,7 +468,7 @@ def get_holdings() -> list[dict[str, Any]]:
             return holdings
         except Exception as e:
             from src.utils.logger import logger
-            logger.error(f"Failed to fetch KIS US holdings: {e}")
+            logger.error(f"Failed to fetch Kiwoom US holdings: {e}")
             return _local_holdings_from_db(refresh_quote=False) if config.trading_env == "demo" else []
 
 
@@ -530,7 +510,7 @@ def get_balance() -> dict[str, Any]:
             else:
                 summary = {}
 
-            # KIS 외화 예수금 파싱 (USD 기준)
+            # 키움 외화 예수금 파싱 (USD 기준)
             cash = _first_positive(summary, [
                 "frcr_dncl_amt",
                 "frcr_dncl_amt_2",
@@ -551,7 +531,7 @@ def get_balance() -> dict[str, Any]:
                 exchange_rate = get_usd_krw_rate()
 
             # output3의 frcr_use_psbl_amt(외화사용가능금액)가 있으면 USD 현금으로 우선 사용
-            # 이 값이 KIS가 실제 허용하는 해외주식 매수가능 달러 금액이다
+            # 이 값이 키움이 실제 허용하는 해외주식 매수가능 달러 금액이다
             frcr_use_psbl = _to_float(output3.get("frcr_use_psbl_amt"), 0.0)
             if frcr_use_psbl > 0:
                 cash = frcr_use_psbl
@@ -596,7 +576,7 @@ def get_balance() -> dict[str, Any]:
                     effective_total = cash + stock_eval
                     if effective_total > configured_cap:
                         cash = max(0.0, configured_cap - stock_eval)
-                        balance_source = f"{balance_data.get('_broker', 'kis')}_config_capped"
+                        balance_source = f"{balance_data.get('_broker', 'kiwoom')}_config_capped"
             total_eval = cash + stock_eval
             return {
                 "cash": cash,
@@ -612,7 +592,7 @@ def get_balance() -> dict[str, Any]:
             }
         except Exception as e:
             from src.utils.logger import logger
-            logger.error(f"Failed to fetch KIS US balance: {e}")
+            logger.error(f"Failed to fetch Kiwoom US balance: {e}")
             return {
                 "cash": 0.0,
                 "total_eval": 0.0,
@@ -655,7 +635,7 @@ def scan_candidates(
 ) -> dict[str, Any]:
     api = None
     try:
-        api = _get_kis_client()
+        api = _get_broker_client()
     except Exception:
         pass
     from src.mistock.strategy import build_scan_universe
@@ -966,25 +946,25 @@ def place_order(symbol: str, action: str, qty: float, price: float, reason: str 
             return {"ok": True, "status": "dry_run", "msg1": "dry run order skipped"}
 
         try:
-            client = _get_kis_client()
+            client = _get_broker_client()
             res = client.place_overseas_order(symbol, action, price, qty)
             rt_cd = res.get("rt_cd")
-            msg = res.get("msg1") or "KIS order response received"
+            msg = res.get("msg1") or "Kiwoom order response received"
             ok = (rt_cd == "0")
             status = "filled" if ok else "failed"
             if ok and config.trading_env == "demo":
                 _apply_local_filled_order(symbol, action, qty, price)
-            elif config.trading_env == "demo" and _kis_demo_order_is_unsupported(msg):
+            elif config.trading_env == "demo" and _demo_order_is_unsupported(msg):
                 _apply_local_filled_order(symbol, action, qty, price)
                 ok = True
                 status = "demo_local_filled"
-                msg = f"KIS demo overseas order unsupported; local shadow fill applied: {msg}"
+                msg = f"Kiwoom demo overseas order unsupported; local shadow fill applied: {msg}"
             save_trade(symbol, symbol_name(symbol), action, qty, price, reason, ok, status, msg, strategy_id)
             notify_slack_order(symbol, action, qty, price, reason or msg, ok)
             return {"ok": ok, "status": status, "msg1": msg, "res": res}
         except Exception as e:
             from src.utils.logger import logger
-            logger.error(f"Failed to place KIS US order: {e}")
+            logger.error(f"Failed to place Kiwoom US order: {e}")
             save_trade(symbol, symbol_name(symbol), action, qty, price, reason, False, "failed", str(e), strategy_id)
             notify_slack_order(symbol, action, qty, price, str(e), False)
             return {"ok": False, "status": "failed", "message": str(e)}
@@ -997,7 +977,7 @@ def cancel_order(symbol: str, order_no: str, qty: float = 0) -> dict[str, Any]:
     if config.dry_run:
         return {"ok": True, "status": "dry_run", "msg1": "dry run cancel skipped"}
     try:
-        res = _get_kis_client().cancel_overseas_order(symbol, order_no, qty=qty)
+        res = _get_broker_client().cancel_overseas_order(symbol, order_no, qty=qty)
         return {"ok": res.get("rt_cd") == "0", "status": "submitted" if res.get("rt_cd") == "0" else "failed", "res": res}
     except Exception as exc:
         return {"ok": False, "status": "failed", "message": str(exc)}
@@ -1010,7 +990,7 @@ def revise_order(symbol: str, order_no: str, qty: float, price: float) -> dict[s
     if config.dry_run:
         return {"ok": True, "status": "dry_run", "msg1": "dry run revise skipped"}
     try:
-        res = _get_kis_client().revise_overseas_order(symbol, order_no, qty=qty, price=price)
+        res = _get_broker_client().revise_overseas_order(symbol, order_no, qty=qty, price=price)
         return {"ok": res.get("rt_cd") == "0", "status": "submitted" if res.get("rt_cd") == "0" else "failed", "res": res}
     except Exception as exc:
         return {"ok": False, "status": "failed", "message": str(exc)}
@@ -1042,6 +1022,6 @@ def save_trade(symbol: str, name: str, action: str, qty: float, price: float, re
 
 
 def reset_circuit() -> None:
-    client = _get_kis_client()
+    client = _get_broker_client()
     if client and hasattr(client, "circuit"):
         client.circuit.reset()

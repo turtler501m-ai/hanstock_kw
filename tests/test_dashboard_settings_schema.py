@@ -45,8 +45,8 @@ class DashboardSettingsSchemaTests(unittest.TestCase):
             "KIWOOM_DOMESTIC_REAL_APP_SECRET",
         }
         self.assertTrue(expected <= set(ENV_FIELD_MAP))
-        self.assertEqual(ENV_FIELD_MAP["DOMESTIC_STOCK_BROKER"]["options"], ["kis", "kiwoom"])
-        self.assertEqual(ENV_FIELD_MAP["MISTOCK_STOCK_BROKER"]["options"], ["kis", "kiwoom"])
+        self.assertEqual(ENV_FIELD_MAP["DOMESTIC_STOCK_BROKER"]["options"], ["kiwoom"])
+        self.assertEqual(ENV_FIELD_MAP["MISTOCK_STOCK_BROKER"]["options"], ["kiwoom"])
         self.assertEqual(ENV_FIELD_MAP["KIWOOM_TRADING_ENV"]["options"], ["demo", "real"])
         for key in expected:
             if key.endswith(("APP_KEY", "APP_SECRET")):

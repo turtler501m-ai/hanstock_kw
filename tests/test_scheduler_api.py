@@ -30,19 +30,19 @@ class SchedulerApiTests(unittest.TestCase):
             conn.execute("DELETE FROM scheduler_results")
             conn.commit()
 
-    @patch("src.dashboard.Path.exists", return_value=False)
+    @patch("src.dashboard.routes.stock_plan.Path.exists", return_value=False)
     @patch("src.db.repository.load_latest_scheduler_result", return_value=None)
     def test_get_scheduler_status_handles_missing_file_gracefully(self, mock_load, mock_exists):
         status = get_scheduler_status()
         self.assertIn("config", status)
         self.assertIn("last_result", status)
-        self.assertIsNone(status["last_result"])
+        self.assertEqual(status["last_result"]["result"]["status"], "empty")
         self.assertFalse(status["run_state"]["is_running"])
 
-    @patch("src.dashboard.Path.exists", return_value=True)
-    @patch("src.dashboard.Path.read_text", return_value='{"mode": "daily_auto", "result": {"results": []}}')
+    @patch("src.dashboard.routes.stock_plan.Path.exists", return_value=True)
+    @patch("src.dashboard.routes.stock_plan.Path.read_text", return_value='{"mode": "daily_auto", "result": {"results": []}}')
     def test_get_scheduler_status_loads_existing_result(self, mock_read, mock_exists):
-        status = get_scheduler_status()
+        status = get_scheduler_status(period="monthly")
         self.assertIsNotNone(status["last_result"])
         self.assertEqual(status["last_result"]["mode"], "daily_auto")
 
@@ -66,7 +66,7 @@ class SchedulerApiTests(unittest.TestCase):
         ],
     )
     def test_get_scheduler_status_reports_strategy_id_not_model(self, mock_load):
-        status = get_scheduler_status()
+        status = get_scheduler_status(period="monthly")
 
         self.assertEqual(status["active_strategy_id"], "selected_strategy")
         self.assertEqual(status["active_strategy_name"], "Selected")
@@ -196,7 +196,7 @@ class SchedulerApiTests(unittest.TestCase):
             {"results": [{"symbol": "035420", "reason": "old"}], "auto_approved": []},
         )
 
-        status = get_scheduler_status()
+        status = get_scheduler_status(period="monthly")
         rows = status["last_result"]["result"]["results"]
         runs = status["last_result"]["result"]["execution_runs"]
 

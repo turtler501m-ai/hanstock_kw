@@ -224,7 +224,7 @@ def _autonomy_coverage(runtime_mode: dict[str, Any]) -> list[dict[str, str]]:
             "status": "blocked" if live_blocked else "implemented",
             "title": "체결 후 보호 없으면 신규 위험 차단",
             "evidence": "HardStopProtectionService, PaperProtectionBroker, UnavailableProtectionBroker",
-            "gap": "KIS/해외 실계좌 조건부 손절 어댑터가 없어 실운영 매수 보호는 fail-closed",
+            "gap": "해외 실계좌 조건부 손절 어댑터가 없어 실운영 매수 보호는 fail-closed",
         },
         {
             "area": "성과·건강 자동중단",

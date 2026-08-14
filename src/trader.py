@@ -1,10 +1,11 @@
+from __future__ import annotations
+
 """
 Seven Split auto-trading engine (Refactored).
 """
 import json
 import os
 import sys
-import threading
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone, timedelta
@@ -17,9 +18,6 @@ if str(ROOT) not in sys.path:
 
 from src.config import config, get_settings, trading_flags
 from src.utils.logger import logger
-from src.online_access import require_online_access
-from src.api.kis_api import HTTP, _kis_throttle
-from src.kis_client import KISClient, KISClientConfig
 from src.db.repository import init_db, connect_db, save_trade, update_trade_order_status
 from src.notifier.slack import slack_session_start, slack_order, slack_candidates, slack_session_end, slack_error
 from src.strategy.seven_split import (
@@ -32,6 +30,7 @@ from src.strategy.seven_split import (
 from src.strategy.indicators import calc_bollinger, calc_macd, calc_rsi, calc_sma
 from src.strategy.risk import RiskEngine
 from src.strategy.router import OrderRouter
+from src.broker.models import AccountBalance, Holding
 from src.execution_plan import (
     PlanRow,
     signal_to_plan_row,
@@ -55,26 +54,6 @@ class TraderRuntimeContext:
         current = get_settings()
         settings = current.model_copy(deep=True)
         return cls(settings=settings, flags=trading_flags(settings))
-
-    def kis_client_config(self, group: str = "default") -> KISClientConfig:
-        settings = self.settings
-        if group == "real_check":
-            return KISClientConfig(
-                base_url=_kis_base_url("real"),
-                app_key=settings.kis_real_check_app_key,
-                app_secret=settings.kis_real_check_app_secret,
-                account_no=settings.kis_real_check_account or settings.kistock_account,
-                trading_env="real",
-                token_cache_path=Path("data") / "kis_token_real_check.json",
-            )
-        return KISClientConfig(
-            base_url=_kis_base_url(self.flags.trading_env),
-            app_key=settings.kistock_app_key,
-            app_secret=settings.kistock_app_secret,
-            account_no=settings.kistock_account,
-            trading_env=self.flags.trading_env,
-            token_cache_path=Path("data") / "kis_token.json",
-        )
 
 ONLINE_ACCESS_BLOCKED = config.online_access_blocked
 
@@ -103,7 +82,6 @@ def sync_legacy_config_aliases() -> None:
     global SPLIT_N, STOP_LOSS_PCT, TAKE_PROFIT, RSI_BUY, RSI_SELL
     global MAX_SINGLE_WEIGHT, CASH_BUFFER
     global MAX_DAILY_LOSS_PCT, SCAN_UNIVERSE_SIZE
-    global BASE_URL, KISTOCK_APP_KEY, KISTOCK_APP_SECRET, KISTOCK_ACCOUNT
 
     settings = get_settings()
     flags = trading_flags(settings)
@@ -117,14 +95,6 @@ def sync_legacy_config_aliases() -> None:
     CASH_BUFFER = settings.cash_buffer
     MAX_DAILY_LOSS_PCT = settings.max_daily_loss_pct
     SCAN_UNIVERSE_SIZE = settings.scan_universe_size
-    BASE_URL = (
-        "https://openapi.koreainvestment.com:9443"
-        if settings.trading_env == "real"
-        else "https://openapivts.koreainvestment.com:29443"
-    )
-    KISTOCK_APP_KEY = settings.kistock_app_key
-    KISTOCK_APP_SECRET = settings.kistock_app_secret
-    KISTOCK_ACCOUNT = settings.kistock_account
     if "_LEGACY_SYNCED_VALUES" in globals():
         _LEGACY_SYNCED_VALUES.update({
             name: globals()[name]
@@ -134,24 +104,11 @@ def sync_legacy_config_aliases() -> None:
 RUNTIME_DIR = Path(".runtime")
 DB_PATH = Path(config.trade_db_path)
 
-# KIS API module-level constants (patchable in tests)
-BASE_URL = (
-    "https://openapi.koreainvestment.com:9443"
-    if config.trading_env == "real"
-    else "https://openapivts.koreainvestment.com:29443"
-)
-KISTOCK_APP_KEY = config.kistock_app_key
-KISTOCK_APP_SECRET = config.kistock_app_secret
-KISTOCK_ACCOUNT = config.kistock_account
 _LEGACY_SYNCED_VALUES = {
     name: globals()[name]
     for name in (
         "ONLINE_ACCESS_BLOCKED",
         "MAX_DAILY_LOSS_PCT",
-        "BASE_URL",
-        "KISTOCK_APP_KEY",
-        "KISTOCK_APP_SECRET",
-        "KISTOCK_ACCOUNT",
     )
 }
 
@@ -221,474 +178,6 @@ def buying_cash_diagnostics(
         "exposure_remaining": exposure_remaining,
         "buying_cash": min(broker_cash_int, max(0, exposure_remaining)),
     }
-
-
-_KIS_ORDER_THROTTLE_LOCK = threading.Lock()
-_KIS_ORDER_LAST_CALL = 0.0
-_KIS_ORDER_MIN_INTERVAL_SECONDS = float(os.environ.get("KIS_ORDER_MIN_INTERVAL_SECONDS", "4.0"))
-
-
-def _kis_base_url(trading_env: str) -> str:
-    return (
-        "https://openapi.koreainvestment.com:9443"
-        if trading_env == "real"
-        else "https://openapivts.koreainvestment.com:29443"
-    )
-
-
-def build_kis_client_config(group: str = "default", *, runtime: TraderRuntimeContext | None = None) -> KISClientConfig:
-    if runtime is not None:
-        return runtime.kis_client_config(group)
-    settings = get_settings()
-    if group == "real_check":
-        return TraderRuntimeContext.capture().kis_client_config(group)
-    flags = trading_flags(settings)
-    return KISClientConfig(
-        base_url=_runtime_value("BASE_URL", _kis_base_url(flags.trading_env)),
-        app_key=_runtime_value("KISTOCK_APP_KEY", settings.kistock_app_key),
-        app_secret=_runtime_value("KISTOCK_APP_SECRET", settings.kistock_app_secret),
-        account_no=_runtime_value("KISTOCK_ACCOUNT", settings.kistock_account),
-        trading_env=flags.trading_env,
-        token_cache_path=Path("data") / "kis_token.json",
-    )
-
-
-def _kis_order_throttle() -> None:
-    global _KIS_ORDER_LAST_CALL
-    if _KIS_ORDER_MIN_INTERVAL_SECONDS <= 0:
-        return
-    with _KIS_ORDER_THROTTLE_LOCK:
-        elapsed = time.monotonic() - _KIS_ORDER_LAST_CALL
-        if elapsed < _KIS_ORDER_MIN_INTERVAL_SECONDS:
-            time.sleep(_KIS_ORDER_MIN_INTERVAL_SECONDS - elapsed)
-        _KIS_ORDER_LAST_CALL = time.monotonic()
-
-
-class KIStockAPI:
-    """KIS API client wired through trader module-level constants for testability."""
-
-    TOKEN_CACHE = Path("data") / "kis_token.json"
-    ETF_MARKET_CODES = {
-        "102110", "133690", "148020", "152100", "157490",
-        "229200", "251340", "261240", "273130", "278530",
-        "305720", "381170", "448290", "481190",
-    }
-    _err_count: int = 0
-    _circuit_opened_at: "datetime | None" = None
-    MAX_ERRORS: int = 5
-
-    def __init__(self, notify_errors: bool = True, group: str = "default", runtime: TraderRuntimeContext | None = None) -> None:
-        require_online_access("KIS API access")
-        self._runtime_injected = runtime is not None
-        self.runtime = runtime or TraderRuntimeContext.capture()
-        self.notify_errors = notify_errors
-        self.group = group
-        self.client_config = build_kis_client_config(
-            group=group,
-            runtime=self.runtime if self._runtime_injected else None,
-        )
-        self.base_url = getattr(self.client_config, "base_url", BASE_URL)
-        self.app_key = getattr(self.client_config, "app_key", KISTOCK_APP_KEY)
-        self.app_secret = getattr(self.client_config, "app_secret", KISTOCK_APP_SECRET)
-        self.account_no = getattr(self.client_config, "account_no", KISTOCK_ACCOUNT)
-        self.trading_env = getattr(self.client_config, "trading_env", self.runtime.flags.trading_env)
-        if self.group == "real_check":
-            self.token_cache_path = getattr(self.client_config, "token_cache_path", None) or (
-                Path("data") / "kis_token_real_check.json"
-            )
-        else:
-            self.token_cache_path = self.TOKEN_CACHE
-        self._apply_group_condition_settings()
-        self.access_token = self._load_or_fetch_token()
-        self._client = KISClient(self.client_config, session=HTTP, access_token=self.access_token)
-
-    def _apply_group_condition_settings(self) -> None:
-        settings = self.runtime.settings
-        if self.group == "real_check":
-            self.kis_condition_search_enabled = settings.kis_real_check_condition_search_enabled
-            self.kis_condition_user_id = (
-                settings.kis_real_check_condition_user_id
-                or settings.kis_real_check_hts_id
-                or settings.kistock_hts_id
-            )
-            self.kis_condition_seq = settings.kis_real_check_condition_seq
-            self.kis_condition_name = settings.kis_real_check_condition_name
-            return
-        self.kis_condition_search_enabled = settings.kis_condition_search_enabled
-        self.kis_condition_user_id = settings.kis_condition_user_id or settings.kistock_hts_id
-        self.kis_condition_seq = settings.kis_condition_seq
-        self.kis_condition_name = settings.kis_condition_name
-
-    def _load_or_fetch_token(self) -> str:
-        cache_path = Path(self.token_cache_path)
-        if cache_path.exists():
-            try:
-                cached = json.loads(cache_path.read_text(encoding="utf-8"))
-                expires_at = datetime.fromisoformat(cached["expires_at"])
-                if (
-                    cached.get("trading_env") == self.trading_env
-                    and cached.get("base_url") == self.base_url
-                    and cached.get("app_key_prefix") == self.app_key[:8]
-                    and expires_at > datetime.now() + timedelta(minutes=5)
-                ):
-                    return cached["token"]
-            except Exception:
-                pass
-        return self._fetch_token()
-
-    def _fetch_token(self) -> str:
-        r = HTTP.post(
-            f"{self.base_url}/oauth2/tokenP",
-            json={
-                "grant_type": "client_credentials",
-                "appkey": self.app_key,
-                "appsecret": self.app_secret,
-            },
-            timeout=10,
-        )
-        r.raise_for_status()
-        data = r.json()
-        token = data.get("access_token", "")
-        expires_at = datetime.now() + timedelta(hours=23)
-        cache_path = Path(self.token_cache_path)
-        cache_path.parent.mkdir(parents=True, exist_ok=True)
-        import hashlib
-        app_key_hash = hashlib.sha256(self.app_key.encode("utf-8")).hexdigest()
-        cache_path.write_text(
-            json.dumps({
-                "token": token,
-                "expires_at": expires_at.isoformat(),
-                "trading_env": self.trading_env,
-                "base_url": self.base_url,
-                "app_key_prefix": self.app_key[:8],
-                "app_key_hash": app_key_hash,
-            }),
-            encoding="utf-8",
-        )
-        return token
-
-    def _headers(self, tr_id: str) -> dict:
-        self._client.access_token = self.access_token
-        return self._client.headers(tr_id)
-
-    def _hashkey(self, payload: dict) -> str:
-        try:
-            return self._client.create_hashkey(payload)
-        except Exception:
-            return ""
-
-    def _fail(self) -> None:
-        self.__class__._err_count = min(self.MAX_ERRORS, self.__class__._err_count + 1)
-
-    def _success(self) -> None:
-        self.__class__._err_count = 0
-        self.__class__._circuit_opened_at = None
-
-    def _record_result(self, data: dict) -> None:
-        if data.get("rt_cd") == "0":
-            self._success()
-        else:
-            self._fail()
-
-    def _order_submission_enabled(self) -> bool:
-        runtime = getattr(self, "runtime", None)
-        return bool(runtime.flags.order_submission_enabled)
-
-    def _sync_circuit_to_client(self) -> None:
-        self._client.circuit.error_count = self.__class__._err_count
-        self._client.circuit.opened_at = self.__class__._circuit_opened_at
-
-    def _sync_circuit_from_client(self) -> None:
-        self.__class__._err_count = self._client.circuit.error_count
-        self.__class__._circuit_opened_at = self._client.circuit.opened_at
-
-    @classmethod
-    def reset_circuit(cls) -> None:
-        cls._err_count = 0
-        cls._circuit_opened_at = None
-
-    @classmethod
-    def circuit_status(cls) -> dict:
-        opened = cls._err_count >= cls.MAX_ERRORS
-        opened_at = cls._circuit_opened_at.isoformat() if cls._circuit_opened_at else None
-        return {
-            "opened": opened,
-            "error_count": cls._err_count,
-            "max_errors": cls.MAX_ERRORS,
-            "opened_at": opened_at,
-        }
-
-    def get_balance(self) -> dict:
-        tr_id = "VTTC8434R" if self.trading_env == "demo" else "TTTC8434R"
-        url = f"{self.base_url}/uapi/domestic-stock/v1/trading/inquire-balance"
-        cano = self.account_no[:8]
-        acnt = self.account_no[8:] if len(self.account_no) > 8 else "01"
-        params = {
-            "CANO": cano, "ACNT_PRDT_CD": acnt,
-            "AFHR_FLPR_YN": "N", "OFL_YN": "", "INQR_DVSN": "02",
-            "UNPR_DVSN": "01", "FUND_STTL_ICLD_YN": "N",
-            "FNCG_AMT_AUTO_RDPT_YN": "N", "PRCS_DVSN": "01",
-            "CTX_AREA_FK100": "", "CTX_AREA_NK100": "",
-        }
-        try:
-            rows = []
-            page_params = dict(params)
-            tr_cont = ""
-            seen_page_tokens: set[tuple[str, str]] = set()
-            first_page: dict | None = None
-            for _page_count in range(1, 101):
-                _kis_order_throttle()
-                headers = self._headers(tr_id)
-                if tr_cont:
-                    headers["tr_cont"] = tr_cont
-                r = HTTP.get(url, headers=headers, params=page_params, timeout=15)
-                if getattr(r, "status_code", 200) != 200:
-                    try:
-                        data = r.json()
-                    except Exception:
-                        data = {}
-                    msg = data.get("msg1") if isinstance(data, dict) else ""
-                    if not msg:
-                        msg = getattr(r, "text", "")
-                    raise RuntimeError(f"KIS balance HTTP {r.status_code}: {msg or 'request failed'}")
-                data = r.json()
-                if data.get("rt_cd") not in (None, "0"):
-                    raise RuntimeError(
-                        f"KIS balance failed: {data.get('msg1') or 'unknown broker error'}"
-                    )
-                if first_page is None:
-                    first_page = dict(data)
-                rows.extend(data.get("output1", []) or [])
-
-                next_fk = str(data.get("ctx_area_fk100") or data.get("CTX_AREA_FK100") or "").strip()
-                next_nk = str(data.get("ctx_area_nk100") or data.get("CTX_AREA_NK100") or "").strip()
-                response_headers = getattr(r, "headers", {}) or {}
-                tr_cont = str(response_headers.get("tr_cont") or response_headers.get("tr-cont") or "").strip()
-                page_token = (next_fk, next_nk)
-                if tr_cont not in {"M", "F"} or (not next_fk and not next_nk):
-                    break
-                if page_token in seen_page_tokens:
-                    raise RuntimeError("KIS balance pagination returned a repeated token")
-                seen_page_tokens.add(page_token)
-                page_params["CTX_AREA_FK100"] = next_fk
-                page_params["CTX_AREA_NK100"] = next_nk
-            else:
-                raise RuntimeError("KIS balance pagination exceeded 100 pages")
-
-            result = first_page or {"rt_cd": "0"}
-            result["output1"] = rows
-            self._success()
-            return result
-        except Exception as e:
-            logger.error(f"Failed to get KIS balance: {e}")
-            self._fail()
-            raise
-
-    def get_quote(self, symbol: str) -> dict:
-        self._sync_circuit_to_client()
-        _kis_order_throttle()
-        try:
-            r = HTTP.get(
-                f"{self.base_url}/uapi/domestic-stock/v1/quotations/inquire-price",
-                headers=self._headers("FHKST01010100"),
-                params={"FID_COND_MRKT_DIV_CODE": "J", "FID_INPUT_ISCD": symbol},
-                timeout=10,
-            )
-            output = r.json().get("output", {})
-            self._success()
-            self._sync_circuit_from_client()
-            return {
-                "current": float(output.get("stck_prpr", 0)),
-                "ask1": float(output.get("askp1", 0)),
-                "bid1": float(output.get("bidp1", 0)),
-                "market_cap": float(output.get("hts_avls", 0) or 0) * 100_000_000,
-            }
-        except Exception as e:
-            logger.warning(f"get_quote failed for {symbol}: {e}")
-            self._fail()
-            self._sync_circuit_from_client()
-            return {"current": 0.0, "ask1": 0.0, "bid1": 0.0, "market_cap": 0.0}
-
-    def get_volume_rank(self, top_n: int = 50) -> list:
-        self._sync_circuit_to_client()
-        result = self._client.get_volume_rank(top_n=top_n)
-        self._sync_circuit_from_client()
-        return result
-
-    def get_daily(self, symbol: str, n: int = 60) -> list:
-        self._sync_circuit_to_client()
-        result = self._client.get_daily(symbol, n=n)
-        self._sync_circuit_from_client()
-        return result
-
-    def get_index_daily(self, index_code: str, n: int = 90) -> list:
-        self._sync_circuit_to_client()
-        result = self._client.get_index_daily(index_code, n=n)
-        self._sync_circuit_from_client()
-        return result
-
-    def place_order(self, symbol: str, order_type: str, price: int, qty: int) -> dict:
-        require_online_access("KIS order submission")
-        if not self._order_submission_enabled():
-            return {"rt_cd": "0", "msg1": "DRY_RUN"}
-        is_demo = self.trading_env == "demo"
-        if order_type == "buy":
-            tr_id = "VTTC0802U" if is_demo else "TTTC0802U"
-        else:
-            tr_id = "VTTC0801U" if is_demo else "TTTC0801U"
-        url = f"{self.base_url}/uapi/domestic-stock/v1/trading/order-cash"
-        cano = self.account_no[:8]
-        acnt = self.account_no[8:] if len(self.account_no) > 8 else "01"
-        body = {
-            "CANO": cano,
-            "ACNT_PRDT_CD": acnt,
-            "PDNO": symbol,
-            "ORD_DVSN": "01" if price == 0 else "00",
-            "ORD_QTY": str(qty),
-            "ORD_UNPR": str(price),
-        }
-        headers = self._headers(tr_id)
-        _kis_order_throttle()
-        hashkey = self._hashkey(body)
-        if hashkey:
-            headers["hashkey"] = hashkey
-        _kis_order_throttle()
-        try:
-            r = HTTP.post(url, headers=headers, json=body, timeout=15)
-            self._success()
-            return r.json()
-        except Exception as e:
-            logger.error(f"place_order failed for {symbol}: {e}")
-            self._fail()
-            return {"rt_cd": "1", "msg1": str(e)}
-
-    def cancel_order(
-        self,
-        order_no: str,
-        *,
-        qty: int = 0,
-        order_division: str = "00",
-        original_order_branch: str = "",
-        exchange_id: str = "KRX",
-        cancel_all: bool = True,
-    ) -> dict:
-        require_online_access("KIS order cancellation")
-        if not self._order_submission_enabled():
-            return {"rt_cd": "0", "msg1": "DRY_RUN"}
-        order_no = str(order_no or "").strip()
-        if not order_no:
-            raise ValueError("order_no is required")
-        body = {
-            "CANO": self.account_no[:8],
-            "ACNT_PRDT_CD": self.account_no[8:] if len(self.account_no) > 8 else "01",
-            "KRX_FWDG_ORD_ORGNO": str(original_order_branch or ""),
-            "ORGN_ODNO": order_no,
-            "ORD_DVSN": str(order_division or "00"),
-            "RVSE_CNCL_DVSN_CD": "02",
-            "ORD_QTY": str(max(0, int(qty))),
-            "ORD_UNPR": "0",
-            "QTY_ALL_ORD_YN": "Y" if cancel_all else "N",
-            "EXCG_ID_DVSN_CD": str(exchange_id or "KRX"),
-        }
-        tr_id = "VTTC0803U" if self.trading_env == "demo" else "TTTC0803U"
-        headers = self._headers(tr_id)
-        hashkey = self._hashkey(body)
-        if hashkey:
-            headers["hashkey"] = hashkey
-        _kis_order_throttle()
-        try:
-            response = HTTP.post(
-                f"{self.base_url}/uapi/domestic-stock/v1/trading/order-rvsecncl",
-                headers=headers,
-                json=body,
-                timeout=15,
-            )
-            data = response.json()
-            self._record_result(data)
-            return data
-        except Exception:
-            self._fail()
-            raise
-
-    def get_trade_history(self, start_date: str, end_date: str) -> list:
-        tr_id = "VTTC0081R" if self.trading_env == "demo" else "TTTC0081R"
-        url = f"{self.base_url}/uapi/domestic-stock/v1/trading/inquire-daily-ccld"
-        cano = self.account_no[:8]
-        acnt = self.account_no[8:] if len(self.account_no) > 8 else "01"
-        params = {
-            "CANO": cano, "ACNT_PRDT_CD": acnt,
-            "INQR_STRT_DT": start_date, "INQR_END_DT": end_date,
-            "SLL_BUY_DVSN_CD": "00", "INQR_DVSN": "00", "PDNO": "",
-            "CCLD_DVSN": "00", "ORD_GNO_BRNO": "", "ODNO": "",
-            "INQR_DVSN_3": "00", "INQR_DVSN_1": "",
-            "EXCG_ID_DVSN_CD": "KRX",
-            "CTX_AREA_FK100": "", "CTX_AREA_NK100": "",
-        }
-        rows = []
-        page_params = dict(params)
-        tr_cont = ""
-        seen_page_tokens: set[tuple[str, str]] = set()
-        max_pages = max(1, int(os.environ.get("KIS_TRADE_HISTORY_MAX_PAGES", "100")))
-        page_count = 0
-        while True:
-            page_count += 1
-            if page_count > max_pages:
-                logger.warning(
-                    "KIS trade history pagination stopped after "
-                    f"{max_pages} pages with {len(rows)} rows"
-                )
-                break
-            _kis_throttle()
-            headers = self._headers(tr_id)
-            if tr_cont:
-                headers["tr_cont"] = tr_cont
-            r = HTTP.get(url, headers=headers, params=page_params, timeout=15)
-            r.raise_for_status()
-            data = r.json()
-            rows.extend(data.get("output1", []) or [])
-
-            next_fk = str(data.get("ctx_area_fk100") or data.get("CTX_AREA_FK100") or "").strip()
-            next_nk = str(data.get("ctx_area_nk100") or data.get("CTX_AREA_NK100") or "").strip()
-            response_headers = getattr(r, "headers", {}) or {}
-            tr_cont = str(response_headers.get("tr_cont") or response_headers.get("tr-cont") or "").strip()
-            page_token = (next_fk, next_nk)
-            if page_count > 1 and page_token in seen_page_tokens:
-                logger.warning(
-                    "KIS trade history pagination returned a repeated token; "
-                    f"stopping with {len(rows)} rows"
-                )
-                break
-            if tr_cont not in {"M", "F"} or (not next_fk and not next_nk):
-                break
-            seen_page_tokens.add(page_token)
-            page_params["CTX_AREA_FK100"] = next_fk
-            page_params["CTX_AREA_NK100"] = next_nk
-        return rows
-
-    def get_condition_search_list(self, user_id: str) -> list:
-        self._sync_circuit_to_client()
-        result = self._client.get_condition_search_list(user_id=user_id)
-        self._sync_circuit_from_client()
-        return result
-
-    def get_condition_search_result(self, user_id: str, condition_no: str, condition_name: str) -> list:
-        self._sync_circuit_to_client()
-        result = self._client.get_condition_search_result(
-            user_id=user_id,
-            condition_no=condition_no,
-            condition_name=condition_name,
-        )
-        self._sync_circuit_from_client()
-        return result
-
-
-def real_check_configured(settings=None) -> bool:
-    current = settings or get_settings()
-    return bool(
-        current.kis_real_check_enabled
-        and current.kis_real_check_app_key
-        and current.kis_real_check_app_secret
-    )
 
 
 def build_market_data_api(
@@ -1417,7 +906,48 @@ def run(
         order_submission_enabled=flags.order_submission_enabled,
     )
     market_data_api = build_market_data_api(api)
-    balance = api.get_balance()
+    account = api.fetch_balance()
+    if not isinstance(account, AccountBalance):
+        raw_balance = api.get_balance()
+        rows = raw_balance.get("output1", [])
+        summary = (raw_balance.get("output2") or [{}])[0]
+        account = AccountBalance(
+            holdings=tuple(Holding(
+                symbol=str(row.get("pdno") or ""),
+                name=str(row.get("prdt_name") or ""),
+                quantity=int(float(row.get("hldg_qty") or 0)),
+                sellable_quantity=int(float(row.get("ord_psbl_qty") or 0)),
+                average_price=float(row.get("pchs_avg_pric") or 0),
+                current_price=float(row.get("prpr") or 0),
+                market_value=float(row.get("evlu_amt") or 0),
+                profit_loss=float(row.get("evlu_pfls_amt") or 0),
+                profit_loss_rate=float(row.get("evlu_pfls_rt") or 0),
+            ) for row in rows),
+            cash=float(summary.get("dnca_tot_amt") or summary.get("prvs_rcdl_excc_amt") or 0),
+            total_equity=float(summary.get("tot_evlu_amt") or 0),
+            stock_value=float(summary.get("scts_evlu_amt") or 0),
+            profit_loss=float(summary.get("evlu_pfls_smtl_amt") or 0),
+        )
+    balance = {
+        "output1": [{
+            "pdno": row.symbol,
+            "prdt_name": row.name,
+            "hldg_qty": str(row.quantity),
+            "ord_psbl_qty": str(row.sellable_quantity),
+            "pchs_avg_pric": str(int(round(row.average_price))),
+            "prpr": str(int(round(row.current_price))),
+            "evlu_amt": str(int(round(row.market_value))),
+            "evlu_pfls_amt": str(int(round(row.profit_loss))),
+            "evlu_pfls_rt": str(row.profit_loss_rate),
+        } for row in account.holdings],
+        "output2": [{
+            "prvs_rcdl_excc_amt": str(int(round(account.cash))),
+            "dnca_tot_amt": str(int(round(account.cash))),
+            "tot_evlu_amt": str(int(round(account.total_equity))),
+            "scts_evlu_amt": str(int(round(account.stock_value))),
+            "evlu_pfls_smtl_amt": str(int(round(account.profit_loss))),
+        }],
+    }
 
     stocks = balance.get("output1", [])
     summary = (balance.get("output2") or [{}])[0]

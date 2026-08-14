@@ -26,25 +26,6 @@ class Settings(BaseSettings):
     kiwoom_us_real_account: str = ""
     kiwoom_us_real_app_key: str = ""
     kiwoom_us_real_app_secret: str = ""
-    # KIS API Credentials (국내주식)
-    kistock_app_key: str = ""
-    kistock_app_secret: str = ""
-    kistock_account: str = ""
-    kistock_hts_id: str = ""
-    kis_websocket_enabled: bool = False
-    kis_condition_search_enabled: bool = False
-    kis_condition_user_id: str = ""
-    kis_condition_seq: str = ""
-    kis_condition_name: str = ""
-    kis_real_check_enabled: bool = False
-    kis_real_check_app_key: str = ""
-    kis_real_check_app_secret: str = ""
-    kis_real_check_account: str = ""
-    kis_real_check_hts_id: str = ""
-    kis_real_check_condition_search_enabled: bool = False
-    kis_real_check_condition_user_id: str = ""
-    kis_real_check_condition_seq: str = ""
-    kis_real_check_condition_name: str = ""
 
     # LS Securities API
     ls_api_enabled: bool = False
@@ -53,20 +34,7 @@ class Settings(BaseSettings):
     ls_account_no: str = ""
     ls_trading_env: str = "demo"
 
-    # KIS 해외선물 모의계좌
-    kis_futures_demo_app_key: Optional[str] = None
-    kis_futures_demo_app_secret: Optional[str] = None
-    kis_futures_demo_account: Optional[str] = None
 
-    # KIS 해외선물 실계좌
-    kis_futures_real_app_key: Optional[str] = None
-    kis_futures_real_app_secret: Optional[str] = None
-    kis_futures_real_account: Optional[str] = None
-
-    # Telegram
-    telegram_api_id: Optional[str] = None
-    telegram_api_hash: Optional[str] = None
-    telegram_target_channels: Optional[str] = None
 
     # Notifications
     slack_webhook_url: Optional[str] = ""
@@ -108,7 +76,6 @@ class Settings(BaseSettings):
     scan_universe_size: int = 50
     yfinance_timeout_seconds: int = 25
     candidate_scan_source: str = "yfinance"
-    kis_circuit_cooldown_seconds: int = 60
     trade_db_path: str = ".runtime/trades.sqlite"
     log_file: str = "logs/trader.log"
     active_model_version: str = "v1"

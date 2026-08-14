@@ -185,7 +185,7 @@ class AIStockAutonomyIntegrationTests(unittest.TestCase):
         "src.strategy.autonomy.ai_stock_integration.ManagedExecutionCoordinator"
     )
     @patch("src.strategy.autonomy.ai_stock_integration.KRBrokerGateway")
-    @patch("src.api.kis_api.KIStockAPI")
+    @patch("src.broker.factory.create_domestic_stock_broker")
     @patch(
         "src.strategy.autonomy.ai_stock_integration.build_managed_approval_bridge"
     )
@@ -199,12 +199,12 @@ class AIStockAutonomyIntegrationTests(unittest.TestCase):
         },
     )
     @patch("src.strategy.autonomy.ai_stock_integration.ApprovalService")
-    def test_demo_approval_submits_canonical_order_to_kis_demo(
+    def test_demo_approval_submits_canonical_order_to_kiwoom_demo(
         self,
         approval_service,
         get_order,
         build_bridge,
-        kis_type,
+        broker_factory,
         gateway_type,
         coordinator_type,
     ):

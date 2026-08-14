@@ -62,7 +62,7 @@ body {
     user-select: none;
 }
 
-/* Kiwoom deployment identity: intentionally distinct from the blue KIS dashboard. */
+/* Kiwoom deployment identity. */
 body.kiwoom-dashboard {
     --electric-blue: #f97316;
     --electric-cyan: #f59e0b;

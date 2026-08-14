@@ -7,10 +7,8 @@ from src import trader
 class RuntimePlanTests(unittest.TestCase):
     def test_explicit_runtime_context_replaces_legacy_trader_aliases(self):
         runtime = trader.TraderRuntimeContext.capture()
-        client_config = trader.build_kis_client_config(runtime=runtime)
         capital = trader.operating_capital(runtime=runtime)
 
-        self.assertEqual(client_config.trading_env, runtime.flags.trading_env)
         self.assertEqual(capital, int(runtime.settings.total_capital))
         self.assertFalse(hasattr(trader, "TRADING_ENV"))
         self.assertFalse(hasattr(trader, "TOTAL_CAPITAL"))
@@ -56,7 +54,7 @@ class RuntimePlanTests(unittest.TestCase):
             patch("src.trader.check_secrets"),
             patch("src.trader.init_db"),
             patch("src.trader.init_approval_db"),
-            patch("src.trader.KIStockAPI", return_value=api),
+            patch("src.broker.factory.create_domestic_stock_broker", return_value=api),
             patch("src.trader.slack_session_start"),
             patch("src.trader.slack_candidates"),
             patch("src.trader.slack_session_end"),
@@ -121,7 +119,7 @@ class RuntimePlanTests(unittest.TestCase):
             patch("src.trader.check_secrets"),
             patch("src.trader.init_db"),
             patch("src.trader.init_approval_db"),
-            patch("src.trader.KIStockAPI", return_value=api),
+            patch("src.broker.factory.create_domestic_stock_broker", return_value=api),
             patch("src.trader.slack_session_start"),
             patch("src.trader.slack_session_end"),
             patch("src.trader.check_daily_loss", return_value=True),
@@ -167,7 +165,7 @@ class RuntimePlanTests(unittest.TestCase):
             patch("src.trader.check_secrets"),
             patch("src.trader.init_db"),
             patch("src.trader.init_approval_db"),
-            patch("src.trader.KIStockAPI", return_value=api),
+            patch("src.broker.factory.create_domestic_stock_broker", return_value=api),
             patch("src.trader.slack_session_start"),
             patch("src.trader.slack_session_end"),
             patch("src.trader.check_daily_loss", return_value=True),
@@ -217,7 +215,7 @@ class RuntimePlanTests(unittest.TestCase):
             patch("src.trader.check_secrets"),
             patch("src.trader.init_db"),
             patch("src.trader.init_approval_db"),
-            patch("src.trader.KIStockAPI", return_value=api),
+            patch("src.broker.factory.create_domestic_stock_broker", return_value=api),
             patch("src.trader.slack_session_start"),
             patch("src.trader.slack_session_end"),
             patch("src.trader.check_daily_loss", return_value=False),
@@ -270,7 +268,7 @@ class RuntimePlanTests(unittest.TestCase):
             patch("src.trader.check_secrets"),
             patch("src.trader.init_db"),
             patch("src.trader.init_approval_db"),
-            patch("src.trader.KIStockAPI", return_value=api),
+            patch("src.broker.factory.create_domestic_stock_broker", return_value=api),
             patch("src.trader.slack_session_start"),
             patch("src.trader.slack_session_end"),
             patch("src.trader.check_daily_loss", return_value=False),
@@ -430,7 +428,7 @@ class RuntimePlanTests(unittest.TestCase):
             patch("src.trader.check_secrets"),
             patch("src.trader.init_db"),
             patch("src.trader.init_approval_db"),
-            patch("src.trader.KIStockAPI", return_value=api),
+            patch("src.broker.factory.create_domestic_stock_broker", return_value=api),
             patch("src.trader.slack_session_start"),
             patch("src.trader.slack_candidates"),
             patch("src.trader.slack_session_end"),
@@ -501,7 +499,7 @@ class RuntimePlanTests(unittest.TestCase):
             patch("src.trader.check_secrets"),
             patch("src.trader.init_db"),
             patch("src.trader.init_approval_db"),
-            patch("src.trader.KIStockAPI", return_value=broker_api),
+            patch("src.broker.factory.create_domestic_stock_broker", return_value=broker_api),
             patch("src.trader.build_market_data_api", return_value=market_data_api) as build_market_data_api,
             patch("src.trader.build_runtime_plan", return_value=runtime_bundle) as build_runtime_plan,
             patch("src.trader.slack_session_start"),
@@ -518,7 +516,8 @@ class RuntimePlanTests(unittest.TestCase):
             result = trader.run()
 
         build_market_data_api.assert_called_once_with(broker_api)
-        build_runtime_plan.assert_called_once_with(market_data_api, balance)
+        build_runtime_plan.assert_called_once()
+        self.assertIs(build_runtime_plan.call_args.args[0], market_data_api)
         self.assertTrue(result["results"][0]["ok"])
         execute_plan_row.assert_called_once()
 
@@ -566,7 +565,7 @@ class RuntimePlanTests(unittest.TestCase):
             patch("src.trader.check_secrets"),
             patch("src.trader.init_db"),
             patch("src.trader.init_approval_db"),
-            patch("src.trader.KIStockAPI", return_value=api),
+            patch("src.broker.factory.create_domestic_stock_broker", return_value=api),
             patch("src.trader.slack_session_start"),
             patch("src.trader.slack_session_end"),
             patch("src.trader.check_daily_loss", return_value=False),

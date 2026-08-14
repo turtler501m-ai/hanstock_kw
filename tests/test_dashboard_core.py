@@ -236,22 +236,22 @@ class DashboardCoreTests(unittest.TestCase):
 
     def test_balance_cache_is_scoped_to_account(self):
         original_cache = dashboard.BALANCE_CACHE
-        original_account = dashboard.trader.config.kistock_account
+        original_account = dashboard.trader.config.kiwoom_domestic_demo_account
         try:
             dashboard.BALANCE_CACHE = MemoryCachePath()
-            dashboard.trader.config.kistock_account = "1111111101"
+            dashboard.trader.config.kiwoom_domestic_demo_account = "1111111101"
             dashboard._save_balance_cache({"output1": [], "output2": []})
 
-            dashboard.trader.config.kistock_account = "2222222201"
+            dashboard.trader.config.kiwoom_domestic_demo_account = "2222222201"
             self.assertIsNone(dashboard._load_balance_cache())
 
-            dashboard.trader.config.kistock_account = "1111111101"
+            dashboard.trader.config.kiwoom_domestic_demo_account = "1111111101"
             self.assertIsNotNone(dashboard._load_balance_cache())
         finally:
             dashboard.BALANCE_CACHE = original_cache
-            dashboard.trader.config.kistock_account = original_account
+            dashboard.trader.config.kiwoom_domestic_demo_account = original_account
 
-    def test_balance_data_falls_back_to_cache_on_kis_server_error(self):
+    def test_balance_data_falls_back_to_cache_on_kiwoom_server_error(self):
         cached = {
             "output1": [],
             "output2": [{"dnca_tot_amt": "1000", "tot_evlu_amt": "1000"}],
@@ -281,36 +281,18 @@ class DashboardCoreTests(unittest.TestCase):
         self.assertFalse(result["_cache"]["stale"])
         self.assertTrue(cached["_cache"]["stale"])
 
-    def test_kis_http_error_message_does_not_expose_account_url(self):
-        from src.api.kis_api import KIStockAPI
-
-        class _Response:
-            status_code = 500
-            text = "Internal Server Error"
-
-            def json(self):
-                return {}
-
-        api = object.__new__(KIStockAPI)
-        with self.assertRaises(RuntimeError) as raised:
-            api._response_json(_Response(), "Balance")
-
-        message = str(raised.exception)
-        self.assertIn("Balance HTTP 500", message)
-        self.assertNotIn("CANO=", message)
-        self.assertNotIn("inquire-balance?", message)
 
     def test_env_writer_preserves_comments_and_updates_allowed_keys(self):
-        path = MemoryTextPath("# KIS\nTRADING_ENV=demo\nDRY_RUN=true\nMAX_POSITIONS=10 # 최대보유주식종목\n")
+        path = MemoryTextPath("# KIWOOM\nTRADING_ENV=demo\nDRY_RUN=true\nMAX_POSITIONS=10 # 최대보유주식종목\n")
         dashboard._write_env_values({"TRADING_ENV": "real", "MAX_POSITIONS": "5"}, path)
 
-        self.assertIn("# KIS", path.content)
+        self.assertIn("# KIWOOM", path.content)
         self.assertIn("TRADING_ENV=real", path.content)
         self.assertIn("DRY_RUN=true", path.content)
         self.assertIn("MAX_POSITIONS=5 # 최대보유주식종목", path.content)
 
     def test_env_writer_collapses_duplicate_merged_keys(self):
-        path = MemoryTextPath("DOMESTIC_STOCK_BROKER=kis\nDOMESTIC_STOCK_BROKER=kiwoom\nKIWOOM_TRADING_ENV=real\nKIWOOM_TRADING_ENV=demo\n")
+        path = MemoryTextPath("DOMESTIC_STOCK_BROKER=legacy\nDOMESTIC_STOCK_BROKER=kiwoom\nKIWOOM_TRADING_ENV=real\nKIWOOM_TRADING_ENV=demo\n")
 
         dashboard._write_env_values({"DOMESTIC_STOCK_BROKER": "kiwoom"}, path)
 
@@ -331,64 +313,8 @@ class DashboardCoreTests(unittest.TestCase):
         self.assertEqual(dashboard._validate_env_value("TOTAL_CAPITAL", "100,000,000"), "100000000")
         self.assertEqual(dashboard._validate_env_value("USDKRW_FALLBACK_RATE", "1,516.78"), "1516.78")
 
-    def test_kis_ops_routes_are_registered(self):
-        paths = {getattr(route, "path", "") for route in dashboard.app.routes}
 
-        self.assertIn("/api/kis/condition-search/list", paths)
-        self.assertIn("/api/kis/condition-search/result", paths)
-        self.assertIn("/api/kis/websocket/status", paths)
-        self.assertIn("/api/kis/websocket/start", paths)
-        self.assertIn("/api/kis/websocket/stop", paths)
-        self.assertIn("/api/kis/websocket/subscribe", paths)
-        self.assertIn("/api/kis/orders/cancel", paths)
-        self.assertIn("/api/kis/orders/revise", paths)
-        self.assertIn("/api/kis/rehearsal", paths)
 
-    def test_kiwoom_dashboard_does_not_start_legacy_kis_websocket(self):
-        from src.dashboard.routes import settings as settings_routes
-
-        with patch.object(settings_routes.trader.config, "domestic_stock_broker", "kiwoom"), \
-                patch.object(settings_routes.trader.config, "kis_websocket_enabled", True), \
-                patch.object(settings_routes, "_start_kis_websocket") as start:
-            settings_routes.start_kis_websocket_if_enabled()
-
-        start.assert_not_called()
-
-    def test_kis_env_settings_apply_without_restart(self):
-        original_env_path = dashboard.ENV_PATH
-        original_values = {
-            "kistock_hts_id": getattr(dashboard.trader.config, "kistock_hts_id", ""),
-            "kis_websocket_enabled": getattr(dashboard.trader.config, "kis_websocket_enabled", False),
-            "kis_condition_search_enabled": getattr(dashboard.trader.config, "kis_condition_search_enabled", False),
-            "kis_condition_user_id": getattr(dashboard.trader.config, "kis_condition_user_id", ""),
-            "kis_condition_seq": getattr(dashboard.trader.config, "kis_condition_seq", ""),
-            "kis_condition_name": getattr(dashboard.trader.config, "kis_condition_name", ""),
-        }
-        try:
-            dashboard.ENV_PATH = MemoryTextPath("")
-            result = dashboard.update_env_settings({
-                "values": {
-                    "KISTOCK_HTS_ID": "hts-user",
-                    "KIS_WEBSOCKET_ENABLED": "true",
-                    "KIS_CONDITION_SEARCH_ENABLED": "true",
-                    "KIS_CONDITION_USER_ID": "condition-user",
-                    "KIS_CONDITION_SEQ": "001",
-                    "KIS_CONDITION_NAME": "breakout",
-                    "MISTOCK_EXCHANGE_MAP": "BRK.B=NYSE",
-                }
-            })
-
-            self.assertTrue(result["ok"])
-            self.assertEqual(dashboard.trader.config.kistock_hts_id, "hts-user")
-            self.assertTrue(dashboard.trader.config.kis_websocket_enabled)
-            self.assertTrue(dashboard.trader.config.kis_condition_search_enabled)
-            self.assertEqual(dashboard.trader.config.kis_condition_user_id, "condition-user")
-            self.assertEqual(dashboard.trader.config.kis_condition_seq, "001")
-            self.assertEqual(dashboard.trader.config.kis_condition_name, "breakout")
-        finally:
-            dashboard.ENV_PATH = original_env_path
-            for key, value in original_values.items():
-                setattr(dashboard.trader.config, key, value)
 
     def test_online_access_setting_applies_without_restart(self):
         original_env_path = dashboard.ENV_PATH
@@ -400,8 +326,7 @@ class DashboardCoreTests(unittest.TestCase):
             dashboard.trader.config.online_access_blocked = False
             dashboard.trader.ONLINE_ACCESS_BLOCKED = False
 
-            with patch("src.dashboard.routes.settings._stop_kis_websocket") as stop_websocket:
-                result = dashboard.update_env_settings({
+            result = dashboard.update_env_settings({
                     "values": {"ONLINE_ACCESS_BLOCKED": "true"}
                 })
 
@@ -410,7 +335,6 @@ class DashboardCoreTests(unittest.TestCase):
             self.assertTrue(dashboard.trader.ONLINE_ACCESS_BLOCKED)
             self.assertFalse(dashboard.trader.runtime_flags().order_submission_enabled)
             self.assertIn("ONLINE_ACCESS_BLOCKED=true", dashboard.ENV_PATH.content)
-            stop_websocket.assert_called_once()
         finally:
             dashboard.ENV_PATH = original_env_path
             dashboard.trader.config.online_access_blocked = original_config
@@ -461,22 +385,15 @@ class DashboardCoreTests(unittest.TestCase):
         original_env_path = dashboard.ENV_PATH
         try:
             dashboard.ENV_PATH = MemoryTextPath(
-                "KISTOCK_APP_KEY=app-key-secret\n"
                 "KIWOOM_DOMESTIC_DEMO_APP_SECRET=kiwoom-demo-secret\n"
                 "KIWOOM_US_DEMO_APP_KEY=kiwoom-us-key\n"
                 "KIWOOM_US_DEMO_ACCOUNT=9876543210\n"
-                "KISTOCK_ACCOUNT=1234567801\n"
                 "TRADING_ENV=demo\n"
             )
             with patch("src.utils.exchange_rate.get_usd_krw_rate", return_value=1380.0):
                 data = dashboard.get_env_settings()
             fields = {field["key"]: field for field in data["fields"]}
 
-            self.assertEqual(fields["KISTOCK_APP_KEY"]["value"], "")
-            self.assertEqual(fields["KISTOCK_APP_KEY"]["masked"], "ap**********et")
-            self.assertEqual(fields["KISTOCK_APP_KEY"]["type"], "secret")
-            self.assertTrue(fields["KISTOCK_APP_KEY"]["secret"])
-            self.assertTrue(fields["KISTOCK_APP_KEY"]["has_value"])
             self.assertEqual(fields["KIWOOM_DOMESTIC_DEMO_APP_SECRET"]["value"], "")
             self.assertEqual(fields["KIWOOM_DOMESTIC_DEMO_APP_SECRET"]["masked"], "ki**************et")
             self.assertTrue(fields["KIWOOM_DOMESTIC_DEMO_APP_SECRET"]["secret"])
@@ -485,10 +402,6 @@ class DashboardCoreTests(unittest.TestCase):
             self.assertTrue(fields["KIWOOM_US_DEMO_APP_KEY"]["has_value"])
             self.assertEqual(fields["KIWOOM_US_DEMO_ACCOUNT"]["value"], "9876543210")
             self.assertEqual(fields["KIWOOM_US_DEMO_ACCOUNT"]["masked"], "")
-            self.assertEqual(fields["KISTOCK_ACCOUNT"]["value"], "1234567801")
-            self.assertEqual(fields["KISTOCK_ACCOUNT"]["masked"], "")
-            self.assertEqual(fields["KISTOCK_ACCOUNT"]["type"], "text")
-            self.assertFalse(fields["KISTOCK_ACCOUNT"]["secret"])
         finally:
             dashboard.ENV_PATH = original_env_path
 
@@ -672,43 +585,8 @@ class DashboardCoreTests(unittest.TestCase):
             dashboard.trader.config.openai_api_key = original_openai_key
             dashboard.trader.config.openai_model = original_openai_model
 
-    def test_kis_account_validation_accepts_8_or_10_digits(self):
-        self.assertEqual(dashboard._validate_env_value("KISTOCK_ACCOUNT", "12345678"), "12345678")
-        self.assertEqual(dashboard._validate_env_value("KISTOCK_ACCOUNT", "12345678-01"), "1234567801")
-        with self.assertRaises(dashboard.HTTPException):
-            dashboard._validate_env_value("KISTOCK_ACCOUNT", "1234567")
 
-    def test_required_env_missing_accepts_8_digit_account(self):
-        original_account = dashboard.trader.config.kistock_account
-        try:
-            dashboard.trader.config.kistock_account = "12345678"
-            missing = dashboard._required_env_missing()
-            self.assertNotIn("KISTOCK_ACCOUNT_FORMAT", missing)
-        finally:
-            dashboard.trader.config.kistock_account = original_account
 
-    def test_balance_route_accepts_8_digit_account(self):
-        original_account = dashboard.trader.config.kistock_account
-        original_required_env_missing = dashboard._required_env_missing
-        original_get_api = dashboard._get_api
-        original_get_balance_data = dashboard._get_balance_data
-        try:
-            dashboard.trader.config.kistock_account = "12345678"
-            dashboard._required_env_missing = lambda: []
-            dashboard._get_api = lambda: object()
-            dashboard._get_balance_data = lambda api: {
-                "output1": [],
-                "output2": [{"dnca_tot_amt": "1000", "tot_evlu_amt": "1000"}],
-            }
-
-            balance = dashboard.get_balance()
-
-            self.assertEqual(balance["cash"], 1000)
-        finally:
-            dashboard.trader.config.kistock_account = original_account
-            dashboard._required_env_missing = original_required_env_missing
-            dashboard._get_api = original_get_api
-            dashboard._get_balance_data = original_get_balance_data
 
     def test_balance_marks_only_unfinished_sell_approvals_as_pending(self):
         original_db_path = dashboard.trader.config.trade_db_path
@@ -1035,7 +913,7 @@ class DashboardCoreTests(unittest.TestCase):
                 self.assertEqual(len(rows), 1)
                 self.assertEqual(rows[0]["broker_order_id"], "D12345")
                 self.assertEqual(rows[0]["order_status"], "submitted")
-                self.assertIn("KIS 모의투자 주문 접수 완료", rows[0]["response_msg"])
+                self.assertIn("키움 모의투자 주문 접수 완료", rows[0]["response_msg"])
         finally:
             dashboard.trader.config.trade_db_path = original_db_path
             dashboard._get_api = original_get_api
@@ -1076,7 +954,7 @@ class DashboardCoreTests(unittest.TestCase):
 
                 row = next(item for item in approvals if item["id"] == approval_id)
                 self.assertEqual(row["status"], "failed")
-                self.assertIn("Submitting order to broker", row["response_msg"])
+                self.assertIn("Order submission was interrupted", row["response_msg"])
         finally:
             dashboard.trader.config.trade_db_path = original_db_path
             dashboard.AUTO_APPROVAL_STALE_EXECUTING_SECONDS = original_stale_seconds

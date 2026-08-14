@@ -46,8 +46,6 @@ pip install --require-hashes -r constraints/vm-python.lock
 `requirements-*.txt`는 지원 버전 범위를, `constraints-deploy.txt`는 lock 생성용
 버전 기준을, `constraints/vm-python.lock`은 간접 의존성과 패키지 해시까지 고정한
 운영 설치본을 나타냅니다. 버전 갱신은 테스트 통과 후 별도 변경으로 수행합니다.
-Windows 음성 기능은 별도로 고정된 `constraints/voice-windows.lock`을
-`pip install --require-hashes -r constraints/voice-windows.lock`로 설치합니다.
 현재 VM lock은 운영 VM과 동일한 Linux/Python 3.10 환경에서 생성·검증합니다.
 
 ## 검증

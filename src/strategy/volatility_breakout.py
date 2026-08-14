@@ -19,7 +19,7 @@ class VolatilityBreakoutStrategy:
 
         prev_day = daily_data[-1]
         
-        # 키움/한국투자증권 API 키와 yfinance 키 호환성 처리
+        # 키움 API 키와 yfinance 키 호환성 처리
         high = float(prev_day.get("stck_hgpr", prev_day.get("High", 0)))
         low = float(prev_day.get("stck_lwpr", prev_day.get("Low", 0)))
         close = float(prev_day.get("stck_clpr", prev_day.get("Close", 0)))

@@ -20,17 +20,8 @@ if os.environ.get("HANSTOCK_TESTING") != "1":
 
 from src import trader  # noqa: E402
 from src.config import apply_env_updates  # noqa: E402
-from src.trader import KIStockAPI  # noqa: E402
 from src.broker import DomesticStockBroker, create_domestic_stock_broker  # noqa: E402
-from src.api.kis_api import KISAccountError, KISConfigError, KISRateLimitError  # noqa: E402
-from src.api.quantconnect_api import QuantConnectAPI, QuantConnectCredentials  # noqa: E402
-from src.futures_signals import (  # noqa: E402
-    FuturesSignalParseError,
-    FuturesSignalService,
-    OhlcCandle,
-    TelegramSignalCollector,
-    collector_status,
-)
+from src.broker.kiwoom_client import KiwoomApiError  # noqa: E402
 from src.notifier.slack import slack_order as _slack_order, slack_error as _slack_error  # noqa: E402
 from src.online_access import OnlineAccessBlockedError  # noqa: E402
 from src.runtime_state import PersistentRuntimeState  # noqa: E402
@@ -38,9 +29,7 @@ from src.dashboard.services.cache_service import DashboardCacheService  # noqa: 
 from src.dashboard.services.api_audit_service import (  # noqa: E402
     ApiAuditMiddleware,
 )
-from src.dashboard.services.futures_service import FuturesDashboardService  # noqa: E402
 from src.dashboard.services.scheduler_service import DashboardSchedulerService  # noqa: E402
-from src.dashboard.services.external_service import ExternalIntegrationService  # noqa: E402
 from src.dashboard.services.stock_service import DashboardStockService  # noqa: E402
 from src.dashboard.services.order_history_service import (
     _broker_order_id_from_history,
@@ -117,10 +106,7 @@ DashboardOperationError = (
     ImportError,
     sqlite3.Error,
     subprocess.SubprocessError,
-    KISAccountError,
-    KISConfigError,
-    KISRateLimitError,
-    FuturesSignalParseError,
+    KiwoomApiError,
     OnlineAccessBlockedError,
 )
 
@@ -146,10 +132,6 @@ CANDIDATE_CACHE = trader.RUNTIME_DIR / "candidate_snapshot.json"
 AUTO_APPROVAL_STATE = trader.RUNTIME_DIR / "auto_approval.json"
 DEFAULT_AUTO_APPROVAL_STATE = AUTO_APPROVAL_STATE
 AUTO_APPROVAL_EXCLUDED_SOURCES = {"narrative_momentum", "autonomous_strategy"}
-QUANTCONNECT_MNQ_DIR = BASE_DIR / "src" / "integrations" / "quantconnect" / "mnq_paper_auto"
-QUANTCONNECT_MNQ_RESULTS = trader.RUNTIME_DIR / "quantconnect_mnq_results.json"
-QUANTCONNECT_AUTH_CACHE = trader.RUNTIME_DIR / "quantconnect_auth_cache.json"
-QUANTCONNECT_CLOUD_CACHE = trader.RUNTIME_DIR / "quantconnect_cloud_cache.json"
 ENV_PATH = BASE_DIR / ".env"
 CANDIDATE_CACHE_TTL_SECONDS = int(os.environ.get("CANDIDATE_CACHE_TTL_SECONDS", "180"))
 BALANCE_CACHE_TTL_SECONDS = int(os.environ.get("BALANCE_CACHE_TTL_SECONDS", "30"))
@@ -165,7 +147,6 @@ from src.dashboard.settings_schema import (
     BROKER_ENV_BINDINGS,
     ENV_FIELD_MAP,
     ENV_FIELDS,
-    KIS_ENV_BINDINGS,
     STRATEGY_ENV_BINDINGS,
 )
 VENDOR_PROJECTS = {
@@ -175,7 +156,7 @@ VENDOR_PROJECTS = {
         "package": "finrl",
         "dashboard": "/finrl",
         "license_hint": "MIT",
-        "adapter": "Weight-centric allocation for current KIS holdings",
+        "adapter": "Weight-centric allocation for current Kiwoom holdings",
         "entrypoints": [
             "finrl/train.py",
             "finrl/test.py",
@@ -268,16 +249,6 @@ def _public_value(name: str, default):
     if module is None:
         return default
     return getattr(module, name, default)
-
-
-_external_integration_service = ExternalIntegrationService(
-    env_path_fn=lambda: _public_value("ENV_PATH", ENV_PATH),
-    auth_cache_path_fn=lambda: _public_value(
-        "QUANTCONNECT_AUTH_CACHE",
-        QUANTCONNECT_AUTH_CACHE,
-    ),
-    now_fn=lambda: trader.datetime.now(trader.KST),
-)
 
 
 def _required_env_missing() -> list[str]:
@@ -511,7 +482,7 @@ def _reclaim_stale_executing_approvals(max_age_seconds: int | None = None) -> in
                 """
                 UPDATE approvals
                 SET status = 'failed',
-                    response_msg = 'Order was left in Submitting order to broker state; process was interrupted or broker API did not return before timeout. Check KIS order history before retrying.',
+                    response_msg = 'Order submission was interrupted or the broker did not respond before timeout. Check Kiwoom order history before retrying.',
                     updated_at = ?
                 WHERE status = 'executing' AND updated_at < ?
                 """,
@@ -589,7 +560,7 @@ def _run_with_timeout(func, timeout_seconds: float):
         executor.shutdown(wait=False, cancel_futures=True)
 
 
-def _get_balance_data(api: KIStockAPI, allow_cache: bool = True) -> dict:
+def _get_balance_data(api: DomesticStockBroker, allow_cache: bool = True) -> dict:
     override = _public_override("_get_balance_data", _get_balance_data)
     if override is not None:
         try:
@@ -616,7 +587,7 @@ def _get_balance_data(api: KIStockAPI, allow_cache: bool = True) -> dict:
             if cached is not None:
                 return cached
             raise RuntimeError("Kiwoom balance API timed out")
-        except KISConfigError:
+        except KiwoomApiError:
             if allow_cache:
                 cached = _load_balance_cache()
                 if cached is not None:
@@ -869,9 +840,9 @@ def _expand_virtual_env_updates(updates: dict[str, str]) -> dict[str, str]:
 
 
 def _apply_runtime_env_updates(updates: dict[str, str]) -> None:
-    previous_account = trader.config.kistock_account
-    previous_app_key = trader.config.kistock_app_key
-    previous_app_secret = trader.config.kistock_app_secret
+    environment = str(getattr(trader.config, "kiwoom_trading_env", "demo") or "demo").lower()
+    account_attr = f"kiwoom_domestic_{environment}_account"
+    previous_account = getattr(trader.config, account_attr, "")
     apply_env_updates({
         key: value
         for key, value in updates.items()
@@ -879,21 +850,8 @@ def _apply_runtime_env_updates(updates: dict[str, str]) -> None:
     })
     trader.sync_legacy_config_aliases()
 
-    credentials_changed = (
-        previous_account != trader.config.kistock_account
-        or previous_app_key != trader.config.kistock_app_key
-        or previous_app_secret != trader.config.kistock_app_secret
-    )
-    if previous_account != trader.config.kistock_account:
+    if previous_account != getattr(trader.config, account_attr, ""):
         _clear_balance_cache()
-    if credentials_changed:
-        (Path("data") / "kis_token.json").unlink(missing_ok=True)
-        try:
-            import src.mistock.trader as mistock_trader
-        except ImportError:
-            mistock_trader = None
-        if mistock_trader is not None:
-            mistock_trader._kis_client_cache = None
 
     for key, value in updates.items():
         if key == "MISTOCK_TRADING_ENV":
@@ -965,11 +923,6 @@ def _apply_strategy_env_updates(updates: dict[str, str]) -> None:
             config_attr, caster = ai_binding
             setattr(trader.config, config_attr, caster(value))
             continue
-        kis_binding = KIS_ENV_BINDINGS.get(key)
-        if kis_binding:
-            config_attr, caster = kis_binding
-            setattr(trader.config, config_attr, caster(value))
-            continue
         broker_binding = BROKER_ENV_BINDINGS.get(key)
         if broker_binding:
             config_attr, caster = broker_binding
@@ -1035,205 +988,6 @@ def _serialize_env_value(value: str) -> str:
 def _write_env_values(updates: dict[str, str], path: Path = ENV_PATH) -> None:
     write_env_values(updates, path)
 
-
-
-_FUTURES_SIGNAL_SERVICE: FuturesSignalService | None = None
-
-
-def _is_poll_running() -> bool:
-    """poll.py 프로세스가 실행 중인지 확인"""
-    try:
-        import psutil
-        for proc in psutil.process_iter(['cmdline']):
-            cmdline = proc.info.get('cmdline') or []
-            if any('poll.py' in str(c) for c in cmdline):
-                return True
-        return False
-    except DashboardOperationError:
-        # psutil 없으면 상태 파일로 확인
-        state_file = Path(".runtime/poll_running")
-        return state_file.exists()
-
-
-def _get_futures_signal_service() -> FuturesSignalService:
-    global _FUTURES_SIGNAL_SERVICE
-    public_service = _public_value("_FUTURES_SIGNAL_SERVICE", _FUTURES_SIGNAL_SERVICE)
-    if public_service is not _FUTURES_SIGNAL_SERVICE:
-        _FUTURES_SIGNAL_SERVICE = public_service
-    if _FUTURES_SIGNAL_SERVICE is None:
-        service = FuturesSignalService()
-        _seed_futures_signal_service(service)
-        _FUTURES_SIGNAL_SERVICE = service
-        module = sys.modules.get("src.dashboard")
-        if module is not None:
-            setattr(module, "_FUTURES_SIGNAL_SERVICE", service)
-    return _FUTURES_SIGNAL_SERVICE
-
-
-def _seed_futures_signal_service(service: FuturesSignalService) -> None:
-    seed_rows = [
-        (
-            "tg-sample-001",
-            "2026-05-05T09:15:00+09:00",
-            "#MNQ M26 LONG\nEntry: 18325.25\nSL 18280\nTP1 18370\nTP2 18420",
-            [
-                OhlcCandle("2026-05-05T09:16:00+09:00", open=18325.25, high=18362, low=18305, close=18355),
-                OhlcCandle("2026-05-05T09:17:00+09:00", open=18355, high=18372, low=18343, close=18368),
-            ],
-        ),
-        (
-            "tg-sample-002",
-            "2026-05-05T10:05:00+09:00",
-            "MCL M26 SELL\nEntry: 64.82\nSL 65.18\nTP1 64.35\nTP2 63.95",
-            [
-                OhlcCandle("2026-05-05T10:06:00+09:00", open=64.82, high=65.2, low=64.32, close=64.7),
-            ],
-        ),
-        (
-            "tg-sample-003",
-            "2026-05-05T10:40:00+09:00",
-            "GC Q26 LONG\nEntry: 2358.4\nSL 2350\nTP1 2371",
-            [
-                OhlcCandle("2026-05-05T10:41:00+09:00", open=2358.4, high=2362, low=2349.8, close=2351),
-            ],
-        ),
-    ]
-    for message_id, received_at, text, candles in seed_rows:
-        record = service.ingest_message(
-            text,
-            source="telegram_sample",
-            source_message_id=message_id,
-            received_at=trader.datetime.fromisoformat(received_at),
-        )
-        service.verify(record.signal.id, candles)
-
-
-def _futures_signal_public_id(record) -> str:
-    return record.signal.source_message_id or record.signal.id
-
-
-def _futures_signal_confidence(record) -> float:
-    if record.verification is None:
-        return 0.68
-    if record.verification.status == "verified":
-        return 0.88
-    if record.verification.requires_manual_review:
-        return 0.74
-    if record.verification.status == "rejected":
-        return 0.61
-    return 0.7
-
-
-def _futures_risk_reward(record) -> float | None:
-    signal = record.signal
-    if not signal.take_profits:
-        return None
-    risk = abs(signal.entry - signal.stop_loss)
-    if risk <= 0:
-        return None
-    reward = abs(signal.take_profits[0] - signal.entry)
-    return round(reward / risk, 2)
-
-
-def _futures_signal_record_to_api(record) -> dict:
-    signal = record.signal
-    verification = record.verification
-    status = verification.status if verification else signal.status
-    return {
-        "id": _futures_signal_public_id(record),
-        "internal_id": signal.id,
-        "received_at": signal.received_at.isoformat() if signal.received_at else None,
-        "source": signal.source,
-        "channel": "overseas-futures-signals",
-        "symbol": signal.symbol,
-        "market": _futures_market_name(signal.symbol),
-        "side": "buy" if signal.direction == "long" else "sell",
-        "direction": signal.direction,
-        "entry": signal.entry,
-        "entry_price": signal.entry,
-        "stop": signal.stop_loss,
-        "stop_loss": signal.stop_loss,
-        "targets": list(signal.take_profits),
-        "take_profit_1": signal.take_profits[0] if signal.take_profits else None,
-        "confidence": _futures_signal_confidence(record),
-        "parse_status": signal.status,
-        "status": status,
-        "verification_status": status,
-        "verification": {
-            "status": status,
-            "outcome": verification.outcome if verification else "pending",
-            "hit_at": verification.hit_at if verification else None,
-            "hit_price": verification.hit_price if verification else None,
-            "hit_target_index": verification.hit_target_index if verification else None,
-            "reason": verification.reason if verification else "",
-            "rule_match": status != "rejected",
-            "risk_reward": _futures_risk_reward(record),
-            "duplicate": bool(record.metadata.get("duplicate")),
-            "requires_manual_review": bool(verification.requires_manual_review) if verification else False,
-        },
-        "raw_text": signal.raw_text,
-    }
-
-
-_futures_dashboard_service = FuturesDashboardService(
-    lambda: trader.datetime.now(trader.KST)
-)
-
-
-def _db_futures_signal_to_api(row: dict) -> dict:
-    return _futures_dashboard_service.db_signal_to_api(row)
-
-
-def _list_db_futures_signals(limit: int | None = 100) -> list[dict]:
-    return _futures_dashboard_service.list_persisted_signals(limit)
-
-
-def _futures_market_name(symbol: str) -> str:
-    return _futures_dashboard_service.market_name(symbol)
-
-
-def _find_futures_signal_record(public_or_internal_id: str):
-    service = _get_futures_signal_service()
-    direct = service.repository.get(public_or_internal_id)
-    if direct is not None:
-        return direct
-    for record in service.list_records(limit=None):
-        if _futures_signal_public_id(record) == public_or_internal_id:
-            return record
-    return None
-
-
-def _futures_signals_summary(records: list, *, telegram_connected: bool = False) -> dict:
-    return _futures_dashboard_service.summarize(
-        records,
-        converter=_futures_signal_record_to_api,
-        telegram_connected=telegram_connected,
-    )
-
-
-def _read_json_file(path: Path, default):
-    return _external_integration_service.read_json(path, default)
-
-
-def _quantconnect_service_call(name: str, *args, **kwargs):
-    from src.dashboard.services import quantconnect_service
-    quantconnect_service._refresh_dependencies()
-    return getattr(quantconnect_service, name)(*args, **kwargs)
-
-def _quantconnect_auth_status(credentials): return _quantconnect_service_call("_quantconnect_auth_status", credentials)
-def _first_item(value): return _quantconnect_service_call("_first_item", value)
-def _quantconnect_errors(*payloads): return _quantconnect_service_call("_quantconnect_errors", *payloads)
-def _quantconnect_order_rows(payload): return _quantconnect_service_call("_quantconnect_order_rows", payload)
-def _quantconnect_portfolio_state(payload): return _quantconnect_service_call("_quantconnect_portfolio_state", payload)
-def _quantconnect_cloud_snapshot(credentials, *, force_refresh=False): return _quantconnect_service_call("_quantconnect_cloud_snapshot", credentials, force_refresh=force_refresh)
-def _clear_quantconnect_cloud_cache(): return _quantconnect_service_call("_clear_quantconnect_cloud_cache")
-def _quantconnect_live_nodes(payload): return _quantconnect_service_call("_quantconnect_live_nodes", payload)
-def _select_quantconnect_live_node(payload, requested_node_id=""): return _quantconnect_service_call("_select_quantconnect_live_node", payload, requested_node_id)
-def _wait_for_quantconnect_compile(api, project_id, compile_payload, **kwargs): return _quantconnect_service_call("_wait_for_quantconnect_compile", api, project_id, compile_payload, **kwargs)
-def _quantconnect_mnq_status(): return _quantconnect_service_call("_quantconnect_mnq_status")
-def _quantconnect_credentials(): return _quantconnect_service_call("_quantconnect_credentials")
-def _quantconnect_mnq_deploy(payload=None): return _quantconnect_service_call("_quantconnect_mnq_deploy", payload)
-def _quantconnect_mnq_order(payload): return _quantconnect_service_call("_quantconnect_mnq_order", payload)
 
 
 def _license_name(text: str, hint: str) -> str:
@@ -1350,131 +1104,6 @@ def _demo_trading_readiness() -> dict:
 
 def _runtime_dashboard_info() -> dict:
     return dashboard_runtime_info()
-
-
-
-@app.post("/api/futures-signals/collector/run")
-async def run_futures_signal_collector(payload: dict | None = Body(default=None)):
-    payload = payload or {}
-    status = collector_status()
-    if not status["ready"]:
-        return {**status, "ok": False, "ingested": 0}
-
-    limit = max(1, min(int(payload.get("limit_per_channel", 50) or 50), 200))
-    try:
-        messages = await TelegramSignalCollector().fetch_recent_messages(limit_per_channel=limit)
-    except DashboardOperationError as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
-
-    from src.futures_signals import db as futures_signals_db
-
-    ingested = 0
-    parse_errors = []
-    for message in messages:
-        if message.get("collector_error"):
-            parse_errors.append({
-                "channel": message.get("channel"),
-                "error": message.get("collector_error"),
-            })
-            continue
-        try:
-            raw_text = str(message.get("raw_text") or "")
-            channel = str(message.get("channel") or "telegram")
-            msg_id = message.get("telegram_message_id") or 0
-            msg_date = message.get("received_at") or ""
-
-            # parser로 파싱 시도
-            parsed = None
-            try:
-                from src.futures_signals.parser import parse_signal
-                parsed = parse_signal(raw_text)
-            except (FuturesSignalParseError, TypeError, ValueError) as exc:
-                logger.warning(f"Failed to parse collected futures signal: {exc}")
-
-            inserted = futures_signals_db.insert_signal(
-                channel_key=channel,
-                message_id=int(msg_id) if str(msg_id).isdigit() else 0,
-                message_date=msg_date,
-                raw_text=raw_text,
-                symbol=parsed.symbol if parsed else None,
-                direction=parsed.direction if parsed else None,
-                entry_price=parsed.entry if parsed else None,
-                stop_loss=parsed.stop_loss if parsed else None,
-                target_price=parsed.take_profits[0] if parsed and parsed.take_profits else None,
-                confidence=None,
-                notes=None,
-            )
-            if inserted:
-                ingested += 1
-        except DashboardOperationError as exc:
-            parse_errors.append({
-                "telegram_message_id": message.get("telegram_message_id"),
-                "error": str(exc),
-            })
-    return {
-        "ok": True,
-        "ingested": ingested,
-        "parse_errors": parse_errors,
-        "collector": status,
-    }
-
-
-
-@app.post("/api/futures-signals/collector/settings")
-async def save_collector_settings(request: Request):
-    """Telegram 설정 저장 - .env 파일에 기록"""
-    body = await request.json()
-
-    env_path = Path(".env")
-
-    # 기존 .env 읽기
-    if env_path.exists():
-        lines = env_path.read_text(encoding="utf-8").splitlines()
-    else:
-        lines = []
-
-    # 업데이트할 키-값 쌍
-    updates = {}
-    if "api_id" in body:
-        updates["TELEGRAM_API_ID"] = str(body["api_id"])
-    if "api_hash" in body:
-        updates["TELEGRAM_API_HASH"] = str(body["api_hash"])
-    if "channels" in body:
-        updates["TELEGRAM_TARGET_CHANNELS"] = str(body["channels"])
-
-    # 기존 라인에서 해당 키 업데이트
-    new_lines = []
-    updated_keys = set()
-    for line in lines:
-        stripped = line.strip()
-        if "=" in stripped and not stripped.startswith("#"):
-            key = stripped.split("=", 1)[0].strip()
-            if key in updates:
-                new_lines.append(f'{key}={updates[key]}')
-                updated_keys.add(key)
-            else:
-                new_lines.append(line)
-        else:
-            new_lines.append(line)
-
-    # 새 키 추가
-    for key, val in updates.items():
-        if key not in updated_keys:
-            new_lines.append(f'{key}={val}')
-
-    env_path.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
-
-    return {"ok": True, "message": "설정이 저장되었습니다. 서버를 재시작하면 적용됩니다."}
-
-
-
-# =============================================================================
-# KIS 해외선물optsms Trading API
-# =============================================================================
-
-def _get_futures_api():
-    from src.api.kis_futures_api import KISFuturesAPI
-    return KISFuturesAPI()
 
 
 
@@ -2061,7 +1690,7 @@ async def get_execution_plan(strategy_id: str | None = None, cycle_id: str | Non
 
 
 
-def _holding_history(api: KIStockAPI, parsed: dict, n: int = 120) -> list[dict]:
+def _holding_history(api: DomesticStockBroker, parsed: dict, n: int = 120) -> list[dict]:
     holdings = []
     for holding in parsed["holdings"]:
         daily = api.get_daily(holding["symbol"], n=n)
@@ -2384,7 +2013,7 @@ _INDEX_SYMBOL_ALIASES = {
     "KOSPI": ("^KS11", "KOSPI", "0001"),
     "KOSDAQ": ("^KQ11", "KOSDAQ", "1001"),
 }
-_KIS_INDEX_CODES = {"KOSPI": "0001", "KOSDAQ": "1001"}
+_KIWOOM_INDEX_CODES = {"KOSPI": "0001", "KOSDAQ": "1001"}
 
 
 def _safe_index_rows(rows: list[dict]) -> list[dict]:
@@ -2403,7 +2032,7 @@ def _safe_index_rows(rows: list[dict]) -> list[dict]:
 
 
 def _load_index_rows() -> dict[str, list[dict]]:
-    """Refresh benchmark closes from KIS, then use local DB and guarded Yahoo fallback."""
+    """Refresh benchmark closes from Kiwoom, then use local DB and guarded Yahoo fallback."""
     global _INDEX_ROWS_CACHE
     cached_at, cached_rows = _INDEX_ROWS_CACHE
     if time.monotonic() - cached_at < 300:
@@ -2413,7 +2042,7 @@ def _load_index_rows() -> dict[str, list[dict]]:
         from src.db.repository import save_daily_charts
 
         api = _get_api()
-        for name, code in _KIS_INDEX_CODES.items():
+        for name, code in _KIWOOM_INDEX_CODES.items():
             rows = api.get_index_daily(code, n=120)
             if rows:
                 save_daily_charts(code, rows)
@@ -2421,7 +2050,7 @@ def _load_index_rows() -> dict[str, list[dict]]:
                 if normalized:
                     series[name] = normalized
     except Exception as exc:
-        logger.info(f"KIS performance benchmark refresh unavailable: {exc}")
+        logger.info(f"Kiwoom performance benchmark refresh unavailable: {exc}")
 
     try:
         from src.db.repository import connect_db
@@ -2924,180 +2553,6 @@ def _sync_order_status_from_balance(
 ) -> dict:
     from src.dashboard.services.order_sync_service import _sync_order_status_from_balance as sync
     return sync(api, tracked, reason=reason, close_unreserved_sells=close_unreserved_sells)
-
-# Executor 상태 (스위치) API
-# =============================================================================
-
-
-@app.get("/api/futures-signals/executor/state")
-async def get_executor_state():
-    """실행 상태 조회 (스위치 ON/OFF 현황)"""
-    from src.futures_signals.executor import get_executor
-    from dataclasses import asdict
-    executor = get_executor()
-    return asdict(executor.state)
-
-
-
-@app.put("/api/futures-signals/executor/state")
-async def update_executor_state(request: Request):
-    """스위치 ON/OFF 변경"""
-    from src.futures_signals.executor import get_executor
-    from dataclasses import asdict
-    body = await request.json()
-    executor = get_executor()
-    executor.update_state(**body)
-    return {"ok": True, "state": asdict(executor.state)}
-
-
-# =============================================================================
-# 성과 조회 API
-# =============================================================================
-
-
-@app.get("/api/futures-signals/performance/mock")
-async def get_mock_performance():
-    """Mock 시뮬레이터 성과"""
-    from src.futures_signals.executor import get_executor
-    executor = get_executor()
-    return executor.get_mock_performance()
-
-
-
-@app.get("/api/futures-signals/performance/paper")
-async def get_paper_performance():
-    """KIS 모의계좌 성과"""
-    try:
-        from src.api.kis_futures_api import KISFuturesAPI
-        api = KISFuturesAPI(demo=True)
-        if not api._configured:
-            return {"status": "not_configured", "demo": True}
-        balance = api.get_balance()
-        positions = api.get_positions()
-        executions = api.get_executions()
-        return {
-            "balance": balance,
-            "positions": positions,
-            "executions": executions,
-            "demo": True,
-        }
-    except DashboardOperationError as e:
-        return {"status": "error", "message": str(e), "demo": True}
-
-
-
-@app.get("/api/futures-signals/performance/live")
-async def get_live_performance():
-    """KIS 실계좌 성과"""
-    try:
-        from src.futures_signals.executor import get_executor
-        executor = get_executor()
-        if not executor.state.live_trading_enabled:
-            return {"status": "disabled", "message": "실계좌 거래가 비활성화 상태입니다"}
-        from src.api.kis_futures_api import KISFuturesAPI
-        api = KISFuturesAPI(demo=False)
-        balance = api.get_balance()
-        positions = api.get_positions()
-        return {
-            "balance": balance,
-            "positions": positions,
-            "demo": False,
-        }
-    except DashboardOperationError as e:
-        return {"status": "error", "message": str(e), "demo": False}
-
-
-# =============================================================================
-# Telegram 단계별 인증 API
-# =============================================================================
-
-# Telegram 인증 상태 저장 (메모리)
-_telegram_auth_state: dict = {"step": "idle", "phone_code_hash": None}
-
-
-
-@app.post("/api/futures-signals/collector/auth/start")
-async def telegram_auth_start(request: Request):
-    """
-    Telegram 인증 1단계: 전화번호로 SMS 코드 발송
-    body: {"phone": "+821012345678"}
-    """
-    global _telegram_auth_state
-    body = await request.json()
-    phone = body.get("phone", "")
-
-    from src.online_access import require_online_access
-
-    require_online_access("Telegram authentication")
-    try:
-        from telethon import TelegramClient
-    except ImportError:
-        return {"ok": False, "error": "telethon not installed"}
-
-    try:
-        from src.config import config as _cfg
-        api_id = int(_cfg.telegram_api_id or 0) if hasattr(_cfg, "telegram_api_id") else int(os.environ.get("TELEGRAM_API_ID", "0") or "0")
-        api_hash = (_cfg.telegram_api_hash or "") if hasattr(_cfg, "telegram_api_hash") else (os.environ.get("TELEGRAM_API_HASH", "") or "")
-        session_path = str(Path(".runtime/telegram_session"))
-
-        if not api_id or not api_hash:
-            return {"ok": False, "error": "TELEGRAM_API_ID 또는 TELEGRAM_API_HASH가 설정되지 않았습니다"}
-
-        client = TelegramClient(session_path, api_id, api_hash)
-        await client.connect()
-        result = await client.send_code_request(phone)
-        _telegram_auth_state = {
-            "step": "code_sent",
-            "phone": phone,
-            "phone_code_hash": result.phone_code_hash,
-        }
-        await client.disconnect()
-        return {"ok": True, "message": f"{phone}으로 인증 코드가 발송되었습니다"}
-    except DashboardOperationError as e:
-        return {"ok": False, "error": str(e)}
-
-
-
-@app.post("/api/futures-signals/collector/auth/verify")
-async def telegram_auth_verify(request: Request):
-    """
-    Telegram 인증 2단계: SMS 코드 입력으로 세션 생성
-    body: {"code": "12345"}
-    """
-    global _telegram_auth_state
-    body = await request.json()
-    code = body.get("code", "")
-
-    from src.online_access import require_online_access
-
-    require_online_access("Telegram authentication")
-    if _telegram_auth_state.get("step") != "code_sent":
-        return {"ok": False, "error": "먼저 인증 코드를 발송해주세요"}
-
-    try:
-        from telethon import TelegramClient
-    except ImportError:
-        return {"ok": False, "error": "telethon not installed"}
-
-    try:
-        from src.config import config as _cfg
-        api_id = int(_cfg.telegram_api_id or 0) if hasattr(_cfg, "telegram_api_id") else int(os.environ.get("TELEGRAM_API_ID", "0") or "0")
-        api_hash = (_cfg.telegram_api_hash or "") if hasattr(_cfg, "telegram_api_hash") else (os.environ.get("TELEGRAM_API_HASH", "") or "")
-        session_path = str(Path(".runtime/telegram_session"))
-        phone = _telegram_auth_state["phone"]
-        phone_code_hash = _telegram_auth_state["phone_code_hash"]
-
-        client = TelegramClient(session_path, api_id, api_hash)
-        await client.connect()
-        await client.sign_in(phone, code, phone_code_hash=phone_code_hash)
-        await client.disconnect()
-
-        _telegram_auth_state = {"step": "authenticated"}
-        return {"ok": True, "message": "Telegram 인증이 완료되었습니다. 서버를 재시작하거나 폴링을 수동으로 시작하세요."}
-    except DashboardOperationError as e:
-        return {"ok": False, "error": str(e)}
-
-
 
 # ----------------------------------------------------
 # Scheduler Run and Status Management APIs

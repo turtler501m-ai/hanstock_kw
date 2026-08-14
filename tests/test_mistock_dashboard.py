@@ -16,7 +16,7 @@ from src.mistock import trader as mistock_trader
 
 
 class MistockDashboardTests(unittest.TestCase):
-    def test_holding_daily_change_translates_kis_share_class_for_yahoo(self):
+    def test_holding_daily_change_translates_broker_share_class_for_yahoo(self):
         frame = {"Close": pd.DataFrame({"BF-B": [400.0, 404.0]})}
         holdings = {"BF.B": {"qty": 2}}
 
@@ -252,7 +252,7 @@ class MistockDashboardTests(unittest.TestCase):
         self.assertTrue(balance["holdings"][0]["sell_pending"])
         self.assertEqual(balance["pending_sell_symbols"], ["AAPL"])
 
-    def test_demo_balance_does_not_mix_paper_cash_when_kis_cash_is_missing(self):
+    def test_demo_balance_does_not_mix_paper_cash_when_broker_cash_is_missing(self):
         class FakeClient:
             def get_overseas_balance(self):
                 return {
@@ -272,7 +272,7 @@ class MistockDashboardTests(unittest.TestCase):
                 }
 
         object.__setattr__(mistock_config, "trading_env", "demo")
-        with patch.object(mistock_trader, "_get_kis_client", return_value=FakeClient()):
+        with patch.object(mistock_trader, "_get_broker_client", return_value=FakeClient()):
             balance = mistock_trader.get_balance()
 
         self.assertEqual(balance["cash"], 0.0)
@@ -298,7 +298,7 @@ class MistockDashboardTests(unittest.TestCase):
                 }
 
         object.__setattr__(mistock_config, "trading_env", "demo")
-        with patch.object(mistock_trader, "_get_kis_client", return_value=FakeClient()):
+        with patch.object(mistock_trader, "_get_broker_client", return_value=FakeClient()):
             balance = mistock_trader.get_balance()
 
         self.assertEqual(balance["cash"], 750.0)
@@ -306,7 +306,7 @@ class MistockDashboardTests(unittest.TestCase):
         self.assertEqual(balance["total_eval"], 1000.0)
         self.assertEqual(balance["broker_total_eval"], 1000.0)
 
-    def test_demo_balance_uses_config_capital_when_kis_account_is_empty(self):
+    def test_demo_balance_uses_config_capital_when_broker_account_is_empty(self):
         class FakeClient:
             def get_overseas_balance(self):
                 return {
@@ -325,7 +325,7 @@ class MistockDashboardTests(unittest.TestCase):
         object.__setattr__(mistock_config, "trading_env", "demo")
         object.__setattr__(mistock_config, "total_capital", 5000.0)
         object.__setattr__(mistock_config, "currency", "USD")
-        with patch.object(mistock_trader, "_get_kis_client", return_value=FakeClient()):
+        with patch.object(mistock_trader, "_get_broker_client", return_value=FakeClient()):
             balance = mistock_trader.get_balance()
 
         self.assertEqual(balance["cash"], 5000.0)
@@ -352,7 +352,7 @@ class MistockDashboardTests(unittest.TestCase):
         object.__setattr__(mistock_config, "currency", "USD")
 
         try:
-            with patch.object(mistock_trader, "_get_kis_client", return_value=FakeClient()):
+            with patch.object(mistock_trader, "_get_broker_client", return_value=FakeClient()):
                 order = mistock_trader.place_order("AAPL", "buy", 2, 100, reason="unit test")
                 balance = mistock.mistock_balance()
         finally:
@@ -390,7 +390,7 @@ class MistockDashboardTests(unittest.TestCase):
                 ("AAPL", "Apple", 2, 100, mistock_db.now_text()),
             )
             with (
-                patch.object(mistock_trader, "_get_kis_client", return_value=FakeClient()),
+                patch.object(mistock_trader, "_get_broker_client", return_value=FakeClient()),
                 patch.object(mistock_trader, "quote", return_value={"current": 110.0, "ask1": 110.0, "bid1": 110.0}),
             ):
                 balance = mistock.mistock_balance()
@@ -406,7 +406,7 @@ class MistockDashboardTests(unittest.TestCase):
         self.assertEqual(balance["cash"], 800.0)
         self.assertEqual(balance["total_eval"], 1020.0)
 
-    def test_demo_sell_calls_kis_order_api(self):
+    def test_demo_sell_calls_broker_order_api(self):
         calls = []
         class FakeClient:
             def get_overseas_balance(self):
@@ -428,7 +428,7 @@ class MistockDashboardTests(unittest.TestCase):
         object.__setattr__(mistock_config, "currency", "USD")
 
         try:
-            with patch.object(mistock_trader, "_get_kis_client", return_value=FakeClient()), \
+            with patch.object(mistock_trader, "_get_broker_client", return_value=FakeClient()), \
                     patch.object(mistock_trader, "notify_slack_order"):
                 mistock_db.execute(
                     "INSERT INTO holdings (symbol, name, qty, avg_price, updated_at) VALUES (?, ?, ?, ?, ?)",
@@ -453,7 +453,7 @@ class MistockDashboardTests(unittest.TestCase):
         object.__setattr__(mistock_config, "dry_run", False)
 
         try:
-            with patch.object(mistock_trader, "_get_kis_client", return_value=FakeClient()), \
+            with patch.object(mistock_trader, "_get_broker_client", return_value=FakeClient()), \
                     patch.object(mistock_trader, "notify_slack_order"):
                 mistock_db.execute(
                     "INSERT INTO holdings (symbol, name, qty, avg_price, updated_at) VALUES (?, ?, ?, ?, ?)",
@@ -485,7 +485,7 @@ class MistockDashboardTests(unittest.TestCase):
         object.__setattr__(mistock_config, "trading_env", "demo")
         object.__setattr__(mistock_config, "total_capital", 100000000.0)
         object.__setattr__(mistock_config, "currency", "KRW")
-        with patch.object(mistock_trader, "_get_kis_client", return_value=FakeClient()), \
+        with patch.object(mistock_trader, "_get_broker_client", return_value=FakeClient()), \
              patch("src.mistock.trader.get_usd_krw_rate", return_value=1380.0):
             balance = mistock_trader.get_balance()
 
@@ -504,14 +504,14 @@ class MistockDashboardTests(unittest.TestCase):
         object.__setattr__(mistock_config, "trading_env", "demo")
         object.__setattr__(mistock_config, "total_capital", 100000000.0)
         object.__setattr__(mistock_config, "currency", "KRW")
-        with patch.object(mistock_trader, "_get_kis_client", return_value=FakeClient()), \
+        with patch.object(mistock_trader, "_get_broker_client", return_value=FakeClient()), \
              patch("src.mistock.trader.get_usd_krw_rate", return_value=1380.0):
             balance = mistock_trader.get_balance()
 
         self.assertAlmostEqual(balance["cash"], 72463.7681, places=3)
         self.assertAlmostEqual(balance["total_eval"], 72463.7681, places=3)
         self.assertEqual(balance["broker_total_eval"], 72463.76811594203)
-        self.assertEqual(balance["balance_source"], "kis_config_capped")
+        self.assertEqual(balance["balance_source"], "kiwoom_config_capped")
 
     def test_mistock_candidates_include_planned_order_quantity(self):
         scan = {
@@ -1196,7 +1196,7 @@ class MistockDashboardTests(unittest.TestCase):
         self.assertEqual(mistock_db.get_setting("auto_approval"), "true")
 
     def test_schedule_result_expands_us_stock_identity(self):
-        mapped = mistock.map_mistock_to_kis_format({
+        mapped = mistock.map_mistock_to_broker_format({
             "strategy_id": "mistock_nasdaq_rule_v1",
             "status": "success",
             "plan": [{

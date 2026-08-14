@@ -6,7 +6,6 @@ from typing import Any
 
 SYMBOL_MAP = {
     "NQ": "BTCUSDT",
-    "MNQ": "BTCUSDT",
     "ES": "USDTUSDC",
     "MES": "USDTUSDC",
     "GC": "GOLDUSDT",

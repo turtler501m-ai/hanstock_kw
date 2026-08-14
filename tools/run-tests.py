@@ -22,18 +22,14 @@ PROFILES = {
         "tests.test_dashboard_helpers",
         "tests.test_dashboard_periodic_performance",
         "tests.test_dashboard_plan_views",
-        "tests.test_dashboard_signal_candidate_alignment",
         "tests.test_runtime_dashboard_alignment",
         "tests.test_scheduler_api",
     ],
     "trading": [
         "tests.test_trader_core",
-        "tests.test_trader_kis_integration",
         "tests.test_runtime_plan",
         "tests.test_order_router",
         "tests.test_execution_policy",
-        "tests.test_kis_api",
-        "tests.test_kis_client",
     ],
     "ai": [
         "tests.test_ai_stock_core",
@@ -42,14 +38,6 @@ PROFILES = {
         "tests.test_ai_strategy_lifecycle",
         "tests.test_ai_strategy_presets",
         "tests.test_autonomy_ai_stock_integration",
-    ],
-    "futures": [
-        "tests.test_futures_signal_parser",
-        "tests.test_futures_signal_verifier",
-        "tests.test_futures_signals_dashboard",
-        "tests.test_kis_futures_api",
-        "tests.test_quantconnect_api",
-        "tests.test_quantconnect_mnq_algorithm",
     ],
     "mistock": [
         "tests.test_mistock_dashboard",

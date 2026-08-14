@@ -30,7 +30,7 @@ def normalize_kr_symbol(symbol: Any) -> str:
 
 
 def normalize_kr_order_symbol(symbol: Any) -> str:
-    """Return the six-character KIS balance/order code for domestic instruments."""
+    """Return the six-character domestic balance/order symbol."""
     value = normalize_kr_symbol(symbol)
     if len(value) == 7 and value.startswith("Q") and value[1:].isdigit():
         return value[1:]

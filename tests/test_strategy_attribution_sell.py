@@ -3,6 +3,7 @@ import unittest
 from unittest.mock import patch
 
 from src.dashboard.routes import stock_order
+import src.dashboard as dashboard
 
 
 class StrategyAttributionSellTests(unittest.TestCase):
@@ -56,7 +57,11 @@ class StrategyAttributionSellTests(unittest.TestCase):
                 stock_order.trader.config.trade_db_path = f"{tmpdir}/trades.sqlite"
                 with patch.object(
                     stock_order, "_strategy_attribution_sell_orders", return_value=(orders, [])
+                ), patch.object(
+                    dashboard, "_strategy_attribution_sell_orders", return_value=(orders, [])
                 ), patch.object(stock_order, "_required_env_missing", return_value=[]), patch.object(
+                    dashboard, "_required_env_missing", return_value=[]
+                ), patch.object(
                     stock_order, "_auto_approval_enabled", return_value=False
                 ), patch.object(stock_order, "_clear_balance_cache"):
                     result = stock_order.sell_all_strategy_attribution({"strategy_id": "ai_rebalance"})

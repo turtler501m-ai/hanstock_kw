@@ -14,7 +14,7 @@ class MarketMetadataTests(unittest.TestCase):
         self.assertEqual(normalize_kr_symbol("5930"), "005930")
         self.assertEqual(normalize_kr_symbol("q530107"), "Q530107")
 
-    def test_normalize_kr_order_symbol_removes_kis_market_prefix(self):
+    def test_normalize_kr_order_symbol_removes_market_prefix(self):
         self.assertEqual(normalize_kr_order_symbol("Q530107"), "530107")
         self.assertEqual(normalize_kr_order_symbol("005930"), "005930")
 

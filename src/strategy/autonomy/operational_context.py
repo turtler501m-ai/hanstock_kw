@@ -1,7 +1,7 @@
 """Read-only KR/US operational snapshots for explicit autonomous run-once use.
 
-This module deliberately has no broker order capability.  It converts trusted
-KIS account reads and persisted AI-stock candidates into the immutable runtime
+This module deliberately has no broker order capability. It converts trusted
+broker account reads and persisted AI-stock candidates into the immutable runtime
 snapshot contract.  Missing, stale, or synthetic data raises instead of
 silently falling back to configured capital.
 """
@@ -18,6 +18,7 @@ from datetime import datetime, timezone
 from typing import Any, Callable, Mapping, Protocol, Sequence
 
 from src.ai_stock.market_data import MarketDataProvider, get_provider
+from src.broker.models import AccountBalance
 from src.config import config
 
 from src.utils.logger import logger
@@ -27,7 +28,7 @@ from .daily_equity import DailyEquityService
 
 
 class ReadOnlyBroker(Protocol):
-    def get_balance(self) -> Mapping[str, Any]: ...
+    def fetch_balance(self) -> AccountBalance: ...
 
 
 @dataclass(frozen=True)
@@ -59,7 +60,7 @@ class OperationalSnapshotProvider:
         self.account_id = str(
             account_id
             if account_id is not None
-            else getattr(config, "kistock_account", "")
+            else f"kiwoom:{getattr(config, 'kiwoom_trading_env', 'demo')}"
         ).strip()
         self.kill_switch_reader = kill_switch_reader or _default_kill_switch_reader
         self.daily_equity = daily_equity or DailyEquityService(
@@ -90,17 +91,13 @@ class OperationalSnapshotProvider:
         kr_balance = None
         if market == "KR":
             broker = self.kr_broker or _default_kr_broker()
-            kr_balance = broker.get_balance()
-            if (
-                not isinstance(kr_balance, Mapping)
-                or kr_balance.get("_error")
-                or kr_balance.get("rt_cd") not in (None, "0")
-            ):
+            kr_balance = broker.fetch_balance()
+            if not isinstance(kr_balance, AccountBalance):
                 raise RuntimeConfigurationError("trusted KR account query failed")
             symbols.update(
-                str(row.get("pdno") or "").strip()
-                for row in kr_balance.get("output1") or ()
-                if str(row.get("pdno") or "").strip()
+                str(row.symbol).strip()
+                for row in kr_balance.holdings
+                if str(row.symbol).strip()
             )
         if not symbols:
             raise RuntimeConfigurationError("no candidate or active position symbols")
@@ -257,26 +254,19 @@ class OperationalSnapshotProvider:
     ):
         if raw is None:
             broker = self.kr_broker or _default_kr_broker()
-            raw = broker.get_balance()
-        if not isinstance(raw, Mapping) or raw.get("_error") or raw.get("rt_cd") not in (None, "0"):
+            raw = broker.fetch_balance()
+        if not isinstance(raw, AccountBalance):
             raise RuntimeConfigurationError("trusted KR account query failed")
         holdings: dict[str, dict[str, float]] = {}
-        for row in raw.get("output1") or ():
-            symbol = str(row.get("pdno") or "").strip()
+        for row in raw.holdings:
+            symbol = str(row.symbol).strip()
             if not symbol:
                 continue
-            qty = _nonnegative(row.get("hldg_qty"), f"{symbol} quantity")
-            value = _nonnegative(
-                row.get("evlu_amt", qty * float(instruments.get(symbol, {}).get("current_price", 0))),
-                f"{symbol} value",
-            )
+            qty = _nonnegative(row.quantity, f"{symbol} quantity")
+            value = _nonnegative(row.market_value or qty * float(instruments.get(symbol, {}).get("current_price", 0)), f"{symbol} value")
             holdings[symbol] = {"quantity": qty, "value": value}
-        summary = next(iter(raw.get("output2") or ()), {})
-        total = _positive(summary.get("tot_evlu_amt"), "KR total_equity")
-        cash = _nonnegative(
-            summary.get("dnca_tot_amt", summary.get("prvs_rcdl_excc_amt")),
-            "KR available_cash",
-        )
+        total = _positive(raw.total_equity, "KR total_equity")
+        cash = _nonnegative(raw.cash, "KR available_cash")
         return self._account_payload(
             "KR", total, cash, holdings, instruments, active_positions,
             strategy_id, now,
@@ -289,7 +279,7 @@ class OperationalSnapshotProvider:
             raise RuntimeConfigurationError("trusted US account query failed")
         # A normalized reader is intentional: production default rejects all
         # demo/config fallback sources exposed by mistock.trader.get_balance().
-        if raw.get("balance_source") not in {"kis"}:
+        if raw.get("balance_source") not in {"kiwoom", "kiwoom_config_capped"}:
             raise RuntimeConfigurationError("synthetic or capped US balance rejected")
         total = _positive(raw.get("total_eval"), "US total_equity")
         cash = _nonnegative(raw.get("cash"), "US available_cash")
@@ -368,7 +358,7 @@ class OperationalSnapshotProvider:
             )
             kill_switch_active = True
         account_id = self.account_id
-        snapshot_id = f"kis-read:{market}:{now.isoformat()}"
+        snapshot_id = f"broker-read:{market}:{now.isoformat()}"
         equity = self.daily_equity.evaluate(
             account_id=account_id,
             market=market,

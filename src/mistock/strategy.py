@@ -83,17 +83,17 @@ def build_scan_universe(api: Any = None) -> list[str]:
         logger.info(f"[MISTOCK] 장중 조건 감시 {len(monitored)}종목 사용")
         return monitored
 
-    # 1순위: KIS API가 제공되면 해외주식 거래대금 상위 종목을 동적으로 가져온다.
+    # 1순위: 키움 API가 제공되면 해외주식 거래대금 상위 종목을 동적으로 가져온다.
     if api is not None:
         try:
             nas_symbols = api.get_overseas_volume_rank(excd="NAS", cnt=50)
             nys_symbols = api.get_overseas_volume_rank(excd="NYS", cnt=50)
             combined = list(dict.fromkeys(nas_symbols + nys_symbols))
             if len(combined) >= 20:
-                logger.info(f"[MISTOCK] KIS API 해외 거래대금 상위 {len(combined)}종목 동적 수집 완료")
+                logger.info(f"[MISTOCK] 키움 API 해외 거래대금 상위 {len(combined)}종목 동적 수집 완료")
                 return combined
         except Exception as exc:
-            logger.warning(f"[MISTOCK] KIS 해외 순위 API 조회 실패: {exc}")
+            logger.warning(f"[MISTOCK] 키움 해외 순위 API 조회 실패: {exc}")
 
     # 2순위: Online Wikipedia 크롤링
     wiki_symbols = fetch_wikipedia_universe()
@@ -482,7 +482,7 @@ def fetch_history(symbol: str, period: str = "6mo") -> dict[str, list[float]]:
     from src.online_access import require_online_access
 
     require_online_access("Mistock market-data download")
-    # Yahoo Finance uses '-' for share classes (BRK-B/BF-B), while KIS uses '.'.
+    # Yahoo Finance uses '-' for share classes (BRK-B/BF-B), while broker symbols may use '.'.
     yahoo_symbol = normalize_symbol(symbol).replace(".", "-")
     data = yf.download(
         yahoo_symbol,

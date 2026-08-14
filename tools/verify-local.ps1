@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [ValidateSet("quick", "dashboard", "trading", "ai", "autonomy", "futures", "mistock", "all")]
+    [ValidateSet("quick", "dashboard", "trading", "ai", "autonomy", "mistock", "all")]
     [string]$Profile = "quick"
 )
 
@@ -54,15 +54,12 @@ Invoke-Checked { & $python -c "import pathlib; [compile(p.read_text(encoding='ut
 Invoke-Checked { & $python tools\verify-deploy-constraints.py } "deploy constraints verification"
 
 if ($Profile -eq "all") {
-    Invoke-Checked { & $python -m py_compile tools\demo-trading-rehearsal.py } "demo rehearsal compile"
     Invoke-Checked { & $python tools\run-tests.py --profile all } "all test profile"
-    Invoke-Checked { & $python tools\demo-trading-rehearsal.py --no-db --allow-not-ready } "demo trading rehearsal"
 } else {
     Invoke-Checked { & $python tools\run-tests.py --profile $Profile } "$Profile test profile"
 }
 
 Invoke-Checked { node --check web\static\js\app.js } "app.js syntax check"
-Invoke-Checked { node --check web\static\js\futures_signals.js } "futures_signals.js syntax check"
 Invoke-Checked { node --check web\static\js\env_settings.js } "env_settings.js syntax check"
 Invoke-Checked { node --check web\static\js\finrl.js } "finrl.js syntax check"
 Invoke-Checked { node --check web\static\js\vendors.js } "vendors.js syntax check"

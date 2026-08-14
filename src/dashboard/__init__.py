@@ -13,8 +13,6 @@ from src.ai_stock.schemas import envelope as _ai_stock_envelope
 # Import all route modules so decorators register on app
 import src.dashboard.routes.pages as pages
 import src.dashboard.routes.account as account
-import src.dashboard.routes.futures as futures
-import src.dashboard.routes.quantconnect as quantconnect
 import src.dashboard.routes.settings as settings
 import src.dashboard.routes.stock as stock
 import src.dashboard.routes.mistock as mistock
@@ -25,8 +23,6 @@ import src.dashboard.routes.ai_stock as ai_stock
 for route_module in [
     pages,
     account,
-    futures,
-    quantconnect,
     settings,
     stock,
     mistock,
@@ -43,7 +39,7 @@ async def _dashboard_lifespan(_app):
     try:
         yield
     finally:
-        settings._stop_kis_websocket()
+        pass
 
 
 app.router.lifespan_context = _dashboard_lifespan
@@ -86,5 +82,5 @@ def _ai_stock_error_response(status_code: int, market: str, errors: list[str]) -
 # Dynamically expose all names from core and all route files for backward compatibility
 import src.dashboard.core as _core
 
-for mod in [_core, pages, account, futures, quantconnect, settings, stock, mistock, plunge_bounce, narrative_momentum]:
+for mod in [_core, pages, account, settings, stock, mistock, plunge_bounce, narrative_momentum]:
     globals().update({k: v for k, v in mod.__dict__.items() if not k.startswith("__")})

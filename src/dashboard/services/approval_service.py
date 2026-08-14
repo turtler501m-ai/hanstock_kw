@@ -58,7 +58,7 @@ def _claim_pending_approval(approval_id: int) -> dict:
 def _approval_response_msg(result: dict, *, ok: bool) -> str:
     response_msg = str(result.get("msg1", ""))
     if ok and not trader.runtime_flags().dry_run and trader.runtime_flags().trading_env == "demo":
-        response_msg = f"{response_msg} (KIS 모의투자 주문 접수 완료, 체결 여부는 주문내역 동기화 후 확인)"
+        response_msg = f"{response_msg} (키움 모의투자 주문 접수 완료, 체결 여부는 주문내역 동기화 후 확인)"
     return response_msg
 
 
@@ -220,7 +220,7 @@ def _auto_approve_pending_approvals(limit: int = 200) -> list[dict]:
 def _approve_pending_approval(approval_id: int, approval_label: str = "수동승인") -> dict:
     # Explicit sell-all batches, the periodic sweeper, scheduler jobs, and
     # manual approvals can all reach this function concurrently. Serialize the
-    # broker-facing path so KIS sees one approval order at a time.
+    # Broker-facing path serializes approval orders.
     with _approval_submission_lock:
         return _approve_pending_approval_serialized(approval_id, approval_label)
 

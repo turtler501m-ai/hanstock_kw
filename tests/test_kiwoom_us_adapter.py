@@ -82,13 +82,13 @@ class KiwoomUSStockWiringTests(unittest.TestCase):
         self.original_broker = mistock_config.stock_broker
         self.original_env = mistock_config.trading_env
         self.original_dry_run = mistock_config.dry_run
-        trader._kis_client_cache = None
+        trader._broker_client_cache = None
 
     def tearDown(self):
         mistock_config.stock_broker = self.original_broker
         mistock_config.trading_env = self.original_env
         mistock_config.dry_run = self.original_dry_run
-        trader._kis_client_cache = None
+        trader._broker_client_cache = None
 
     @patch("src.online_access.require_online_access")
     @patch("src.config.config")
@@ -101,7 +101,7 @@ class KiwoomUSStockWiringTests(unittest.TestCase):
         settings.kiwoom_us_demo_app_secret = "us-secret"
         settings.kiwoom_us_demo_account = "us-account"
 
-        result = trader._get_kis_client()
+        result = trader._get_broker_client()
 
         client_type.assert_called_once_with("us-key", "us-secret", environment="mock")
         self.assertEqual(result.account_no, "us-account")
@@ -119,7 +119,7 @@ class KiwoomUSStockWiringTests(unittest.TestCase):
         settings.kiwoom_us_demo_app_secret = "us-secret"
         settings.kiwoom_us_demo_account = "us-account"
 
-        result = trader._get_kis_client()
+        result = trader._get_broker_client()
 
         self.assertTrue(result.order_submission_enabled)
         self.assertTrue(trader.broker_submission_available())
@@ -133,14 +133,14 @@ class KiwoomUSStockWiringTests(unittest.TestCase):
         settings.kiwoom_us_demo_app_secret = ""
         settings.kiwoom_us_demo_account = ""
         with self.assertRaisesRegex(RuntimeError, "required"):
-            trader._get_kis_client()
+            trader._get_broker_client()
 
     @patch("src.online_access.require_online_access")
     def test_real_environment_is_not_activated(self, _online):
         mistock_config.stock_broker = "kiwoom"
         mistock_config.trading_env = "real"
         with self.assertRaisesRegex(RuntimeError, "demo-only"):
-            trader._get_kis_client()
+            trader._get_broker_client()
 
 
 if __name__ == "__main__":

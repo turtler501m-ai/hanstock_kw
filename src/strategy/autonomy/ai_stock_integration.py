@@ -34,6 +34,33 @@ from .runtime import (
 _DEMO_PROTECTION_BROKER = PaperProtectionBroker()
 
 
+def _order_result_payload(result) -> dict[str, Any]:
+    payload = dict(result.raw)
+    payload.update({
+        "accepted": bool(result.success),
+        "broker_order_id": result.broker_order_id,
+        "status": result.status.value,
+        "message": result.message,
+        "outcome_unknown": result.status.value == "unknown",
+    })
+    return payload
+
+
+def _order_snapshot_payload(snapshot) -> dict[str, Any]:
+    payload = dict(snapshot.raw)
+    payload.update({
+        "broker_order_id": snapshot.broker_order_id,
+        "status": snapshot.status.value,
+        "requested_qty": snapshot.requested_quantity,
+        "cumulative_filled_qty": snapshot.filled_quantity,
+        "remaining_qty": snapshot.remaining_quantity,
+        "average_fill_price": snapshot.average_fill_price,
+        "message": snapshot.message,
+        "outcome_unknown": snapshot.outcome_unknown,
+    })
+    return payload
+
+
 def _autonomy_execution_enabled() -> bool:
     """Allow demo, or real only after every explicit live opt-in is enabled."""
     environment = str(
@@ -158,31 +185,35 @@ def approve_managed_ai_stock_order(approval_id: int) -> dict[str, Any]:
 
         api = create_domestic_stock_broker(order_submission_enabled=True)
 
+        from src.broker.models import CancelOrderRequest, OrderRequest, OrderSide
+
         def submitter(canonical):
-            return api.place_order(
-                str(canonical["symbol"]),
-                str(canonical["action"]),
-                int(float(canonical.get("requested_price") or 0)),
-                int(canonical["requested_qty"]),
+            result = api.submit_order(
+                OrderRequest(
+                    str(canonical["symbol"]),
+                    OrderSide(str(canonical["action"])),
+                    int(canonical["requested_qty"]),
+                    int(float(canonical.get("requested_price") or 0)),
+                )
             )
+            return _order_result_payload(result)
 
         def canceler(canonical):
-            return api.cancel_order(
-                str(canonical["broker_order_id"]),
-                qty=max(
+            result = api.submit_cancellation(CancelOrderRequest(
+                str(canonical["broker_order_id"]), str(canonical["symbol"]), max(
                     0,
                     int(canonical["requested_qty"])
                     - int(canonical.get("filled_qty") or 0),
                 ),
-                cancel_all=True,
-            )
+            ))
+            return _order_result_payload(result)
 
         def query(canonical):
             created = str(canonical.get("created_at") or "")[:10].replace("-", "")
-            return api.get_order_snapshot(
+            return _order_snapshot_payload(api.fetch_order_snapshot(
                 str(canonical["broker_order_id"]),
-                order_date=created or None,
-            )
+                order_date=created,
+            ))
 
         gateway = KRBrokerGateway(
             submitter=submitter,
@@ -202,7 +233,7 @@ def approve_managed_ai_stock_order(approval_id: int) -> dict[str, Any]:
                 "order_status": str(submitted["status"]),
                 "broker_order_id": submitted.get("broker_order_id"),
                 "response_msg": (
-                    "managed AI-stock order submitted to KIS "
+                    "managed AI-stock order submitted to Kiwoom "
                     f"{getattr(config, 'trading_env', 'demo')}"
                 ),
             }
@@ -265,22 +296,23 @@ def cancel_managed_ai_stock_order(order_id: int) -> dict[str, Any]:
         def unavailable_submit(_canonical):
             raise RuntimeConfigurationError("cancel gateway cannot submit orders")
 
+        from src.broker.models import CancelOrderRequest
+
         def canceler(canonical):
-            return api.cancel_order(
-                str(canonical["broker_order_id"]),
-                qty=max(
+            result = api.submit_cancellation(CancelOrderRequest(
+                str(canonical["broker_order_id"]), str(canonical["symbol"]), max(
                     0,
                     int(canonical["requested_qty"])
                     - int(canonical.get("filled_qty") or 0),
                 ),
-                cancel_all=True,
-            )
+            ))
+            return _order_result_payload(result)
 
         def query(canonical):
             created = str(canonical.get("created_at") or "")[:10].replace("-", "")
-            return api.get_order_snapshot(
-                str(canonical["broker_order_id"]), order_date=created or None
-            )
+            return _order_snapshot_payload(api.fetch_order_snapshot(
+                str(canonical["broker_order_id"]), order_date=created
+            ))
 
         broker = KRBrokerGateway(
             submitter=unavailable_submit,
@@ -317,7 +349,7 @@ def run_ai_stock_autonomy_cycle(
         raise RuntimeConfigurationError(
             "approval-free autonomy requires an enabled KR autonomy environment"
         )
-    reconciliation = reconcile_kis_demo_managed_orders(market=market)
+    reconciliation = reconcile_kiwoom_managed_orders(market=market)
     policy = ai_stock_repository.get_policy(strategy_id, market)
     if not policy or not int(policy.get("enabled", 0)):
         raise RuntimeConfigurationError("enabled automation policy is required")
@@ -371,7 +403,7 @@ def run_ai_stock_autonomy_cycle(
     }
 
 
-def reconcile_kis_demo_managed_orders(*, market: str = "KR") -> list[dict[str, Any]]:
+def reconcile_kiwoom_managed_orders(*, market: str = "KR") -> list[dict[str, Any]]:
     """Reconcile durable KR orders against the configured Kiwoom environment."""
     market = str(market).upper()
     if market != "KR" or not _autonomy_execution_enabled():
@@ -388,22 +420,23 @@ def reconcile_kis_demo_managed_orders(*, market: str = "KR") -> list[dict[str, A
     def unavailable_submit(_canonical):
         raise RuntimeConfigurationError("reconciliation cannot submit orders")
 
+    from src.broker.models import CancelOrderRequest
+
     def canceler(canonical):
-        return api.cancel_order(
-            str(canonical["broker_order_id"]),
-            qty=max(
+        result = api.submit_cancellation(CancelOrderRequest(
+            str(canonical["broker_order_id"]), str(canonical["symbol"]), max(
                 0,
                 int(canonical["requested_qty"])
                 - int(canonical.get("filled_qty") or 0),
             ),
-            cancel_all=True,
-        )
+        ))
+        return _order_result_payload(result)
 
     def query(canonical):
         created = str(canonical.get("created_at") or "")[:10].replace("-", "")
-        return api.get_order_snapshot(
-            str(canonical["broker_order_id"]), order_date=created or None
-        )
+        return _order_snapshot_payload(api.fetch_order_snapshot(
+            str(canonical["broker_order_id"]), order_date=created
+        ))
 
     broker = KRBrokerGateway(
         submitter=unavailable_submit,
@@ -420,7 +453,7 @@ def reconcile_kis_demo_managed_orders(*, market: str = "KR") -> list[dict[str, A
     ).recover_unsettled()
     if any(item.status in {"error", "inconsistent"} for item in results):
         raise RuntimeConfigurationError(
-            "KIS demo managed-order reconciliation is incomplete"
+            "Kiwoom managed-order reconciliation is incomplete"
         )
     return [
         {

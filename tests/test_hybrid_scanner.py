@@ -65,23 +65,20 @@ class TestHybridScanner(unittest.TestCase):
         # 005930이 정상적으로 1종목 scanned 완료되었는지 검증
         self.assertEqual(res["scanned"], 1)
 
-    def test_kis_scan_source_skips_yfinance_and_uses_api(self):
+    def test_kiwoom_scan_source_skips_yfinance_and_uses_api(self):
+        from src.broker.models import DailyBar
         mock_data = []
         start_date = datetime(2026, 1, 1)
         for i in range(70):
             d_str = (start_date + timedelta(days=i)).strftime("%Y%m%d")
-            mock_data.append({
-                "date": d_str,
-                "open": 50000 + i * 10,
-                "high": 50500 + i * 10,
-                "low": 49500 + i * 10,
-                "close": 50100 + i * 10,
-                "volume": 100000,
-            })
+            mock_data.append(DailyBar(
+                d_str, 50000 + i * 10, 50500 + i * 10,
+                49500 + i * 10, 50100 + i * 10, 100000,
+            ))
 
         api = Mock()
-        api.get_daily.return_value = mock_data
-        with patch.object(config, "candidate_scan_source", "kis"), patch(
+        api.fetch_daily_bars.return_value = mock_data
+        with patch.object(config, "candidate_scan_source", "kiwoom"), patch(
             "src.strategy.seven_split.yf.download"
         ) as yfinance_download:
             res = find_candidates(
@@ -93,7 +90,7 @@ class TestHybridScanner(unittest.TestCase):
             )
 
         yfinance_download.assert_not_called()
-        api.get_daily.assert_called_once_with("005930", n=120)
+        api.fetch_daily_bars.assert_called_once_with("005930", count=120)
         self.assertEqual(res["scanned"], 1)
 
 if __name__ == "__main__":

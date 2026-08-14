@@ -9,9 +9,9 @@ from fastapi import HTTPException
 def account_format_warning(account: str) -> str:
     digits = "".join(char for char in str(account or "") if char.isdigit())
     if not digits:
-        return "KISTOCK_ACCOUNT is required"
+        return "Kiwoom account is required"
     if len(digits) not in {8, 10}:
-        return "KISTOCK_ACCOUNT must be 8 digits, or 10 digits including 2-digit product code"
+        return "Kiwoom account format is invalid"
     return ""
 
 
@@ -44,7 +44,7 @@ def validate_env_value(field_map: dict, key: str, value: object) -> str:
         options = field.get("options", [])
         if value_text not in options:
             raise HTTPException(status_code=400, detail=f"{key} must be one of: {', '.join(options)}")
-    if key == "KISTOCK_ACCOUNT":
+    if key.startswith("KIWOOM_") and key.endswith("_ACCOUNT"):
         digits = "".join(char for char in value_text if char.isdigit())
         warning = account_format_warning(digits)
         if warning:

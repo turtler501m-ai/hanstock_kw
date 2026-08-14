@@ -170,6 +170,6 @@ def _history_row_to_trade(row: dict) -> dict:
         "order_status": "filled",
         "filled_qty": qty,
         "filled_price": price,
-        "response_msg": "KIS trade history import",
+        "response_msg": "Kiwoom trade history import",
         "broker_result": json.dumps(row, ensure_ascii=False),
     }

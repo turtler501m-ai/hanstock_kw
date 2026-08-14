@@ -39,7 +39,7 @@ class MistockIndicatorStrategyTests(unittest.TestCase):
         config.strategy_model = "macd_rsi_momentum"
         config.indicator_min_score = 5
 
-        with patch("src.mistock.trader._get_kis_client", side_effect=RuntimeError("offline")), \
+        with patch("src.mistock.trader._get_broker_client", side_effect=RuntimeError("offline")), \
                 patch("src.mistock.strategy.build_scan_universe", return_value=["AAPL"]), \
                 patch("src.mistock.trader.get_watchlist", return_value=[]), \
                 patch("src.mistock.trader.fetch_history", return_value={"close": [1.0] * 80, "high": [1.0] * 80, "volume": [1.0] * 80}), \
@@ -60,7 +60,7 @@ class MistockIndicatorStrategyTests(unittest.TestCase):
         self.assertEqual(result["min_score"], 5)
         self.assertEqual(result["candidates"], [])
 
-    def test_fetch_history_converts_kis_share_class_symbol_for_yahoo(self):
+    def test_fetch_history_converts_broker_share_class_symbol_for_yahoo(self):
         empty = MagicMock()
         empty.empty = True
         with patch("src.online_access.require_online_access"), \
@@ -96,7 +96,7 @@ class MistockIndicatorStrategyTests(unittest.TestCase):
             trader._overseas_balance_cache_client = None
             trader._overseas_balance_cache_at = 0.0
             with (
-                patch.object(trader, "_get_kis_client", return_value=client),
+                patch.object(trader, "_get_broker_client", return_value=client),
                 patch.object(trader.time, "monotonic", side_effect=[100.0, 100.0, 100.0, 101.0]),
             ):
                 first = trader._get_overseas_balance_cached()
@@ -116,7 +116,7 @@ class MistockIndicatorStrategyTests(unittest.TestCase):
         client.get_overseas_balance.return_value = {
             "output1": [],
             "output2": {},
-            "_error": "KIS 500",
+            "_error": "broker 500",
         }
         original = (
             trader._overseas_balance_cache,
@@ -128,7 +128,7 @@ class MistockIndicatorStrategyTests(unittest.TestCase):
             trader._overseas_balance_cache_client = None
             trader._overseas_balance_cache_at = 0.0
             with (
-                patch.object(trader, "_get_kis_client", return_value=client),
+                patch.object(trader, "_get_broker_client", return_value=client),
                 patch.object(trader.time, "monotonic", side_effect=[100.0, 100.0, 100.0, 110.0]),
             ):
                 trader._get_overseas_balance_cached()
@@ -147,7 +147,7 @@ class MistockIndicatorStrategyTests(unittest.TestCase):
         client.get_overseas_balance.return_value = {
             "output1": [],
             "output2": {},
-            "_error": "KIS 500",
+            "_error": "broker 500",
         }
         original = (
             trader._overseas_balance_cache,
@@ -161,7 +161,7 @@ class MistockIndicatorStrategyTests(unittest.TestCase):
             trader._overseas_balance_cache_at = 0.0
             trader._overseas_balance_failure_count = 0
             with (
-                patch.object(trader, "_get_kis_client", return_value=client),
+                patch.object(trader, "_get_broker_client", return_value=client),
                 patch.object(
                     trader.time,
                     "monotonic",

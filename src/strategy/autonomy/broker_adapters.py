@@ -132,7 +132,7 @@ class _InjectedBrokerGateway:
 
 
 class KRBrokerGateway(_InjectedBrokerGateway):
-    """Korean-stock adapter; inject existing KIS API call wrappers."""
+    """Korean-stock adapter over the normalized domestic broker contract."""
 
     market = "KR"
 

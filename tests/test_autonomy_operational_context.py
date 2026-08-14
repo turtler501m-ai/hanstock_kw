@@ -3,6 +3,7 @@ from __future__ import annotations
 import unittest
 from datetime import datetime, timedelta, timezone
 from unittest.mock import Mock, patch
+from src.broker.models import AccountBalance, Holding
 
 from src.strategy.autonomy.operational_context import (
     OperationalSnapshot,
@@ -59,20 +60,16 @@ class _Market:
 
 
 class _KR:
-    def get_balance(self):
-        return {
-            "rt_cd": "0", "output1": [],
-            "output2": [{"tot_evlu_amt": "1000000", "dnca_tot_amt": "1000000"}],
-        }
+    def fetch_balance(self):
+        return AccountBalance(cash=1_000_000, total_equity=1_000_000)
 
 
 class _KRHolding:
-    def get_balance(self):
-        return {
-            "rt_cd": "0",
-            "output1": [{"pdno": "AAA", "hldg_qty": "2", "evlu_amt": "220"}],
-            "output2": [{"tot_evlu_amt": "1000", "dnca_tot_amt": "780"}],
-        }
+    def fetch_balance(self):
+        return AccountBalance(
+            holdings=(Holding("AAA", quantity=2, market_value=220),),
+            cash=780, total_equity=1_000, stock_value=220,
+        )
 
 
 class OperationalContextTest(unittest.TestCase):
@@ -150,7 +147,7 @@ class OperationalContextTest(unittest.TestCase):
 
     def test_broker_error_fails_closed(self):
         class Broken:
-            def get_balance(self):
+            def fetch_balance(self):
                 return {"_error": "network"}
 
         provider = OperationalSnapshotProvider(
@@ -195,16 +192,11 @@ class OperationalContextTest(unittest.TestCase):
 
     def test_broker_only_holding_is_included_in_instrument_snapshot(self):
         class Broker:
-            def get_balance(self):
-                return {
-                    "rt_cd": "0",
-                    "output1": [
-                        {"pdno": "BBB", "hldg_qty": "3", "evlu_amt": "330"}
-                    ],
-                    "output2": [
-                        {"tot_evlu_amt": "1330", "dnca_tot_amt": "1000"}
-                    ],
-                }
+            def fetch_balance(self):
+                return AccountBalance(
+                    holdings=(Holding("BBB", quantity=3, market_value=330),),
+                    cash=1_000, total_equity=1_330, stock_value=330,
+                )
 
         provider = OperationalSnapshotProvider(
             kr_broker=Broker(),

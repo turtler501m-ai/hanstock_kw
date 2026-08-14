@@ -76,7 +76,7 @@
         "web/static/js/mistock_app.js",
         "web/templates/mistock/index.html",
         ".env.example",
-        "doc/S1.한스톡사용설명서.md"
+        "README.md"
       ]
     }
   ]

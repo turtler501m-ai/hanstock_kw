@@ -186,8 +186,6 @@ def _apply_mistock_env_updates(updates: dict[str, str]) -> None:
             setattr(mistock_config, attr, float(value))
         else:
             setattr(mistock_config, attr, value)
-    if any(key in updates for key in {"MISTOCK_TRADING_ENV", "MISTOCK_STOCK_BROKER", "KISTOCK_ACCOUNT", "KISTOCK_APP_KEY", "KISTOCK_APP_SECRET", "KIWOOM_US_DEMO_ACCOUNT", "KIWOOM_US_DEMO_APP_KEY", "KIWOOM_US_DEMO_APP_SECRET"}):
-        mistock_trader._kis_client_cache = None
 
 
 @router.get("/mistock", response_class=FileResponse)
@@ -242,11 +240,7 @@ def mistock_config_api():
     flags = mistock_trader.runtime_flags()
     watchlist = [item["symbol"] for item in mistock_trader.get_watchlist()]
     from src.config import config as main_config
-    account_no = (
-        main_config.kiwoom_us_demo_account
-        if mistock_config.stock_broker == "kiwoom"
-        else main_config.kistock_account
-    )
+    account_no = main_config.kiwoom_us_demo_account
     exchange_rate = get_usd_krw_rate()
     total_capital_usd = (
         float(mistock_config.total_capital) / exchange_rate
@@ -257,7 +251,6 @@ def mistock_config_api():
         **flags,
         "broker": mistock_config.stock_broker,
         "broker_account": account_no,
-        "kistock_account": account_no,
         "split_n": mistock_config.split_n,
         "stop_loss_pct": mistock_config.stop_loss_pct,
         "take_profit": mistock_config.take_profit,
@@ -533,7 +526,7 @@ def _mistock_ai_analysis() -> dict:
             "Read Mistock demo cash and holdings.",
             "Scan NASDAQ watchlist and NASDAQ100 universe with yfinance.",
             "Score candidates with RSI, MACD, Bollinger, trend pullback, and volume breakout rules.",
-            "Route orders through approval queue into KIS demo execution.",
+            "Route orders through approval queue into Kiwoom demo execution.",
         ],
     }
 
@@ -969,7 +962,7 @@ def mistock_candidates(min_score: int = 2, limit: int = 100, ranker: str = "mist
         "scanned": scan["scanned"],
         "min_score": min_score,
         "cash": balance["cash"],
-        "balance_source": balance.get("balance_source", "kis"),
+        "balance_source": balance.get("balance_source", "kiwoom"),
     }
 
 
@@ -1635,7 +1628,7 @@ def _mistock_holding_daily_change(holdings: dict[str, dict]) -> dict:
         from src.online_access import require_online_access
 
         require_online_access("Mistock holding daily performance")
-        # KIS represents share classes with a dot (BF.B/BRK.B), while Yahoo
+        # The broker represents share classes with a dot (BF.B/BRK.B), while Yahoo
         # Finance expects a dash (BF-B/BRK-B). Keep the broker symbols as the
         # response keys and translate only at the market-data boundary.
         yahoo_symbols = {symbol: symbol.replace(".", "-") for symbol in symbols}
@@ -1879,7 +1872,7 @@ def _bg_run_mistock_scheduled_cycles(mode: str, strategy_ids: list[str]):
                 "completed_at": datetime.now(timezone(timedelta(hours=9))).isoformat(),
                 "result": None, "error": str(exc), "owner_pid": None,
             })
-def map_mistock_to_kis_format(mistock_result: dict) -> dict:
+def map_mistock_to_broker_format(mistock_result: dict) -> dict:
     if not mistock_result:
         return {}
         
@@ -2012,6 +2005,9 @@ def map_mistock_to_kis_format(mistock_result: dict) -> dict:
     }
 
 
+map_mistock_result = map_mistock_to_broker_format
+
+
 def save_mistock_daily_run(recorded_at: str, mode: str, result: dict):
     from datetime import datetime, timezone, timedelta
     KST = timezone(timedelta(hours=9))
@@ -2097,7 +2093,7 @@ def load_mistock_daily_runs(days: int = 30) -> list:
     return unique_runs
 
 
-def merge_mistock_runs_to_kis_format(runs: list) -> dict | None:
+def merge_mistock_runs(runs: list) -> dict | None:
     if not runs:
         return None
         
@@ -2118,7 +2114,7 @@ def merge_mistock_runs_to_kis_format(runs: list) -> dict | None:
         display_time = f"{date_part[5:]} {time_part}"
         
         raw_result = run["result"]
-        mapped = map_mistock_to_kis_format(raw_result)
+        mapped = map_mistock_to_broker_format(raw_result)
         if idx == len(runs) - 1:
             latest_errors = mapped.get("errors", []) if isinstance(mapped.get("errors", []), list) else []
         
@@ -2221,12 +2217,12 @@ def mistock_scheduler_status():
     _mistock_scheduler_run_state.refresh()
     
     runs = load_mistock_daily_runs(days=30)
-    last_result = merge_mistock_runs_to_kis_format(runs)
+    last_result = merge_mistock_runs(runs)
     _clear_stale_mistock_scheduler_error(last_result)
         
     run_state_to_return = _mistock_scheduler_run_state.copy()
     if run_state_to_return.get("result"):
-        run_state_to_return["result"] = map_mistock_to_kis_format(run_state_to_return["result"])
+        run_state_to_return["result"] = map_mistock_to_broker_format(run_state_to_return["result"])
 
     active_strategy_id = "mistock_nasdaq_rule_v1"
     active_strategy_name = "미스톡 기본 Seven Split"
@@ -2351,12 +2347,7 @@ def mistock_scheduler_run(payload: dict = Body(default={})):
 
 @router.post("/api/mistock/circuit-breaker/reset")
 def mistock_reset_circuit():
-    try:
-        mistock_trader.reset_circuit()
-        client = mistock_trader._get_kis_client()
-        status = client.circuit_status()
-    except Exception as exc:
-        status = {"opened": False, "error_count": 0, "max_errors": 5, "opened_at": None, "error": str(exc)}
+    status = {"opened": False, "error_count": 0, "max_errors": 5, "opened_at": None}
     return {"ok": True, "circuit_breaker": status}
 
 

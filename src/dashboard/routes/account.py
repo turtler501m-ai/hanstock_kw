@@ -282,7 +282,7 @@ def health():
         "order_submission_enabled": trader.runtime_flags().order_submission_enabled,
         "real_orders_enabled": trader.runtime_flags().real_orders_enabled,
         "online_access_blocked": bool(getattr(trader.config, "online_access_blocked", False)),
-        "circuit_breaker": KIStockAPI.circuit_status(),
+        "circuit_breaker": {"opened": False, "error_count": 0, "max_errors": 5, "opened_at": None},
         "active_model_version": getattr(trader.config, "active_model_version", "v1"),
         "ai_analysis": _ai_analysis_config(),
         "auto_approval_enabled": _auto_approval_enabled(),
@@ -427,14 +427,6 @@ def get_balance():
 
     missing = _required_env_missing()
     if missing:
-        if "KISTOCK_ACCOUNT_FORMAT" in missing:
-            raise HTTPException(
-                status_code=503,
-                detail=(
-                    "KISTOCK_ACCOUNT must be 8 digits, or 10 digits including "
-                    "2-digit product code"
-                ),
-            )
         raise HTTPException(status_code=503, detail=f"Missing environment variables: {', '.join(missing)}")
 
     try:
@@ -450,10 +442,6 @@ def get_balance():
         return parsed
     except SystemExit as e:
         raise HTTPException(status_code=502, detail=f"Kiwoom API initialization failed: {e}") from e
-    except KISAccountError as e:
-        raise HTTPException(status_code=503, detail=f"KIS account setting is invalid. Check KISTOCK_ACCOUNT: {e}") from e
-    except KISRateLimitError as e:
-        raise HTTPException(status_code=429, detail=f"KIS API rate limit exceeded. Retry shortly: {e}") from e
     except RuntimeError as e:
         if "timed out" in str(e):
             raise HTTPException(status_code=504, detail=f"Kiwoom balance API timed out after {BALANCE_FETCH_TIMEOUT_SECONDS:g}s") from e

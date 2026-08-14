@@ -2,4 +2,3 @@
 # purpose-specific files directly.
 -r requirements-core.txt
 -r requirements-integrations.txt
--r requirements-voice.txt

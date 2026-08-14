@@ -687,7 +687,7 @@ function renderAiStrategySummary(config) {
         : (enabled ? 'OPENAI_API_KEY 없음: Seven Split 룰 점수로 분석' : 'Seven Split 룰 점수만 사용');
     const ruleWeight = Number(ai.rule_weight ?? 1) * 100;
     const scoreWeight = Number(ai.score_weight ?? 0) * 100;
-    const accountText = ai.account || config.kistock_account || '-';
+    const accountText = ai.account || config.broker_account || '-';
     const flow = ai.auto_approve ? 'AI 제안 후 자동승인 설정 켜짐' : 'AI 제안 후 승인 대기';
 
     setElementText('ai-summary-model', `${modelStatus} · ${ai.model_name || '-'}`);
@@ -878,7 +878,7 @@ async function renderConfig() {
     latestConfig = config;
     currentCurrency = config.currency || 'USD';
     exchangeRate = Number(config.exchange_rate || 1380.0);
-    setElementText('val-account', config.kistock_account || '-');
+    setElementText('val-account', config.broker_account || '-');
     renderAiStrategySummary(config);
     const settingsEl = document.getElementById('settings-grid');
     settingsEl.innerHTML = renderStrategySettingsForm(config);
@@ -1070,9 +1070,9 @@ function renderHoldingAccountSummary(balance, displayTotal, realizedPnl = 0) {
         : (displayTotal > 0 ? stockEval / displayTotal : 0);
     const count = (balance.holdings || []).length;
     const sourceMap = {
-        kis: 'KIS 미국주식 계좌정보',
+        kiwoom: '키움 미국주식 계좌정보',
         demo_config_fallback: '미스톡 모의 설정자금',
-        demo_local_shadow: 'KIS 모의 + 로컬 체결 보정',
+        demo_local_shadow: '키움 모의 + 로컬 체결 보정',
     };
     const source = balance._cache?.stale
         ? `최근 저장 계좌정보 ${balance._cache.cached_at || ''}`.trim()
@@ -2606,7 +2606,7 @@ async function processOptimizerBatch() {
             batchButton.disabled = false;
         }
     }
-    // Refresh UI in the background to prevent button from hanging on slow KIS API calls
+    // Refresh UI in the background to prevent the button from hanging on slow broker calls.
     renderApprovals();
     renderTrades();
     renderBalance();

@@ -5,8 +5,8 @@ class TestVolatilityBreakoutStrategy(unittest.TestCase):
     def setUp(self):
         self.strategy = VolatilityBreakoutStrategy(k=0.5)
 
-    def test_calculate_target_price_with_kis_format(self):
-        # KIS 일봉 포맷 데이터 (stck_hgpr: 고가, stck_lwpr: 저가, stck_clpr: 종가)
+    def test_calculate_target_price_with_legacy_daily_bar_format(self):
+        # 국내 일봉 호환 포맷 데이터 (stck_hgpr: 고가, stck_lwpr: 저가, stck_clpr: 종가)
         daily_data = [
             {
                 "stck_hgpr": "80000",

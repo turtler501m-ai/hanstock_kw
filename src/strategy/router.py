@@ -1,20 +1,21 @@
 import os
 import time
 
-from src.api.kis_api import KIStockAPI
 from src.approval_service import ApprovalService
+from src.broker.base import DomesticStockBroker
+from src.broker.models import OrderRequest, OrderResult, OrderSide, OrderStatus
 from src.config import config
 from src.db.repository import connect_db, save_decision_log, save_trade
 from src.execution_service import ExecutionContext, resolve_execution_decision
 from src.repositories import ApprovalRepository
 from src.utils.logger import logger
 
-_RATE_LIMIT_BACKOFF_SECONDS = float(os.environ.get("KIS_ORDER_RATE_LIMIT_BACKOFF_SECONDS", "10.0"))
-_RATE_LIMIT_MAX_RETRIES = int(os.environ.get("KIS_ORDER_RATE_LIMIT_RETRIES", "2"))
-_ORDER_MIN_INTERVAL_SECONDS = float(os.environ.get("KIS_ORDER_MIN_INTERVAL_SECONDS", "0.0"))
+_RATE_LIMIT_BACKOFF_SECONDS = float(os.environ.get("KIWOOM_ORDER_RATE_LIMIT_BACKOFF_SECONDS", "10.0"))
+_RATE_LIMIT_MAX_RETRIES = int(os.environ.get("KIWOOM_ORDER_RATE_LIMIT_RETRIES", "2"))
+_ORDER_MIN_INTERVAL_SECONDS = float(os.environ.get("KIWOOM_ORDER_MIN_INTERVAL_SECONDS", "0.0"))
 
 
-def _is_kis_rate_limit_message(message: str) -> bool:
+def _is_broker_rate_limit_message(message: str) -> bool:
     text = str(message or "").lower()
     return "\ucd08\ub2f9 \uac70\ub798\uac74\uc218" in text or "rate limit" in text or "egw00201" in text
 
@@ -22,7 +23,7 @@ def _is_kis_rate_limit_message(message: str) -> bool:
 class OrderRouter:
     def __init__(
         self,
-        api: KIStockAPI,
+        api: DomesticStockBroker,
         approval_service: ApprovalService | None = None,
         execution_context=None,
     ):
@@ -47,15 +48,19 @@ class OrderRouter:
 
     def _current_holding_qty(self, symbol: str) -> int:
         try:
-            balance = self.api.get_balance()
+            balance = self.api.fetch_balance()
         except Exception:
+            try:
+                raw = self.api.get_balance()
+                for holding in raw.get("output1", []):
+                    if str(holding.get("pdno") or "") == str(symbol):
+                        return int(float(holding.get("hldg_qty") or 0))
+            except Exception:
+                pass
             return 0
-        for holding in balance.get("output1", []) or []:
-            if str(holding.get("pdno") or "") == str(symbol):
-                try:
-                    return int(float(holding.get("hldg_qty") or 0))
-                except (TypeError, ValueError):
-                    return 0
+        for holding in balance.holdings:
+            if str(holding.symbol) == str(symbol):
+                return int(holding.quantity)
         return 0
 
     def _place_order_with_rate_limit_retries(
@@ -64,24 +69,43 @@ class OrderRouter:
         action: str,
         price: int,
         qty: int,
-    ) -> dict:
+    ):
         attempts = max(1, _RATE_LIMIT_MAX_RETRIES + 1)
-        result: dict = {}
+        result = None
         for attempt in range(1, attempts + 1):
             if _ORDER_MIN_INTERVAL_SECONDS > 0 and self._last_order_at > 0:
                 elapsed = time.monotonic() - self._last_order_at
                 wait = _ORDER_MIN_INTERVAL_SECONDS - elapsed
                 if wait > 0:
                     time.sleep(wait)
-            result = self.api.place_order(symbol, action, price, qty)
+            if hasattr(self.api, "submit_order"):
+                result = self.api.submit_order(
+                    OrderRequest(symbol, OrderSide(action), qty, price)
+                )
+            else:  # Transitional test/injected adapters.
+                raw = self.api.place_order(symbol, action, price, qty)
+                result = OrderResult(
+                    str(raw.get("rt_cd")) == "0",
+                    str(raw.get("msg1", "")),
+                    raw=raw,
+                    status=OrderStatus.SUBMITTED,
+                )
+            if not isinstance(result, OrderResult):
+                raw = self.api.place_order(symbol, action, price, qty)
+                result = OrderResult(
+                    str(raw.get("rt_cd")) == "0",
+                    str(raw.get("msg1", "")),
+                    raw=raw,
+                    status=OrderStatus.SUBMITTED,
+                )
             self._last_order_at = time.monotonic()
-            ok = result.get("rt_cd") == "0"
-            msg = str(result.get("msg1", ""))
+            ok = result.success
+            msg = result.message
             logger.info(f"[ROUTER] Live Execution {'OK' if ok else 'FAILED'}: {msg}")
-            if ok or not _is_kis_rate_limit_message(msg) or attempt >= attempts:
+            if ok or not _is_broker_rate_limit_message(msg) or attempt >= attempts:
                 return result
             logger.warning(
-                "[ROUTER] KIS rate limit response detected; "
+                "[ROUTER] broker rate limit response detected; "
                 f"retrying after {_RATE_LIMIT_BACKOFF_SECONDS:.1f}s "
                 f"({attempt}/{attempts - 1})"
             )
@@ -134,7 +158,8 @@ class OrderRouter:
 
         pre_order_qty = self._current_holding_qty(symbol) if action == "sell" else 0
         result = self._place_order_with_rate_limit_retries(symbol, action, price, qty)
-        ok = result.get("rt_cd") == "0"
+        ok = result.success
+        broker_result = dict(result.raw)
         save_trade(
             symbol,
             name,
@@ -144,15 +169,15 @@ class OrderRouter:
             reason,
             ok,
             True,
-            broker_result=result,
+            broker_result=broker_result,
             order_status="submitted" if ok else "failed",
-            response_msg=str(result.get("msg1", "")),
+            response_msg=result.message,
             filled_qty=0,
             filled_price=0,
             pre_order_qty=pre_order_qty,
             strategy_id=strategy_id,
         )
-        return {"ok": ok, "msg": result.get("msg1", ""), "status": "live"}
+        return {"ok": ok, "msg": result.message, "status": "live"}
 
     def _insert_approval(
         self,

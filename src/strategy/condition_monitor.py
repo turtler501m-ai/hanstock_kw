@@ -99,7 +99,7 @@ def run_condition_monitor_cycle(markets: set[str] | None = None) -> dict:
             from src.broker.factory import create_domestic_stock_broker
 
             api = create_domestic_stock_broker()
-            symbols = api.get_volume_rank(top_n=50)
+            symbols = api.fetch_volume_rank(top_n=50)
             source = "kiwoom_volume_rank"
             result["KR"] = save_condition_symbols("KR", symbols, source=source)
         except Exception as exc:
@@ -108,9 +108,9 @@ def run_condition_monitor_cycle(markets: set[str] | None = None) -> dict:
 
     if "US" in active_markets:
         try:
-            from src.mistock.trader import _get_kis_client
+            from src.mistock.trader import _get_broker_client
 
-            api = _get_kis_client()
+            api = _get_broker_client()
             symbols = list(dict.fromkeys(
                 api.get_overseas_volume_rank(excd="NAS", cnt=50)
                 + api.get_overseas_volume_rank(excd="NYS", cnt=50)

@@ -137,7 +137,7 @@ def _place_order(symbol: str, action: str, qty: float, price: float, reason: str
             result["retry_count"] = attempt
             return result
         delay = max(0.0, mistock_config.rate_limit_backoff_seconds) * (2 ** attempt)
-        logger.warning(f"[MISTOCK SCHEDULER] KIS rate limit for {symbol}; retrying in {delay:.1f}s")
+        logger.warning(f"[MISTOCK SCHEDULER] broker rate limit for {symbol}; retrying in {delay:.1f}s")
         time.sleep(delay)
     return result
 
@@ -287,7 +287,7 @@ def _execute_pending_scheduler_approvals(strategy_id: str | None = None) -> list
 def run_mistock_scheduled_cycle(mode: str = "execute", strategy_id: str | None = None) -> dict:
     """
     [미장 자동매매 스케줄러]
-    미국 주식 시장(미장) 유니버스 스캔, 신호 분석 및 주문 집행(KIS 모의투자 또는 실거래)을 수행합니다.
+    미국 주식 시장(미장) 유니버스 스캔, 신호 분석 및 키움 주문 집행을 수행합니다.
     """
     logger.info(f"[MISTOCK SCHEDULER] Starting scheduled cycle. Mode={mode}")
     approval_maintenance = _maintain_scheduler_approvals(strategy_id)

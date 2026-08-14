@@ -4,7 +4,6 @@ from unittest.mock import Mock, patch
 from src.trader import (
     KOSPI_UNIVERSE,
     WATCHLIST,
-    KIStockAPI,
     build_orders,
     build_scan_universe,
     calc_bollinger,
@@ -79,40 +78,6 @@ class TraderCoreTests(unittest.TestCase):
             )
 
         self.assertEqual([order["ticker"] for order in orders], ["005930"])
-
-    def test_build_scan_universe_prefers_configured_condition_search(self):
-        api = Mock()
-        api.get_condition_search_result.return_value = ["005930", "000660", "005930"]
-
-        with patch("src.strategy.seven_split.config.kis_condition_search_enabled", True), \
-                patch("src.strategy.seven_split.config.kis_condition_user_id", "hts-user"), \
-                patch("src.strategy.seven_split.config.kis_condition_seq", "001"), \
-                patch("src.strategy.seven_split.config.kis_condition_name", "breakout"):
-            universe = build_scan_universe(api, {"000660"})
-
-        api.get_condition_search_result.assert_called_once_with("hts-user", "001", "breakout")
-        api.get_volume_rank.assert_not_called()
-        self.assertIn("005930", universe)
-        self.assertNotIn("000660", universe)
-
-    def test_build_scan_universe_prefers_api_condition_settings(self):
-        api = Mock()
-        api.kis_condition_search_enabled = True
-        api.kis_condition_user_id = "real-check-user"
-        api.kis_condition_seq = "900"
-        api.kis_condition_name = "real-check-breakout"
-        api.get_condition_search_result.return_value = ["005930"]
-
-        with patch("src.strategy.seven_split.config.kis_condition_search_enabled", False):
-            universe = build_scan_universe(api, set())
-
-        api.get_condition_search_result.assert_called_once_with(
-            "real-check-user",
-            "900",
-            "real-check-breakout",
-        )
-        api.get_volume_rank.assert_not_called()
-        self.assertIn("005930", universe)
 
     def test_generate_signal_stop_loss_sells_all(self):
         signal = generate_signal(
@@ -336,7 +301,7 @@ class TraderCoreTests(unittest.TestCase):
             def get_daily(self, _symbol, n=60):
                 return []
 
-            def get_volume_rank(self, top_n=50):
+            def fetch_volume_rank(self, top_n=50):
                 return []
 
             def get_quote(self, _symbol):
@@ -380,7 +345,7 @@ class TraderCoreTests(unittest.TestCase):
             def get_daily(self, _symbol, n=60):
                 return []
 
-            def get_volume_rank(self, top_n=50):
+            def fetch_volume_rank(self, top_n=50):
                 return []
 
             def get_quote(self, _symbol):
@@ -429,7 +394,7 @@ class TraderCoreTests(unittest.TestCase):
     def test_build_scan_universe_always_includes_watchlist(self):
         """거래량 API가 빈 결과를 돌려줘도 WATCHLIST는 항상 포함된다."""
         class _FakeAPI:
-            def get_volume_rank(self, top_n=50):
+            def fetch_volume_rank(self, top_n=50):
                 return []  # API 실패 시뮬레이션
 
         universe = build_scan_universe(_FakeAPI(), held_symbols=set())
@@ -440,7 +405,7 @@ class TraderCoreTests(unittest.TestCase):
         held = {"005930", "000660"}
 
         class _FakeAPI:
-            def get_volume_rank(self, top_n=50):
+            def fetch_volume_rank(self, top_n=50):
                 return []
 
         universe = build_scan_universe(_FakeAPI(), held_symbols=held)
@@ -449,7 +414,7 @@ class TraderCoreTests(unittest.TestCase):
 
     def test_build_scan_universe_excludes_configured_symbols(self):
         class _FakeAPI:
-            def get_volume_rank(self, top_n=50):
+            def fetch_volume_rank(self, top_n=50):
                 return ["252670", "005930"]
 
         with patch("src.strategy.seven_split.config.hanstock_excluded_symbols", "252670,252710"):
@@ -529,7 +494,7 @@ class TraderCoreTests(unittest.TestCase):
         extra = ["000020", "000030", "000040"]
 
         class _FakeAPI:
-            def get_volume_rank(self, top_n=50):
+            def fetch_volume_rank(self, top_n=50):
                 return extra
 
         universe = build_scan_universe(_FakeAPI(), held_symbols=set())
@@ -547,37 +512,3 @@ class TraderCoreTests(unittest.TestCase):
         self.assertEqual(result["candidates"], [])
         self.assertEqual(result["scanned"], 0)
         self.assertEqual(result["min_score"], 2)
-
-    def test_circuit_breaker_can_be_reset(self):
-        KIStockAPI.reset_circuit()
-        api = KIStockAPI.__new__(KIStockAPI)
-        api.notify_errors = False
-        for _ in range(KIStockAPI.MAX_ERRORS):
-            api._fail()
-
-        status = KIStockAPI.circuit_status()
-        self.assertTrue(status["opened"])
-        self.assertEqual(status["error_count"], KIStockAPI.MAX_ERRORS)
-
-        KIStockAPI.reset_circuit()
-        status = KIStockAPI.circuit_status()
-        self.assertFalse(status["opened"])
-        self.assertEqual(status["error_count"], 0)
-
-    def test_circuit_breaker_records_api_result(self):
-        KIStockAPI.reset_circuit()
-        api = KIStockAPI.__new__(KIStockAPI)
-
-        api._record_result({"rt_cd": "1"})
-        status = KIStockAPI.circuit_status()
-        self.assertEqual(status["error_count"], 1)
-        self.assertFalse(status["opened"])
-
-        api._record_result({"rt_cd": "0"})
-        status = KIStockAPI.circuit_status()
-        self.assertEqual(status["error_count"], 0)
-        self.assertFalse(status["opened"])
-
-
-if __name__ == "__main__":
-    unittest.main()

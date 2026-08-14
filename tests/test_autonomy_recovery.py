@@ -175,7 +175,7 @@ class RecoveryServiceTest(unittest.TestCase):
         service = AutonomousRecoveryService(
             order_reconcilers={"KR": Reconciler()},
             protection_brokers={
-                "KR": UnavailableProtectionBroker("KIS stop API unavailable")
+                "KR": UnavailableProtectionBroker("broker stop API unavailable")
             },
             protection=Protection(),
             repo=repo,
@@ -183,7 +183,7 @@ class RecoveryServiceTest(unittest.TestCase):
         signal = service.audit_unprotected_positions("KR")
         self.assertTrue(signal.block_new_risk)
         self.assertEqual(signal.reason, "protection_broker_unavailable")
-        self.assertIn("KIS stop API unavailable", signal.alerts)
+        self.assertIn("broker stop API unavailable", signal.alerts)
 
 
 if __name__ == "__main__":

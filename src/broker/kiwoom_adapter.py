@@ -104,7 +104,7 @@ class KiwoomBrokerAdapter:
         cash = _number(_first(deposit, "ord_alow_amt", "entr", "cash", "dnca_tot_amt"))
         stock_value = _number(_first(balance, "tot_evlt_amt", "tot_evlu_amt", "stock_value"))
         # kt00018 names the estimated deposit assets field differently from
-        # the legacy KIS-shaped response consumed by the dashboard.
+        # the legacy dictionary-shaped response consumed by the dashboard.
         total_equity = _number(_first(
             balance,
             "prsm_dpst_aset_amt",
@@ -318,7 +318,7 @@ class KiwoomBrokerAdapter:
             raw=match.raw,
         )
 
-    # KIS-shaped compatibility methods used while dashboard call sites migrate.
+    # Dictionary compatibility methods used while dashboard call sites migrate.
     def get_balance(self) -> dict[str, Any]:
         balance = self.fetch_balance()
         integer_text = lambda value: str(int(round(float(value or 0))))

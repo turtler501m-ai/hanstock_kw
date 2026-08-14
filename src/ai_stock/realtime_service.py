@@ -4,7 +4,7 @@
 1차 후보 풀에 있는 종목에 대해서만 실시간 진입/청산 신호를 만든다.
 신호가 곧 주문이 아니다(정책·리스크 게이트는 automation_service). 실시간 단절/stale
 시 신규 진입(entry)을 생성하지 않고 보유 보호(exit)만 허용한다.
-KR은 KISWebSocketClient 실시간, US는 폴링으로 동작(한계는 §4.8).
+KR/US 모두 공급자별 실시간 또는 폴링 경로로 동작(한계는 §4.8).
 """
 from __future__ import annotations
 

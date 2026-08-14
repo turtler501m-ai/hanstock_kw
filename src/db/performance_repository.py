@@ -15,7 +15,7 @@ REVIEW_DECISIONS = {"monitor", "pause", "reduce", "increase", "retire"}
 
 
 def account_scope_key() -> str:
-    raw = f"{config.trading_env}:{config.kistock_account or 'unknown'}"
+    raw = f"kiwoom:{config.trading_env}"
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:20]
 
 
@@ -294,7 +294,7 @@ def list_daily_nav(strategy_id: str, *, scope_type: str = "strategy") -> list[di
 
 def record_account_equity_snapshot(
     *, total_equity: float, cash: float, stock_value: float,
-    captured_at: str | None = None, source: str = "kis_balance",
+    captured_at: str | None = None, source: str = "broker_balance",
     raw_summary_hash: str,
 ) -> dict:
     parsed_at = datetime.fromisoformat(captured_at) if captured_at else datetime.now(KST)

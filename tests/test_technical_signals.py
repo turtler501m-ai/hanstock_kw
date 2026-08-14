@@ -164,18 +164,19 @@ class TechnicalSignalsTests(unittest.TestCase):
 
     def test_condition_monitor_cycle_updates_both_markets(self):
         kr_api = Mock()
+        kr_api.fetch_volume_rank.return_value = ["005930"]
         us_api = Mock()
         us_api.get_overseas_volume_rank.side_effect = [["AAPL"], ["MSFT", "AAPL"]]
         with tempfile.TemporaryDirectory() as tmp:
             store = RuntimeStateStore(Path(tmp) / "runtime.sqlite")
             with (
                 patch("src.strategy.condition_monitor.runtime_state_store", store),
-                patch("src.trader.KIStockAPI", return_value=kr_api),
+                patch("src.broker.factory.create_domestic_stock_broker", return_value=kr_api),
                 patch(
-                    "src.strategy.seven_split._condition_search_universe",
+                    "src.strategy.condition_monitor.get_fresh_condition_symbols",
                     return_value=["005930"],
                 ),
-                patch("src.mistock.trader._get_kis_client", return_value=us_api),
+                patch("src.mistock.trader._get_broker_client", return_value=us_api),
             ):
                 result = run_condition_monitor_cycle()
                 kr_symbols = get_fresh_condition_symbols("KR")
@@ -187,22 +188,22 @@ class TechnicalSignalsTests(unittest.TestCase):
 
     def test_condition_monitor_cycle_queries_only_open_market_selection(self):
         kr_api = Mock()
-        kr_api.get_volume_rank.return_value = ["005930"]
+        kr_api.fetch_volume_rank.return_value = ["005930"]
         with tempfile.TemporaryDirectory() as tmp:
             store = RuntimeStateStore(Path(tmp) / "runtime.sqlite")
             with (
                 patch("src.strategy.condition_monitor.runtime_state_store", store),
-                patch("src.trader.KIStockAPI", return_value=kr_api),
+                patch("src.broker.factory.create_domestic_stock_broker", return_value=kr_api),
                 patch(
-                    "src.strategy.seven_split._condition_search_universe",
+                    "src.strategy.condition_monitor.get_fresh_condition_symbols",
                     return_value=[],
                 ),
-                patch("src.mistock.trader._get_kis_client") as us_client,
+                patch("src.mistock.trader._get_broker_client") as us_client,
             ):
                 result = run_condition_monitor_cycle({"KR"})
 
         self.assertTrue(result["ok"])
-        kr_api.get_volume_rank.assert_called_once_with(top_n=50)
+        kr_api.fetch_volume_rank.assert_called_once_with(top_n=50)
         us_client.assert_not_called()
 
     def test_walk_forward_models_costs_and_multiple_folds(self):

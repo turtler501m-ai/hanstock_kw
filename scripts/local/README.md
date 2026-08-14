@@ -29,12 +29,6 @@
 
 내부적으로 `tools/verify-local.ps1`을 실행합니다.
 
-## Telegram 1회 수집
-
-```powershell
-.\scripts\local\telegram_poll.ps1
-```
-
 ## VM 배포와 접속
 
 ```powershell

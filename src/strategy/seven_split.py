@@ -621,70 +621,28 @@ def generate_portfolio_optimizer_plan(holdings: list[dict], total_eval: int) -> 
     return {"method": "score_tilted_inverse_vol", "cash_weight": config.cash_buffer, "positions": positions}
 
 
-def _condition_search_universe(api: "KIStockAPI") -> list[str]:
-    api_enabled = getattr(api, "kis_condition_search_enabled", None)
-    if not isinstance(api_enabled, (bool, str, int)):
-        api_enabled = getattr(config, "kis_condition_search_enabled", False)
-    if not bool(api_enabled):
-        return []
-    api_user_id = getattr(api, "kis_condition_user_id", "")
-    api_condition_no = getattr(api, "kis_condition_seq", "")
-    api_condition_name = getattr(api, "kis_condition_name", "")
-    if not isinstance(api_user_id, str):
-        api_user_id = ""
-    if not isinstance(api_condition_no, str):
-        api_condition_no = ""
-    if not isinstance(api_condition_name, str):
-        api_condition_name = ""
-    user_id = str(
-        api_user_id
-        or getattr(config, "kis_condition_user_id", "")
-        or getattr(config, "kistock_hts_id", "")
-        or ""
-    ).strip()
-    condition_no = str(
-        api_condition_no
-        or getattr(config, "kis_condition_seq", "")
-        or ""
-    ).strip()
-    condition_name = str(
-        api_condition_name
-        or getattr(config, "kis_condition_name", "")
-        or ""
-    ).strip()
-    if not user_id or not condition_no or not condition_name:
-        logger.warning("[SCAN] KIS 조건검색 설정이 부족해 조건검색 유니버스를 건너뜁니다.")
-        return []
-    try:
-        codes = api.get_condition_search_result(user_id, condition_no, condition_name)
-    except Exception as exc:
-        logger.warning(f"[SCAN] KIS 조건검색 조회 실패: {exc}")
-        return []
-    return [code for code in codes if code]
-
-
-def build_scan_universe(api: "KIStockAPI", held_symbols: set[str]) -> list[str]:
+def build_scan_universe(api, held_symbols: set[str]) -> list[str]:
     """매수 후보 스캔 대상 종목 코드 목록을 구성한다.
 
-    1순위: KIS 조건검색식 결과(설정된 경우)
-    2순위: KIS 거래량 상위 config.scan_universe_size종목 (장중 동적 발굴)
-    3순위: KOSPI_UNIVERSE 정적 풀 (KIS API 실패 시 폴백)
+    1순위: 조건 모니터 결과
+    2순위: 키움 거래량 상위 config.scan_universe_size종목
+    3순위: KOSPI_UNIVERSE 정적 풀 (키움 API 실패 시 폴백)
     WATCHLIST는 항상 포함되며, 보유 중인 종목은 제외된다.
     """
     from src.strategy.condition_monitor import get_fresh_condition_symbols
 
     monitored_codes = get_fresh_condition_symbols("KR")
-    condition_codes = list(dict.fromkeys(monitored_codes + _condition_search_universe(api)))
+    condition_codes = list(dict.fromkeys(monitored_codes))
     if condition_codes:
-        logger.info(f"[SCAN] KIS 조건검색식 {len(condition_codes)}종목 수집 완료")
+        logger.info(f"[SCAN] 조건 모니터 {len(condition_codes)}종목 수집 완료")
         base = condition_codes
     else:
-        volume_rank = api.get_volume_rank(top_n=config.scan_universe_size)
+        volume_rank = api.fetch_volume_rank(top_n=config.scan_universe_size)
         if volume_rank:
-            logger.info(f"[SCAN] KIS 거래량 상위 {len(volume_rank)}종목 수집 완료")
+            logger.info(f"[SCAN] 키움 거래량 상위 {len(volume_rank)}종목 수집 완료")
             base = volume_rank
         else:
-            logger.info(f"[SCAN] KIS 거래량 API 실패 → KOSPI_UNIVERSE {len(KOSPI_UNIVERSE)}종목으로 폴백")
+            logger.info(f"[SCAN] 키움 거래량 API 실패 → KOSPI_UNIVERSE {len(KOSPI_UNIVERSE)}종목으로 폴백")
             base = KOSPI_UNIVERSE
 
     # WATCHLIST 항상 포함, 중복 제거, 보유 종목 제외
@@ -785,7 +743,7 @@ def find_candidates(
     batch = None
     scan_error: str | None = None
     scan_source = str(getattr(config, "candidate_scan_source", "yfinance") or "yfinance").strip().lower()
-    broker_first_sources = {"broker", "kiwoom", "kis", "kis_api", "real", "real_check", "kis_cache"}
+    broker_first_sources = {"broker", "kiwoom", "real"}
     if scan_source in broker_first_sources:
         scan_error = f"candidate scan source is {scan_source}; using configured broker API/cache"
         logger.info(f"[SCAN] Broker API/cache scan selected: {len(scan_list)} symbols (source={scan_source})")
@@ -823,7 +781,7 @@ def find_candidates(
                 from src.broker.factory import create_domestic_stock_broker
                 api = create_domestic_stock_broker()
             except Exception as api_err:
-                logger.warning(f"[SCAN] KIS API 객체 생성 실패: {api_err}")
+                logger.warning(f"[SCAN] 키움 API 객체 생성 실패: {api_err}")
         
         for code in scan_list:
             try:
@@ -834,8 +792,8 @@ def find_candidates(
                 today_str = datetime.now(KST).strftime("%Y-%m-%d")
                 has_today = any(c.get("date") == today_str for c in db_charts)
                 
-                # 데이터가 아예 없거나, 최근 데이터가 없고, KIS API가 사용 가능할 때 동기화 진행
-                # 대형 스캔(50종목 초과) 시, 캐시가 충분히(60개 이상) 존재한다면 오늘치 당일 시세가 없더라도 KIS API 추가 호출을 생략하여 타임아웃을 방지합니다.
+                # 데이터가 아예 없거나 최근 데이터가 없고 키움 API가 사용 가능할 때 동기화 진행
+                # 대형 스캔에서는 충분한 캐시가 있으면 추가 API 호출을 생략해 타임아웃을 방지합니다.
                 is_large_scan = len(scan_list) > 50
                 needs_sync = False
                 if len(db_charts) < 60:
@@ -844,14 +802,21 @@ def find_candidates(
                     needs_sync = True
 
                 if needs_sync and api is not None:
-                    logger.debug(f"[SCAN] {code}의 캐시 데이터가 부족하여 KIS API에서 시세를 가져옵니다.")
+                    logger.debug(f"[SCAN] {code}의 캐시 데이터가 부족하여 키움 API에서 시세를 가져옵니다.")
                     try:
-                        kis_data = api.get_daily(code, n=120)
-                        if kis_data:
-                            save_daily_charts(code, kis_data)
+                        broker_data = [{
+                            "stck_bsop_date": row.date,
+                            "stck_oprc": row.open_price,
+                            "stck_hgpr": row.high_price,
+                            "stck_lwpr": row.low_price,
+                            "stck_clpr": row.close_price,
+                            "acml_vol": row.volume,
+                        } for row in api.fetch_daily_bars(code, count=120)]
+                        if broker_data:
+                            save_daily_charts(code, broker_data)
                             db_charts = load_daily_charts(code, limit=120)
-                    except Exception as kis_err:
-                        logger.warning(f"[SCAN] {code} KIS API 조회 실패: {kis_err}")
+                    except Exception as broker_err:
+                        logger.warning(f"[SCAN] {code} 키움 API 조회 실패: {broker_err}")
                 
                 if len(db_charts) < 60:
                     logger.warning(f"[SCAN] {code} 시세 데이터 부족으로 분석 생략 (보유 개수: {len(db_charts)}개)")
@@ -968,7 +933,7 @@ def find_candidates(
             "scanned": len(scan_summary),
             "min_score": min_score,
             "scan_summary": scan_summary,
-            "scan_error": None if scan_summary else "No charts cached or fetched successfully via KIS"
+            "scan_error": None if scan_summary else "No charts cached or fetched successfully via Kiwoom"
         }
 
     for code in scan_list:
