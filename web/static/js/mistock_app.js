@@ -613,7 +613,6 @@ function strategySettingFields(config) {
         { key: 'MAX_SINGLE_WEIGHT', label: '종목당 최대비중', value: Number(config.max_single_weight || 0) * 100, type: 'float', step: '0.1', min: '0', max: '100', suffix: '%', percent: true },
         { key: 'CASH_BUFFER', label: '현금 보유비중', value: Number(config.cash_buffer || 0) * 100, type: 'float', step: '0.1', min: '0', max: '100', suffix: '%', percent: true },
         { key: 'MAX_DAILY_LOSS_PCT', label: '일 손실 제한', value: config.max_daily_loss_pct, type: 'float', step: '0.1', min: '0', suffix: '%' },
-        { key: 'MAX_DAILY_ORDERS', label: '일일 매수 주문 한도', value: config.max_daily_orders, type: 'int', step: '1', min: '1', suffix: '건' },
         { key: 'REBUY_COOLDOWN_HOURS', label: '종목 재매수 대기', value: config.rebuy_cooldown_hours, type: 'int', step: '1', min: '0', suffix: '시간' },
         { key: 'APPROVAL_EXPIRY_HOURS', label: '승인 요청 만료', value: config.approval_expiry_hours, type: 'int', step: '1', min: '1', suffix: '시간' },
         { key: 'RATE_LIMIT_RETRIES', label: 'API 제한 재시도', value: config.rate_limit_retries, type: 'int', step: '1', min: '0', suffix: '회' },

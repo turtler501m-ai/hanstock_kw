@@ -123,13 +123,6 @@ def _place_order(symbol: str, action: str, qty: float, price: float, reason: str
     retries = max(0, mistock_config.rate_limit_retries)
     result = {}
     for attempt in range(retries + 1):
-        if action == "buy" and _daily_order_count() >= max(0, mistock_config.max_daily_orders):
-            return {
-                "ok": False,
-                "status": "daily_limit",
-                "message": f"daily order limit reached ({mistock_config.max_daily_orders})",
-                "retry_count": attempt,
-            }
         result = mistock_trader.place_order(symbol, action, qty, price, **kwargs)
         message = str(result.get("msg1") or result.get("message") or "").lower()
         rate_limited = any(marker in message for marker in ("초당 거래건수", "rate limit", "too many requests", "egw00201"))
@@ -140,12 +133,6 @@ def _place_order(symbol: str, action: str, qty: float, price: float, reason: str
         logger.warning(f"[MISTOCK SCHEDULER] broker rate limit for {symbol}; retrying in {delay:.1f}s")
         time.sleep(delay)
     return result
-
-
-def _daily_order_count(now: datetime | None = None) -> int:
-    day_start = (now or datetime.now(KST)).astimezone(KST).strftime("%Y-%m-%d 00:00:00")
-    row = mistock_db.row("SELECT COUNT(*) AS count FROM trades WHERE ts >= ?", (day_start,))
-    return int((row or {}).get("count") or 0)
 
 
 def _available_position_slots(held_symbols: set[str], pending_buy_symbols: set[str]) -> int:
@@ -254,12 +241,6 @@ def _execute_pending_scheduler_approvals(strategy_id: str | None = None) -> list
             item.get("reason") or "scheduler pending approval",
             item.get("strategy_id") or strategy_id,
         )
-        if result.get("status") == "daily_limit":
-            mistock_db.execute(
-                "UPDATE approvals SET updated_at = ?, response_msg = ? WHERE id = ?",
-                (mistock_db.now_text(), result.get("message"), item["id"]),
-            )
-            break
         status = "executed" if result.get("ok") else "failed"
         mistock_db.execute(
             "UPDATE approvals SET status = ?, updated_at = ?, response_msg = ? WHERE id = ?",
@@ -398,7 +379,6 @@ def run_mistock_scheduled_cycle(mode: str = "execute", strategy_id: str | None =
     available_cash = max(0.0, managed_cash - managed_total * max(0.0, mistock_config.cash_buffer))
     buffer_factor = max(0.01, 1.0 - max(0.0, mistock_config.cash_buffer))
     orders = mistock_trader.build_orders(buy_candidates, available_cash / buffer_factor)
-    orders = orders[:max(0, mistock_config.max_daily_orders - _daily_order_count())]
     bought_items = []
     
     if mode == "execute":
@@ -409,8 +389,6 @@ def run_mistock_scheduled_cycle(mode: str = "execute", strategy_id: str | None =
                 logger.info(f"[MISTOCK SCHEDULER] Placing buy order for {ord['symbol']}. Qty={qty}, Price={price}")
                 res = _place_order(ord["symbol"], "buy", qty, price, ord["reason"], strategy_id)
                 bought_items.append({"symbol": ord["symbol"], "qty": qty, "price": price, "result": res})
-                if res.get("status") == "daily_limit":
-                    break
                 # 잔고 부족 응답이면 이후 주문도 실패할 것이므로 즉시 중단한다
                 msg = (res.get("msg1") or res.get("message") or "")
                 if not res.get("ok") and "주문가능금액" in msg:

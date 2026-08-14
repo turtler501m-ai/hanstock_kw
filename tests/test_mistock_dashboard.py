@@ -1044,23 +1044,6 @@ class MistockDashboardTests(unittest.TestCase):
         self.assertEqual(orders[0]["symbol"], "AAPL")
         self.assertEqual(orders[0]["qty"], 2)
 
-    def test_scheduler_daily_limit_stops_rate_limit_retry(self):
-        original_limit = mistock_config.max_daily_orders
-        original_retries = mistock_config.rate_limit_retries
-        try:
-            mistock_config.max_daily_orders = 20
-            mistock_config.rate_limit_retries = 3
-            with patch.object(mistock_scheduler, "_daily_order_count", side_effect=[19, 20]), \
-                    patch.object(mistock_trader, "place_order", return_value={"ok": False, "message": "rate limit"}) as place_order, \
-                    patch.object(mistock_scheduler.time, "sleep"):
-                result = mistock_scheduler._place_order("AAPL", "buy", 1, 100, "test", None)
-        finally:
-            mistock_config.max_daily_orders = original_limit
-            mistock_config.rate_limit_retries = original_retries
-        self.assertEqual(result["status"], "daily_limit")
-        self.assertEqual(result["retry_count"], 1)
-        place_order.assert_called_once()
-
     def test_create_approval_does_not_auto_execute_when_broker_balance_is_fallback(self):
         mistock_db.set_setting("auto_approval", "true")
 

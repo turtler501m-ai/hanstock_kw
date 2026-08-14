@@ -24,7 +24,6 @@ class MistockConfig:
     max_positions: int = int(os.environ.get("MISTOCK_MAX_POSITIONS", "5"))
     max_single_weight: float = float(os.environ.get("MISTOCK_MAX_SINGLE_WEIGHT", "0.25"))
     max_daily_loss_pct: float = float(os.environ.get("MISTOCK_MAX_DAILY_LOSS_PCT", "3.0"))
-    max_daily_orders: int = int(os.environ.get("MISTOCK_MAX_DAILY_ORDERS", "20"))
     rebuy_cooldown_hours: int = int(os.environ.get("MISTOCK_REBUY_COOLDOWN_HOURS", "24"))
     approval_expiry_hours: int = int(os.environ.get("MISTOCK_APPROVAL_EXPIRY_HOURS", "24"))
     rate_limit_retries: int = int(os.environ.get("MISTOCK_RATE_LIMIT_RETRIES", "3"))
