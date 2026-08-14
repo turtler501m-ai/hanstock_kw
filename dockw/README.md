@@ -20,3 +20,4 @@
 - 수동 OAuth 성공, 애플리케이션 연동, 잔고 조회, 주문 검증을 서로 다른 완료 단계로 기록한다.
 - 기본 안전값은 `DRY_RUN=true`, `TRADING_ENV=demo`,
   `ENABLE_LIVE_TRADING=false`, `REQUIRE_APPROVAL=true`로 유지한다.
+- VM에서 기존 KIS 대시보드는 8000, 이 키움 전환 대시보드는 8001 포트를 사용한다.

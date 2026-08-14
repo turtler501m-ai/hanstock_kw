@@ -115,3 +115,18 @@
 - 키움 client·국내외 adapter·broker·대시보드·미스톡 집중 회귀 테스트 175건 통과
 - VM 서비스 및 배포 스크립트 테스트 9건 통과
 - 전체 suite 947건 실행: 기준선과 동일한 실패 5건·오류 3건
+
+## 2026-08-14 — VM 대시보드 서비스 분리
+
+### 완료
+
+- 기존 KIS 대시보드는 `/home/ubuntu/hanstock`의 `hanstock.service`와 TCP 8000을 유지했다.
+- 키움 대시보드는 `/home/ubuntu/hanstock_kw`의 `hanstock-kw.service`와 TCP 8001로 분리했다.
+- 키움 배포 스크립트가 기존 KIS autonomy·condition 서비스를 덮어쓰지 않도록 분리했다.
+- VM 방화벽과 OCI 보안 목록에 TCP 8001 ingress를 추가했다.
+
+### 검증
+
+- KIS `http://168.110.102.249:8000/` 외부 HTTP 200
+- 키움 `http://168.110.102.249:8001/` 외부 HTTP 200
+- 두 systemd 서비스의 WorkingDirectory와 프로세스가 서로 다른 저장소를 사용하는 것을 확인했다.
