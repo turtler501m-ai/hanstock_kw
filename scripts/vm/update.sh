@@ -34,6 +34,8 @@ echo "[update] installing requirements"
     --requirement requirements-core.txt \
     --requirement requirements-integrations.txt
 
+mkdir -p "$ROOT_DIR/logs" "$ROOT_DIR/.runtime"
+
 if systemctl list-unit-files hanstock.service >/dev/null 2>&1; then
     echo "[update] syncing dashboard systemd unit"
     sudo install -m 0644 \

@@ -41,6 +41,7 @@ class VmServiceSafetyTest(unittest.TestCase):
         self.assertIn("--requirement requirements-integrations.txt", update_script)
         self.assertNotIn("constraints/vm-python.lock", update_script)
         self.assertIn('bash "$ROOT_DIR/scripts/vm/server.sh" restart', update_script)
+        self.assertIn('mkdir -p "$ROOT_DIR/logs" "$ROOT_DIR/.runtime"', update_script)
 
     def test_dashboard_systemd_listens_on_public_interface(self):
         server_script = (ROOT / "scripts/vm/server.sh").read_text(encoding="utf-8")
