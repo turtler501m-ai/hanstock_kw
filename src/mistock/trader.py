@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import json
+import os
 import threading
 import time
+from functools import lru_cache
 from typing import Any
 
 from src.mistock.config import config
@@ -16,6 +18,29 @@ from src.utils.logger import logger
 
 
 _kis_client_cache = None
+
+
+@lru_cache(maxsize=512)
+def _kiwoom_us_exchange(symbol: str) -> str:
+    configured = os.environ.get("MISTOCK_EXCHANGE_MAP", "").strip()
+    if configured:
+        try:
+            mapped = json.loads(configured)
+            value = str(mapped.get(symbol.upper()) or "").upper()
+            if value in {"ND", "NY", "NA"}:
+                return value
+        except (ValueError, AttributeError):
+            pass
+    import yfinance as yf
+
+    exchange = str(yf.Ticker(symbol).fast_info.get("exchange") or "").upper()
+    if exchange in {"NMS", "NGM", "NCM", "NAS", "NASDAQ"}:
+        return "ND"
+    if exchange in {"NYQ", "NYSE"}:
+        return "NY"
+    if exchange in {"ASE", "AMEX"}:
+        return "NA"
+    raise RuntimeError(f"US exchange could not be resolved for {symbol}")
 _overseas_balance_cache: dict[str, Any] | None = None
 _overseas_balance_cache_client = None
 _overseas_balance_cache_at = 0.0
@@ -179,6 +204,7 @@ def _get_kis_client():
                 KiwoomRestClient(app_key, app_secret, environment="mock"),
                 account_no=account_no,
                 order_submission_enabled=runtime_flags()["order_submission_enabled"],
+                exchange_resolver=_kiwoom_us_exchange,
             )
             return _kis_client_cache
         if config.stock_broker != "kis":

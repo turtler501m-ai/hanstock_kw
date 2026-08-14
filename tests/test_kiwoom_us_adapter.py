@@ -65,6 +65,17 @@ class KiwoomUSStockAdapterTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "disabled"):
             adapter.place_overseas_order("AAPL", "buy", 190, 1)
 
+    def test_order_uses_resolved_exchange_and_rejects_unknown_exchange(self):
+        client = Mock()
+        client.post.return_value = KiwoomPage(data={"ord_no": "1"})
+        adapter = KiwoomUSStockAdapter(client, order_submission_enabled=True, exchange_resolver=lambda _: "NY")
+        adapter.place_overseas_order("T", "buy", 25, 1)
+        self.assertEqual(client.post.call_args.kwargs["body"]["stex_tp"], "NY")
+
+        blocked = KiwoomUSStockAdapter(client, order_submission_enabled=True, exchange_resolver=lambda _: "")
+        with self.assertRaisesRegex(RuntimeError, "could not be resolved"):
+            blocked.place_overseas_order("UNKNOWN", "buy", 1, 1)
+
 
 class KiwoomUSStockWiringTests(unittest.TestCase):
     def setUp(self):

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping
 
 from src.broker.kiwoom_client import KiwoomRestClient
 
@@ -16,11 +16,12 @@ class KiwoomUSStockAdapter:
 
     broker_name = "kiwoom"
 
-    def __init__(self, client: KiwoomRestClient, *, account_no: str = "", order_submission_enabled: bool = False, default_exchange: str = "ND") -> None:
+    def __init__(self, client: KiwoomRestClient, *, account_no: str = "", order_submission_enabled: bool = False, default_exchange: str = "ND", exchange_resolver: Callable[[str], str] | None = None) -> None:
         self.client = client
         self.account_no = account_no.strip()
         self.order_submission_enabled = bool(order_submission_enabled)
         self.default_exchange = default_exchange.strip().upper() or "ND"
+        self.exchange_resolver = exchange_resolver
 
     def get_overseas_balance(self) -> dict[str, Any]:
         pages = self.client.post_all_pages(
@@ -72,7 +73,7 @@ class KiwoomUSStockAdapter:
         page = self.client.post(
             "/api/us/ordr",
             api_id="ust20000" if side == "buy" else "ust20001",
-            body={"stex_tp": self.default_exchange, "stk_cd": _text(symbol).upper(), "ord_qty": self._quantity(qty), "ord_uv": self._price(price), "trde_tp": "00"},
+            body={"stex_tp": self._exchange(symbol), "stk_cd": _text(symbol).upper(), "ord_qty": self._quantity(qty), "ord_uv": self._price(price), "trde_tp": "00"},
             request_kind="order",
         )
         return self._order_response(page.data)
@@ -86,7 +87,7 @@ class KiwoomUSStockAdapter:
     def _change_order(self, api_id: str, symbol: str, order_no: str, *, qty: float, price: float) -> dict[str, Any]:
         if not self.order_submission_enabled:
             raise RuntimeError("Kiwoom US order submission is disabled")
-        body = {"stex_tp": self.default_exchange, "stk_cd": _text(symbol).upper(), "ord_no": _text(order_no), "ord_qty": self._quantity(qty)}
+        body = {"stex_tp": self._exchange(symbol), "stk_cd": _text(symbol).upper(), "ord_no": _text(order_no), "ord_qty": self._quantity(qty)}
         if api_id == "ust20002":
             body.update({"ord_uv": self._price(price), "trde_tp": "00"})
         page = self.client.post("/api/us/ordr", api_id=api_id, body=body, request_kind="order")
@@ -98,6 +99,13 @@ class KiwoomUSStockAdapter:
         if quantity <= 0 or quantity != float(value):
             raise ValueError("quantity must be a positive whole number")
         return str(quantity)
+
+    def _exchange(self, symbol: str) -> str:
+        exchange = self.exchange_resolver(symbol) if self.exchange_resolver else self.default_exchange
+        exchange = _text(exchange).upper()
+        if exchange not in {"ND", "NY", "NA"}:
+            raise RuntimeError(f"Kiwoom exchange could not be resolved for {_text(symbol).upper()}")
+        return exchange
 
     @staticmethod
     def _price(value: float) -> str:
