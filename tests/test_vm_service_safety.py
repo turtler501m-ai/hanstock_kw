@@ -8,11 +8,7 @@ ROOT = Path(__file__).resolve().parents[1]
 class VmServiceSafetyTest(unittest.TestCase):
     def test_vm_units_use_hanstock_kw_repo_path(self):
         expected_root = "/home/ubuntu/hanstock_kw"
-        for unit_name in (
-            "hanstock.service",
-            "hanstock-autonomy.service",
-            "hanstock-condition-monitor.service",
-        ):
+        for unit_name in ("hanstock-kw.service",):
             unit = (ROOT / "scripts/vm" / unit_name).read_text(encoding="utf-8")
             self.assertIn(f"WorkingDirectory={expected_root}", unit)
             self.assertIn(f"EnvironmentFile={expected_root}/.env", unit)
@@ -44,23 +40,24 @@ class VmServiceSafetyTest(unittest.TestCase):
         self.assertNotIn("constraints/vm-python.lock", update_script)
         self.assertIn('bash "$ROOT_DIR/scripts/vm/server.sh" restart', update_script)
         self.assertIn('mkdir -p "$ROOT_DIR/logs" "$ROOT_DIR/.runtime"', update_script)
-        self.assertIn('scripts/vm/hanstock-autonomy.service', update_script)
-        self.assertIn("s#/home/ubuntu/hanstock/#/home/ubuntu/hanstock_kw/#g", update_script)
+        self.assertNotIn('scripts/vm/hanstock-autonomy.service', update_script)
+        self.assertNotIn('scripts/vm/hanstock-condition-monitor.service', update_script)
 
     def test_dashboard_systemd_listens_on_public_interface(self):
         server_script = (ROOT / "scripts/vm/server.sh").read_text(encoding="utf-8")
-        systemd_unit = (ROOT / "scripts/vm/hanstock.service").read_text(
+        systemd_unit = (ROOT / "scripts/vm/hanstock-kw.service").read_text(
             encoding="utf-8"
         )
 
         self.assertIn('HOST="${HOST:-127.0.0.1}"', server_script)
         self.assertIn("--host 0.0.0.0", systemd_unit)
+        self.assertIn("--port 8001", systemd_unit)
 
     def test_deploy_syncs_systemd_unit_before_restart(self):
         update_script = (ROOT / "scripts/vm/update.sh").read_text(encoding="utf-8")
 
         install_position = update_script.index(
-            "/etc/systemd/system/hanstock.service"
+            "/etc/systemd/system/hanstock-kw.service"
         )
         reload_position = update_script.index("systemctl daemon-reload")
         restart_position = update_script.index(
@@ -78,6 +75,8 @@ class VmServiceSafetyTest(unittest.TestCase):
             '"-L", "127.0.0.1:${LocalPort}:127.0.0.1:${RemotePort}"',
             tunnel_script,
         )
+        self.assertIn("[int]$LocalPort = 18001", tunnel_script)
+        self.assertIn("[int]$RemotePort = 8001", tunnel_script)
 
 
 if __name__ == "__main__":

@@ -1,6 +1,6 @@
 #!/bin/bash
 ACTION="${1:-restart}"
-PORT="${PORT:-8000}"
+PORT="${PORT:-8001}"
 HOST="${HOST:-127.0.0.1}"
 RELOAD="${RELOAD:-false}"
 LINES="${LINES:-80}"
@@ -156,7 +156,7 @@ watch_logs() {
 }
 
 use_systemd() {
-    if command -v systemctl >/dev/null 2>&1 && systemctl list-unit-files hanstock.service >/dev/null 2>&1; then
+    if command -v systemctl >/dev/null 2>&1 && systemctl list-unit-files hanstock-kw.service >/dev/null 2>&1; then
         return 0
     fi
     return 1
@@ -164,12 +164,12 @@ use_systemd() {
 
 if use_systemd; then
     case "$ACTION" in
-        start)    sudo systemctl start hanstock ;;
-        stop)     sudo systemctl stop hanstock ;;
-        restart)  sudo systemctl restart hanstock ;;
-        status)   systemctl status hanstock ;;
-        logs)     journalctl -u hanstock -n "$LINES" --no-pager ;;
-        tail)     journalctl -u hanstock -f ;;
+        start)    sudo systemctl start hanstock-kw ;;
+        stop)     sudo systemctl stop hanstock-kw ;;
+        restart)  sudo systemctl restart hanstock-kw ;;
+        status)   systemctl status hanstock-kw ;;
+        logs)     journalctl -u hanstock-kw -n "$LINES" --no-pager ;;
+        tail)     journalctl -u hanstock-kw -f ;;
         *)        echo "Usage: $0 {start|stop|restart|status|logs|tail}"; exit 1 ;;
     esac
     exit 0

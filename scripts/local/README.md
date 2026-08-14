@@ -54,7 +54,7 @@
 기본 VM 대상(신규 운영 VM):
 
 ```text
-host: 168.110.102.249 (http://168.110.102.249:8000)
+host: 168.110.102.249 (키움: http://168.110.102.249:8001)
 user: ubuntu
 key: ~/.ssh/id_ed25519
 repo: ~/hanstock_kw
@@ -63,7 +63,7 @@ repo: ~/hanstock_kw
 Oracle VM 기본 대상:
 
 ```text
-host: 168.110.102.249 (http://168.110.102.249:8000)
+host: 168.110.102.249 (키움: http://168.110.102.249:8001)
 user: ubuntu
 key: ~/.ssh/id_ed25519
 repo: ~/hanstock_kw

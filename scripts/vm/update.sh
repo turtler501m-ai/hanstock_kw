@@ -36,42 +36,15 @@ echo "[update] installing requirements"
 
 mkdir -p "$ROOT_DIR/logs" "$ROOT_DIR/.runtime"
 
-if systemctl list-unit-files hanstock.service >/dev/null 2>&1; then
-    echo "[update] syncing dashboard systemd unit"
-    sudo install -m 0644 \
-        "$ROOT_DIR/scripts/vm/hanstock.service" \
-        /etc/systemd/system/hanstock.service
-    sudo systemctl daemon-reload
-fi
+echo "[update] syncing Kiwoom dashboard systemd unit"
+sudo install -m 0644 \
+    "$ROOT_DIR/scripts/vm/hanstock-kw.service" \
+    /etc/systemd/system/hanstock-kw.service
+sudo systemctl daemon-reload
+sudo systemctl enable hanstock-kw.service
 
 echo "[update] restarting dashboard"
 bash "$ROOT_DIR/scripts/vm/server.sh" restart
 bash "$ROOT_DIR/scripts/vm/server.sh" status
-
-if systemctl list-unit-files hanstock-autonomy.service >/dev/null 2>&1; then
-    echo "[update] syncing autonomy systemd unit"
-    sudo install -m 0644 \
-        "$ROOT_DIR/scripts/vm/hanstock-autonomy.service" \
-        /etc/systemd/system/hanstock-autonomy.service
-    legacy_override=/etc/systemd/system/hanstock-autonomy.service.d/override.conf
-    if sudo test -f "$legacy_override" && sudo grep -q '/home/ubuntu/hanstock/' "$legacy_override"; then
-        sudo sed -i 's#/home/ubuntu/hanstock/#/home/ubuntu/hanstock_kw/#g' "$legacy_override"
-    fi
-    sudo systemctl daemon-reload
-    echo "[update] restarting autonomy service"
-    sudo systemctl restart hanstock-autonomy.service
-    systemctl status hanstock-autonomy.service --no-pager
-else
-    echo "[update] autonomy service is not installed (safe default)"
-fi
-
-echo "[update] syncing condition monitor service"
-sudo install -m 0644 \
-    "$ROOT_DIR/scripts/vm/hanstock-condition-monitor.service" \
-    /etc/systemd/system/hanstock-condition-monitor.service
-sudo systemctl daemon-reload
-sudo systemctl enable hanstock-condition-monitor.service
-sudo systemctl restart hanstock-condition-monitor.service
-systemctl status hanstock-condition-monitor.service --no-pager
 
 echo "[update] done"

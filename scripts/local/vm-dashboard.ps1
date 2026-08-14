@@ -5,8 +5,8 @@ param(
     [string]$Zone = $(if ($env:HANSTOCK_GCP_ZONE) { $env:HANSTOCK_GCP_ZONE } else { "us-central1-c" }),
     [string]$Project = $(if ($env:HANSTOCK_GCP_PROJECT) { $env:HANSTOCK_GCP_PROJECT } else { "" }),
     [string]$KeyPath = $(if ($env:HANSTOCK_SSH_KEY) { $env:HANSTOCK_SSH_KEY } else { (Join-Path $env:USERPROFILE ".ssh\id_ed25519") }),
-    [int]$LocalPort = 18000,
-    [int]$RemotePort = 8000,
+    [int]$LocalPort = 18001,
+    [int]$RemotePort = 8001,
     [switch]$NoBrowser,
     [switch]$Status,
     [switch]$Stop

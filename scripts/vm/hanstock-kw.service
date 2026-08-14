@@ -1,0 +1,16 @@
+[Unit]
+Description=Hanstock Kiwoom Trading Dashboard Service
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/hanstock_kw
+ExecStart=/home/ubuntu/hanstock_kw/.venv/bin/uvicorn src.dashboard:app --host 0.0.0.0 --port 8001 --log-level error
+Restart=always
+RestartSec=5
+Environment=PATH=/home/ubuntu/hanstock_kw/.venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+EnvironmentFile=/home/ubuntu/hanstock_kw/.env
+
+[Install]
+WantedBy=multi-user.target
