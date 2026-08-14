@@ -62,6 +62,62 @@ body {
     user-select: none;
 }
 
+/* Kiwoom deployment identity: intentionally distinct from the blue KIS dashboard. */
+body.kiwoom-dashboard {
+    --electric-blue: #f97316;
+    --electric-cyan: #f59e0b;
+    --primary: #f97316;
+    --glass-border-hover: rgba(249, 115, 22, 0.55);
+    background:
+        radial-gradient(circle at 12% 8%, rgba(220, 38, 38, 0.30), transparent 40rem),
+        radial-gradient(circle at 88% 18%, rgba(249, 115, 22, 0.24), transparent 42rem),
+        radial-gradient(circle at 50% 100%, rgba(245, 158, 11, 0.12), transparent 48rem),
+        #120606;
+}
+
+body.kiwoom-dashboard .app-header {
+    background: linear-gradient(180deg, rgba(69, 10, 10, 0.98), rgba(35, 8, 8, 0.94));
+    border-bottom-color: rgba(251, 146, 60, 0.48);
+    box-shadow: 0 16px 34px rgba(127, 29, 29, 0.26);
+}
+
+body.kiwoom-dashboard .app-header .eyebrow {
+    color: #fdba74;
+}
+
+body.kiwoom-dashboard .app-header h1 .highlight,
+body.kiwoom-dashboard .app-header .highlight {
+    background: linear-gradient(135deg, #fb923c, #facc15);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+body.kiwoom-dashboard .app-header .nav-button,
+body.kiwoom-dashboard .app-header button.nav-button {
+    border-color: rgba(249, 115, 22, 0.50);
+    background: rgba(194, 65, 12, 0.22);
+}
+
+body.kiwoom-dashboard .app-header .nav-button:hover,
+body.kiwoom-dashboard .app-header button.nav-button:hover {
+    border-color: rgba(253, 186, 116, 0.78);
+    background: rgba(234, 88, 12, 0.34);
+}
+
+.kiwoom-service-badge {
+    display: inline-flex;
+    margin-top: 0.38rem;
+    padding: 0.2rem 0.55rem;
+    border: 1px solid rgba(251, 146, 60, 0.58);
+    border-radius: 999px;
+    background: rgba(127, 29, 29, 0.46);
+    color: #fed7aa;
+    font-family: var(--font-mono);
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+}
+
 
 .dashboard-container {
     max-width: 1400px;
