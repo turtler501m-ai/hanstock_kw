@@ -124,11 +124,10 @@ def _strategy_performance(strategy_id: str) -> dict:
 
 
 def _strategy_scan(strategy_id: str, *, min_score: float = 1.0) -> dict:
-    from src.trader import KIStockAPI
     from src.strategy.seven_split import find_candidates
     from src.db.repository import save_scanned_candidate
 
-    api = KIStockAPI()
+    api = _get_api()
     balance = api.get_balance()
     stocks = balance.get("output1", []) or []
     held_symbols = {s.get("pdno", "") for s in stocks}
@@ -270,8 +269,7 @@ def get_strategy_performance():
 def run_plunge_bounce_scan():
     """Triggers real-time scanning of the dedicated PlungeBounceStrategy universe."""
     try:
-        from src.trader import KIStockAPI
-        api = KIStockAPI()
+        api = _get_api()
 
         from src.strategy.seven_split import find_candidates
 
@@ -635,8 +633,7 @@ def get_strategy_positions(strategy_id: str):
     positions = reconstruct_strategy_positions(sid, env=trader.runtime_flags().trading_env)
     # 현재가를 붙여 평가손익 계산(실패해도 보유 정보는 반환)
     try:
-        from src.trader import KIStockAPI
-        api = KIStockAPI(notify_errors=False)
+        api = _get_api()
         for p in positions:
             try:
                 q = api.get_quote(p["symbol"])

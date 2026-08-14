@@ -83,8 +83,8 @@ def _current_env_field_value(key: str, raw_values: dict[str, str]) -> str:
     if key in raw_values:
         return raw_values.get(key, "")
     runtime_values = {
-        "DOMESTIC_STOCK_BROKER": getattr(trader.config, "domestic_stock_broker", "kis"),
-        "MISTOCK_STOCK_BROKER": raw_values.get("MISTOCK_STOCK_BROKER", "kis"),
+        "DOMESTIC_STOCK_BROKER": getattr(trader.config, "domestic_stock_broker", "kiwoom"),
+        "MISTOCK_STOCK_BROKER": raw_values.get("MISTOCK_STOCK_BROKER", "kiwoom"),
         "KIWOOM_TRADING_ENV": getattr(trader.config, "kiwoom_trading_env", "demo"),
         "KIWOOM_DOMESTIC_DEMO_ACCOUNT": getattr(trader.config, "kiwoom_domestic_demo_account", ""),
         "KIWOOM_DOMESTIC_DEMO_APP_KEY": getattr(trader.config, "kiwoom_domestic_demo_app_key", ""),
@@ -164,7 +164,11 @@ def get_config():
         "online_access_blocked": bool(getattr(trader.config, "online_access_blocked", False)),
         "order_submission_enabled": trader.runtime_flags().order_submission_enabled,
         "real_orders_enabled": trader.runtime_flags().real_orders_enabled,
-        "kistock_account": trader.config.kistock_account,
+        "kiwoom_account": getattr(
+            trader.config,
+            f"kiwoom_domestic_{trader.config.kiwoom_trading_env}_account",
+            "",
+        ),
         "split_n": trader.SPLIT_N,
         "stop_loss_pct": trader.STOP_LOSS_PCT,
         "take_profit": trader.TAKE_PROFIT,

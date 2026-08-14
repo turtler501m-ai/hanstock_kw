@@ -13,7 +13,7 @@ if os.environ.get("HANSTOCK_TESTING") != "1":
 
 @dataclass
 class MistockConfig:
-    stock_broker: str = os.environ.get("MISTOCK_STOCK_BROKER", "kis").strip().lower()
+    stock_broker: str = os.environ.get("MISTOCK_STOCK_BROKER", "kiwoom").strip().lower()
     market: str = os.environ.get("MISTOCK_MARKET", "NASDAQ")
     trading_env: str = os.environ.get("MISTOCK_TRADING_ENV", "demo")
     dry_run: bool = os.environ.get("MISTOCK_DRY_RUN", "true").lower() in {"1", "true", "yes", "on"}

@@ -415,8 +415,8 @@ def assemble_operational_run_once(
 
 
 def _default_kr_broker() -> ReadOnlyBroker:
-    from src.api.kis_api import KIStockAPI
-    return KIStockAPI()
+    from src.broker.factory import create_domestic_stock_broker
+    return create_domestic_stock_broker()
 
 
 def _default_us_balance_reader() -> Mapping[str, Any]:

@@ -284,10 +284,10 @@ def _required_env_missing() -> list[str]:
     override = _public_override("_required_env_missing", _required_env_missing)
     if override is not None:
         return override()
-    required = ["KISTOCK_APP_KEY", "KISTOCK_APP_SECRET", "KISTOCK_ACCOUNT"]
+    environment = str(getattr(trader.config, "kiwoom_trading_env", "demo") or "demo").lower()
+    prefix = "KIWOOM_DOMESTIC_REAL" if environment == "real" else "KIWOOM_DOMESTIC_DEMO"
+    required = [f"{prefix}_APP_KEY", f"{prefix}_APP_SECRET", f"{prefix}_ACCOUNT"]
     missing = [name for name in required if not os.environ.get(name)]
-    if _account_format_warning(trader.config.kistock_account):
-        missing.append("KISTOCK_ACCOUNT_FORMAT")
     return missing
 
 
@@ -332,7 +332,6 @@ def _get_api() -> DomesticStockBroker:
         return override()
     return create_domestic_stock_broker(
         broker=trader.config.domestic_stock_broker,
-        kis_client_factory=KIStockAPI,
         notify_errors=False,
         settings=trader.config,
         order_submission_enabled=trader.runtime_flags().order_submission_enabled,
@@ -340,7 +339,9 @@ def _get_api() -> DomesticStockBroker:
 
 
 def _account_cache_key() -> str:
-    source = f"{trader.runtime_flags().trading_env}:{trader.config.kistock_account}"
+    environment = str(getattr(trader.config, "kiwoom_trading_env", "demo") or "demo").lower()
+    account = getattr(trader.config, f"kiwoom_domestic_{environment}_account", "")
+    source = f"kiwoom:{environment}:{account}"
     return hashlib.sha256(source.encode("utf-8")).hexdigest()
 
 
@@ -606,7 +607,7 @@ def _get_balance_data(api: KIStockAPI, allow_cache: bool = True) -> dict:
         except concurrent.futures.TimeoutError:
             if cached is not None:
                 return cached
-            raise RuntimeError("KIS balance API timed out")
+            raise RuntimeError("Kiwoom balance API timed out")
         except KISConfigError:
             if allow_cache:
                 cached = _load_balance_cache()

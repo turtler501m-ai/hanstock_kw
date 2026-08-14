@@ -154,9 +154,9 @@ def approve_managed_ai_stock_order(approval_id: int) -> dict[str, Any]:
         "response_msg": "managed AI-stock order approved after fresh risk validation",
     }
     if str(order["market"]) == "KR" and _autonomy_execution_enabled():
-        from src.api.kis_api import KIStockAPI
+        from src.broker.factory import create_domestic_stock_broker
 
-        api = KIStockAPI()
+        api = create_domestic_stock_broker(order_submission_enabled=True)
 
         def submitter(canonical):
             return api.place_order(
@@ -258,9 +258,9 @@ def cancel_managed_ai_stock_order(order_id: int) -> dict[str, Any]:
             raise RuntimeConfigurationError(
                 "broker cancellation requires an enabled KR autonomy environment"
             )
-        from src.api.kis_api import KIStockAPI
+        from src.broker.factory import create_domestic_stock_broker
 
-        api = KIStockAPI()
+        api = create_domestic_stock_broker(order_submission_enabled=True)
 
         def unavailable_submit(_canonical):
             raise RuntimeConfigurationError("cancel gateway cannot submit orders")
@@ -372,7 +372,7 @@ def run_ai_stock_autonomy_cycle(
 
 
 def reconcile_kis_demo_managed_orders(*, market: str = "KR") -> list[dict[str, Any]]:
-    """Reconcile durable KR orders against the configured KIS environment."""
+    """Reconcile durable KR orders against the configured Kiwoom environment."""
     market = str(market).upper()
     if market != "KR" or not _autonomy_execution_enabled():
         return []
@@ -381,9 +381,9 @@ def reconcile_kis_demo_managed_orders(*, market: str = "KR") -> list[dict[str, A
     )
     if not unsettled:
         return []
-    from src.api.kis_api import KIStockAPI
+    from src.broker.factory import create_domestic_stock_broker
 
-    api = KIStockAPI()
+    api = create_domestic_stock_broker(order_submission_enabled=True)
 
     def unavailable_submit(_canonical):
         raise RuntimeConfigurationError("reconciliation cannot submit orders")

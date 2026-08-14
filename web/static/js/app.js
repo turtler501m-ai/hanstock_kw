@@ -852,7 +852,7 @@ function renderAiStrategySummary(config) {
         : (enabled ? 'OPENAI_API_KEY 없음: Seven Split 룰 점수로 분석' : 'Seven Split 룰 점수만 사용');
     const ruleWeight = Number(ai.rule_weight ?? 1) * 100;
     const scoreWeight = Number(ai.score_weight ?? 0) * 100;
-    const accountText = ai.account || config.kistock_account || '-';
+    const accountText = ai.account || config.kiwoom_account || '-';
     const flow = ai.auto_approve ? 'AI 제안 후 자동승인 설정 켜짐' : 'AI 제안 후 승인 대기';
 
     setElementText('ai-summary-model', `${modelStatus} · ${ai.model_name || '-'}`);
@@ -864,7 +864,7 @@ function renderAiStrategySummary(config) {
     const flowEl = document.getElementById('ai-flow-list');
     if (flowEl) {
         const items = (ai.flow || []).map((item) => `<span>${escapeHtml(item)}</span>`).join('');
-        flowEl.innerHTML = items || '<span>현재 KIS 계좌와 Seven Split 전략 기준으로 후보를 분석합니다.</span>';
+        flowEl.innerHTML = items || '<span>현재 키움 계좌와 Seven Split 전략 기준으로 후보를 분석합니다.</span>';
     }
 }
 
@@ -1041,7 +1041,7 @@ async function toggleAutoApproval() {
 async function renderConfig() {
     const config = await fetchJson('/api/config');
     latestConfig = config;
-    setElementText('val-account', config.kistock_account || '-');
+    setElementText('val-account', config.kiwoom_account || '-');
     renderAiStrategySummary(config);
     const settingsEl = document.getElementById('settings-grid');
     settingsEl.innerHTML = renderStrategySettingsForm(config);
@@ -1095,7 +1095,7 @@ function renderHoldingAccountSummary(balance, displayTotal, realizedPnl = 0) {
     const count = (balance.holdings || []).length;
     const source = balance._cache?.stale
         ? `최근 저장 계좌정보 ${balance._cache.cached_at || ''}`.trim()
-        : '증권앱/KIS 계좌정보';
+        : '키움 계좌정보';
 
     summaryEl.innerHTML = `
         <div>
@@ -1502,7 +1502,7 @@ async function renderBalance() {
         renderRisk(balance);
         document.getElementById('last-updated').textContent = `마지막 갱신 ${new Date().toLocaleTimeString('ko-KR')}`;
         if (balance._cache?.stale) {
-            setStatus(`KIS 계좌 API가 일시 실패해 최근 정상 데이터(${balance._cache.cached_at || '저장됨'})를 표시합니다.`);
+            setStatus(`키움 계좌 API가 일시 실패해 최근 정상 데이터(${balance._cache.cached_at || '저장됨'})를 표시합니다.`);
         } else {
             setStatus('대시보드 연결 완료. 계좌 정보를 불러왔습니다.', true);
         }
@@ -1533,7 +1533,7 @@ function renderTotalPnlBreakdown({ principal, displayTotal, accountPnl, realized
     const otherChange = accountPnl - realizedPnl - evalPnl;
     const rows = [
         ['계좌 전체', '초기자산 대비 총손익', accountPnl, `${formatCurrency(principal)} → ${formatCurrency(displayTotal)}`],
-        ['확정 손익', '기록 이후 실현손익', realizedPnl, `${recordStartedAt ? recordStartedAt.slice(0, 10) + '부터 ' : ''}KIS 체결기록으로 계산`],
+        ['확정 손익', '기록 이후 실현손익', realizedPnl, `${recordStartedAt ? recordStartedAt.slice(0, 10) + '부터 ' : ''}키움 체결기록으로 계산`],
         ['보유 손익', '현재 평가손익', evalPnl, '현재 보유 종목의 증권사 평가손익 합계'],
         ['기준 조정', '기록 시작 이전·미집계 누적손익', otherChange, '과거 매입원가 누락분과 수수료·세금·입출금 포함 가능'],
     ];
@@ -3556,7 +3556,7 @@ async function processOptimizerBatch() {
             batchButton.disabled = false;
         }
     }
-    // Refresh UI in the background to prevent button from hanging on slow KIS API calls
+    // Refresh UI in the background to prevent button from hanging on slow broker API calls
     renderApprovals();
     renderTrades();
     renderBalance();
@@ -5846,7 +5846,7 @@ async function triggerSchedule(mode) {
     
     const logBox = document.getElementById('scheduler-running-log');
     if (logBox) {
-        logBox.textContent = `[${new Date().toLocaleTimeString()}] ${mode} 스케쥴러 구동을 시작합니다. KIS API 호출 및 포트폴리오 분석으로 약 15~40초가 소요됩니다...\n`;
+        logBox.textContent = `[${new Date().toLocaleTimeString()}] ${mode} 스케쥴러 구동을 시작합니다. 키움 API 호출 및 포트폴리오 분석으로 약 15~40초가 소요됩니다...\n`;
     }
     
     try {

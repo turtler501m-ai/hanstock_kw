@@ -785,10 +785,10 @@ def find_candidates(
     batch = None
     scan_error: str | None = None
     scan_source = str(getattr(config, "candidate_scan_source", "yfinance") or "yfinance").strip().lower()
-    kis_first_sources = {"kis", "kis_api", "real", "real_check", "kis_cache"}
-    if scan_source in kis_first_sources:
-        scan_error = f"candidate scan source is {scan_source}; using KIS API/cache"
-        logger.info(f"[SCAN] KIS API/cache scan selected: {len(scan_list)} symbols (source={scan_source})")
+    broker_first_sources = {"broker", "kiwoom", "kis", "kis_api", "real", "real_check", "kis_cache"}
+    if scan_source in broker_first_sources:
+        scan_error = f"candidate scan source is {scan_source}; using configured broker API/cache"
+        logger.info(f"[SCAN] Broker API/cache scan selected: {len(scan_list)} symbols (source={scan_source})")
     else:
         logger.info(f"[SCAN] yfinance 배치 다운로드 시작: {len(scan_list)}종목")
         try:
@@ -813,15 +813,15 @@ def find_candidates(
             batch = None
 
     if batch is None:
-        logger.info(f"[SCAN] KIS API/local DB chart cache scan mode activated ({scan_error})")
+        logger.info(f"[SCAN] Broker API/local DB chart cache scan mode activated ({scan_error})")
         from src.db.repository import save_daily_charts, load_daily_charts
         
         KST = timezone(timedelta(hours=9))
         
         if api is None:
             try:
-                from src.trader import KIStockAPI
-                api = KIStockAPI()
+                from src.broker.factory import create_domestic_stock_broker
+                api = create_domestic_stock_broker()
             except Exception as api_err:
                 logger.warning(f"[SCAN] KIS API 객체 생성 실패: {api_err}")
         

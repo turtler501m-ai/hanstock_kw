@@ -21,7 +21,7 @@ find_python() {
 
 PYTHON_BIN="$(find_python)"
 LOG_FILE="$LOG_DIR/strategy-dispatch.log"
-# Coordinate with daily-auto.sh as both jobs use the same domestic KIS account.
+# Coordinate with daily-auto.sh as both jobs use the same domestic Kiwoom account.
 # The next ten-minute cron tick will retry schedules that remain due.
 LOCK_FILE="$RUNTIME_DIR/domestic-scheduler.lock"
 

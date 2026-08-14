@@ -312,20 +312,21 @@ class KiwoomBrokerAdapter:
     # KIS-shaped compatibility methods used while dashboard call sites migrate.
     def get_balance(self) -> dict[str, Any]:
         balance = self.fetch_balance()
+        integer_text = lambda value: str(int(round(float(value or 0))))
         return {
             "rt_cd": "0",
             "msg1": "",
             "output1": [{
                 "pdno": row.symbol, "prdt_name": row.name, "hldg_qty": str(row.quantity),
-                "ord_psbl_qty": str(row.sellable_quantity), "pchs_avg_pric": str(row.average_price),
-                "prpr": str(row.current_price), "evlu_amt": str(row.market_value),
-                "evlu_pfls_amt": str(row.profit_loss), "evlu_pfls_rt": str(row.profit_loss_rate),
+                "ord_psbl_qty": str(row.sellable_quantity), "pchs_avg_pric": integer_text(row.average_price),
+                "prpr": integer_text(row.current_price), "evlu_amt": integer_text(row.market_value),
+                "evlu_pfls_amt": integer_text(row.profit_loss), "evlu_pfls_rt": str(row.profit_loss_rate),
                 "fltt_rt": str(row.daily_change_rate),
             } for row in balance.holdings],
             "output2": [{
-                "prvs_rcdl_excc_amt": str(balance.cash), "dnca_tot_amt": str(balance.cash),
-                "tot_evlu_amt": str(balance.total_equity), "scts_evlu_amt": str(balance.stock_value),
-                "evlu_pfls_smtl_amt": str(balance.profit_loss),
+                "prvs_rcdl_excc_amt": integer_text(balance.cash), "dnca_tot_amt": integer_text(balance.cash),
+                "tot_evlu_amt": integer_text(balance.total_equity), "scts_evlu_amt": integer_text(balance.stock_value),
+                "evlu_pfls_smtl_amt": integer_text(balance.profit_loss),
             }],
             "_broker": "kiwoom",
         }

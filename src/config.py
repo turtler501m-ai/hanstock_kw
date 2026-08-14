@@ -12,7 +12,7 @@ if not _TESTING:
     load_dotenv(override=True)
 
 class Settings(BaseSettings):
-    domestic_stock_broker: str = "kis"
+    domestic_stock_broker: str = "kiwoom"
     kiwoom_trading_env: str = "demo"
     kiwoom_domestic_demo_account: str = ""
     kiwoom_domestic_demo_app_key: str = ""

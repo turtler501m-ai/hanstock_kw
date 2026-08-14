@@ -409,6 +409,14 @@ KIS_ENV_BINDINGS = {
     "KIS_REAL_CHECK_CONDITION_NAME": ("kis_real_check_condition_name", str),
 }
 
+# This deployment is Kiwoom-only. Keep legacy KIS bindings import-compatible
+# for old database rows, but never expose KIS credentials or controls in the UI.
+ENV_FIELDS = [field for field in ENV_FIELDS if not field["key"].startswith(("KIS_", "KISTOCK_"))]
+for _broker_key in ("DOMESTIC_STOCK_BROKER", "MISTOCK_STOCK_BROKER"):
+    for _field in ENV_FIELDS:
+        if _field["key"] == _broker_key:
+            _field["options"] = ["kiwoom"]
+
 BROKER_ENV_BINDINGS = {
     "DOMESTIC_STOCK_BROKER": ("domestic_stock_broker", str),
     "KIWOOM_TRADING_ENV": ("kiwoom_trading_env", str),

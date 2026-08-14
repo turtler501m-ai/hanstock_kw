@@ -82,12 +82,16 @@ def _account_snapshot(market: str) -> dict[str, Any]:
             data = mistock_trader.get_balance()
             return _normalize_account(data, source=data.get("balance_source") or "mistock")
         if market == "KR":
-            from src.api.kis_api import KIStockAPI
+            from src.broker.factory import create_domestic_stock_broker
+            from src.config import config, trading_flags
             from src.dashboard.services.balance_service import parse_balance
 
-            raw = KIStockAPI(notify_errors=False).get_balance()
+            raw = create_domestic_stock_broker(
+                settings=config,
+                order_submission_enabled=trading_flags(config).order_submission_enabled,
+            ).get_balance()
             data = parse_balance(raw)
-            return _normalize_account(data, source="kis")
+            return _normalize_account(data, source="kiwoom")
     except Exception as exc:
         return {
             "available": False,

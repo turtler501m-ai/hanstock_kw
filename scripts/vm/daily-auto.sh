@@ -33,7 +33,7 @@ find_python() {
 
 PYTHON_BIN="$(find_python)"
 LOG_FILE="$LOG_DIR/daily-auto.log"
-# daily-auto and strategy-dispatch both use the domestic KIS account.  A shared
+# daily-auto and strategy-dispatch both use the domestic Kiwoom account. A shared
 # lock prevents the twice-daily full cycle and the ten-minute dispatcher from
 # issuing overlapping balance/order requests from separate processes.
 LOCK_FILE="$RUNTIME_DIR/domestic-scheduler.lock"

@@ -194,7 +194,6 @@ const CATEGORIES = [
             "CASH_BUFFER",
             "MAX_DAILY_LOSS_PCT",
             "HANSTOCK_EXCLUDED_SYMBOLS",
-            "KIS_ORDER_MIN_INTERVAL_SECONDS",
             "SPLIT_N",
             "STOP_LOSS_PCT",
             "TAKE_PROFIT",

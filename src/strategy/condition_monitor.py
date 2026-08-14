@@ -96,15 +96,11 @@ def run_condition_monitor_cycle(markets: set[str] | None = None) -> dict:
     result = {"KR": {"symbols": [], "source": ""}, "US": {"symbols": [], "source": ""}, "errors": []}
     if "KR" in active_markets:
         try:
-            from src.trader import KIStockAPI
-            from src.strategy.seven_split import _condition_search_universe
+            from src.broker.factory import create_domestic_stock_broker
 
-            api = KIStockAPI()
-            symbols = _condition_search_universe(api)
-            source = "kis_condition"
-            if not symbols:
-                symbols = api.get_volume_rank(top_n=50)
-                source = "kis_volume_rank"
+            api = create_domestic_stock_broker()
+            symbols = api.get_volume_rank(top_n=50)
+            source = "kiwoom_volume_rank"
             result["KR"] = save_condition_symbols("KR", symbols, source=source)
         except Exception as exc:
             result["errors"].append(f"KR:{type(exc).__name__}:{exc}")
@@ -119,7 +115,7 @@ def run_condition_monitor_cycle(markets: set[str] | None = None) -> dict:
                 api.get_overseas_volume_rank(excd="NAS", cnt=50)
                 + api.get_overseas_volume_rank(excd="NYS", cnt=50)
             ))
-            result["US"] = save_condition_symbols("US", symbols, source="kis_overseas_volume_rank")
+            result["US"] = save_condition_symbols("US", symbols, source="kiwoom_overseas_volume_rank")
         except Exception as exc:
             result["errors"].append(f"US:{type(exc).__name__}:{exc}")
             logger.info(f"[CONDITION_MONITOR] US unavailable: {exc}")

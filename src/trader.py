@@ -692,26 +692,14 @@ def real_check_configured(settings=None) -> bool:
 
 
 def build_market_data_api(
-    broker_api: KIStockAPI,
+    broker_api,
     *,
     runtime: TraderRuntimeContext | None = None,
-) -> KIStockAPI:
+) :
     api_runtime = getattr(broker_api, "runtime", None)
     runtime = runtime or (api_runtime if isinstance(api_runtime, TraderRuntimeContext) else None)
     runtime = runtime or TraderRuntimeContext.capture()
-    settings = runtime.settings
-    if not settings.kis_real_check_enabled:
-        return broker_api
-    if not settings.kis_real_check_app_key or not settings.kis_real_check_app_secret:
-        logger.warning("[KIS real_check] enabled but app key/secret are empty; using broker API for market data")
-        return broker_api
-    try:
-        if isinstance(api_runtime, TraderRuntimeContext):
-            return KIStockAPI(notify_errors=False, group="real_check", runtime=runtime)
-        return KIStockAPI(notify_errors=False, group="real_check")
-    except Exception as exc:
-        logger.warning(f"[KIS real_check] failed to initialize; using broker API for market data: {exc}")
-        return broker_api
+    return broker_api
 
 
 
@@ -1422,7 +1410,12 @@ def run(
     init_db()
     init_approval_db()
 
-    api = KIStockAPI(runtime=runtime)
+    from src.broker.factory import create_domestic_stock_broker
+    api = create_domestic_stock_broker(
+        broker=settings.domestic_stock_broker,
+        settings=settings,
+        order_submission_enabled=flags.order_submission_enabled,
+    )
     market_data_api = build_market_data_api(api)
     balance = api.get_balance()
 
