@@ -472,12 +472,15 @@ def _auto_validate_selected_strategy(strategy_id: str) -> dict:
 
 @router.post("/api/ai-strategies/apply-selected")
 def apply_selected_ai_strategies():
-    """Apply every selected strategy to the shared AI schedule slot."""
+    """Synchronize selected strategies with their executable schedule slots."""
     from src.db.repository import (
         load_ai_strategies,
         record_ai_strategy_event,
     )
-    from src.strategy_ids import INDEPENDENT_STOCK_SCHEDULE_IDS
+    from src.strategy_ids import (
+        AI_STOCK_SCHEDULE_ID,
+        INDEPENDENT_STOCK_SCHEDULE_IDS,
+    )
 
     all_selected = [
         item for item in load_ai_strategies()
@@ -486,7 +489,7 @@ def apply_selected_ai_strategies():
     ]
     if not all_selected:
         raise HTTPException(status_code=409, detail="Select at least one AI strategy")
-    selected = [
+    shared_selected = [
         item for item in all_selected
         if str(item.get("id") or "") not in INDEPENDENT_STOCK_SCHEDULE_IDS
     ]
@@ -495,36 +498,67 @@ def apply_selected_ai_strategies():
         for item in all_selected
         if str(item.get("id") or "") in INDEPENDENT_STOCK_SCHEDULE_IDS
     ]
-    strategy_ids = [str(item["id"]) for item in selected]
-    for strategy in selected:
+    strategy_ids = [str(item["id"]) for item in shared_selected]
+    for strategy in all_selected:
+        strategy_id = str(strategy["id"])
         record_ai_strategy_event(
-            str(strategy["id"]),
-            "applied_to_shared_schedule",
+            strategy_id,
+            (
+                "applied_to_independent_schedule"
+                if strategy_id in INDEPENDENT_STOCK_SCHEDULE_IDS
+                else "applied_to_shared_schedule"
+            ),
             {
                 "verification_mode": "demo_account_trading",
-                "applied_strategy_ids": strategy_ids,
+                "schedule_strategy_id": (
+                    strategy_id
+                    if strategy_id in INDEPENDENT_STOCK_SCHEDULE_IDS
+                    else AI_STOCK_SCHEDULE_ID
+                ),
             },
             strategy.get("strategy_version"),
         )
     from src.db.repository import list_strategy_schedules, save_strategy_schedule
-    from src.strategy_ids import AI_STOCK_SCHEDULE_ID
-
-    existing_schedule_ids = {
-        str(item.get("strategy_id") or "")
+    schedules = {
+        str(item.get("strategy_id") or ""): item
         for item in list_strategy_schedules(enabled_only=False)
     }
-    if AI_STOCK_SCHEDULE_ID not in existing_schedule_ids:
-
-        save_strategy_schedule(
-            AI_STOCK_SCHEDULE_ID,
-            enabled=False,
-            mode="analysis_only",
-            auto_approve=False,
+    shared_schedule = schedules.get(AI_STOCK_SCHEDULE_ID, {})
+    schedule_settings = {
+        key: shared_schedule[key]
+        for key in (
+            "interval_minutes", "start_hm", "end_hm", "weekdays", "mode",
+            "auto_approve",
         )
+        if key in shared_schedule
+    }
+    if not shared_schedule:
+        schedule_settings.update(mode="analysis_only", auto_approve=False)
+
+    save_strategy_schedule(
+        AI_STOCK_SCHEDULE_ID,
+        enabled=bool(shared_selected),
+        **schedule_settings,
+    )
+    selected_independent_ids = set(independent_ids)
+    for strategy_id in sorted(INDEPENDENT_STOCK_SCHEDULE_IDS):
+        current = schedules.get(strategy_id)
+        if strategy_id in selected_independent_ids:
+            if current:
+                save_strategy_schedule(strategy_id, enabled=True)
+            else:
+                save_strategy_schedule(
+                    strategy_id,
+                    enabled=True,
+                    **schedule_settings,
+                )
+        elif current and current.get("enabled"):
+            save_strategy_schedule(strategy_id, enabled=False)
     return {
         "ok": True,
         "applied_strategy_ids": strategy_ids,
         "excluded_strategy_ids": independent_ids,
+        "independent_schedule_ids": independent_ids,
         "schedule_strategy_id": AI_STOCK_SCHEDULE_ID,
         "verification_mode": "demo_account_trading",
     }

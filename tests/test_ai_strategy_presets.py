@@ -1,7 +1,7 @@
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import call, patch
 
 import src.dashboard as dashboard
 from src.dashboard.routes import stock
@@ -59,7 +59,7 @@ class AiStrategyPresetTests(unittest.TestCase):
             "aggressive",
         )
 
-    def test_applying_strategy_prepares_disabled_ai_schedule_slot(self):
+    def test_applying_strategy_enables_ai_schedule_slot(self):
         strategies = [
             {
                 "id": "approved_ai_1",
@@ -95,12 +95,12 @@ class AiStrategyPresetTests(unittest.TestCase):
         self.assertEqual(result["schedule_strategy_id"], "ai_stock_default_v1")
         save_schedule.assert_called_once_with(
             "ai_stock_default_v1",
-            enabled=False,
+            enabled=True,
             mode="analysis_only",
             auto_approve=False,
         )
 
-    def test_schedule_apply_excludes_unapproved_and_independent_strategies(self):
+    def test_schedule_apply_creates_selected_independent_schedule(self):
         strategies = [
             {"id": "approved", "selected": True, "status": "approved"},
             {"id": "draft", "selected": True, "status": "draft"},
@@ -118,10 +118,42 @@ class AiStrategyPresetTests(unittest.TestCase):
         ), patch(
             "src.db.repository.list_strategy_schedules",
             return_value=[{"strategy_id": "ai_stock_default_v1"}],
-        ):
+        ), patch(
+            "src.db.repository.save_strategy_schedule",
+        ) as save_schedule:
             result = stock.apply_selected_ai_strategies()
 
         self.assertEqual(result["applied_strategy_ids"], ["approved"])
+        self.assertEqual(
+            result["independent_schedule_ids"],
+            ["plunge_bounce_strategy"],
+        )
+        self.assertIn(
+            call("plunge_bounce_strategy", enabled=True),
+            save_schedule.call_args_list,
+        )
+
+    def test_schedule_apply_disables_unselected_independent_schedule(self):
+        with patch(
+            "src.db.repository.load_ai_strategies",
+            return_value=[{"id": "approved", "selected": True, "status": "approved"}],
+        ), patch(
+            "src.db.repository.record_ai_strategy_event",
+        ), patch(
+            "src.db.repository.list_strategy_schedules",
+            return_value=[
+                {"strategy_id": "ai_stock_default_v1", "enabled": True},
+                {"strategy_id": "heikin_ashi_scalping_strategy", "enabled": True},
+            ],
+        ), patch(
+            "src.db.repository.save_strategy_schedule",
+        ) as save_schedule:
+            stock.apply_selected_ai_strategies()
+
+        self.assertIn(
+            call("heikin_ashi_scalping_strategy", enabled=False),
+            save_schedule.call_args_list,
+        )
 
     def test_main_hanstock_ai_strategy_can_run_autonomy(self):
         expected = {
