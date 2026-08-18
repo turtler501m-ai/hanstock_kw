@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """AI스톡 핵심 로직 테스트 (DB 불필요): 점수·시장·신선도·유니버스 (§17)."""
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from src.ai_stock import scoring, markets, freshness, universe, ai_evaluator, market_data
@@ -120,6 +121,30 @@ class FreshnessTests(unittest.TestCase):
 
 
 class MarketDataTests(unittest.TestCase):
+    @patch("src.broker.factory.create_domestic_stock_broker")
+    @patch("src.db.market_repository.save_daily_charts")
+    @patch("src.db.market_repository.load_daily_charts")
+    def test_kr_series_warms_empty_cache_from_read_only_broker(self, load, save, create):
+        cached = [{"close": float(i)} for i in range(1, 31)]
+        load.side_effect = [[], cached]
+        create.return_value.fetch_daily_bars.return_value = [
+            SimpleNamespace(
+                date="20260818",
+                open_price=100,
+                high_price=110,
+                low_price=90,
+                close_price=105,
+                volume=1234,
+            )
+        ]
+
+        result = market_data.DefaultProvider().daily_series("KR", "005930")
+
+        self.assertEqual(result, [float(i) for i in range(1, 31)])
+        create.assert_called_once_with(order_submission_enabled=False)
+        create.return_value.fetch_daily_bars.assert_called_once_with("005930", count=120)
+        save.assert_called_once()
+
     def test_index_history_covers_autonomy_regime_requirement(self):
         with patch(
             "src.mistock.strategy.fetch_history",

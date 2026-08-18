@@ -99,9 +99,34 @@ class DefaultProvider:
     @staticmethod
     def _kr_series(symbol: str) -> list[float] | None:
         try:
-            from src.db.market_repository import load_daily_charts
+            from src.db.market_repository import load_daily_charts, save_daily_charts
 
             charts = load_daily_charts(symbol)
+            if len(charts) < 21:
+                # The AI scheduler can start before another dashboard path has
+                # warmed the chart cache. Populate it directly from the active
+                # read-only broker adapter so a cold VM does not turn every
+                # watchlist row into ``insufficient_price_data``.
+                from src.broker.factory import create_domestic_stock_broker
+
+                broker = create_domestic_stock_broker(order_submission_enabled=False)
+                bars = broker.fetch_daily_bars(symbol, count=120)
+                if bars:
+                    save_daily_charts(
+                        symbol,
+                        [
+                            {
+                                "date": bar.date,
+                                "open": bar.open_price,
+                                "high": bar.high_price,
+                                "low": bar.low_price,
+                                "close": bar.close_price,
+                                "volume": bar.volume,
+                            }
+                            for bar in bars
+                        ],
+                    )
+                    charts = load_daily_charts(symbol)
             closes = [float(c["close"]) for c in charts if c.get("close") is not None]
             return closes or None
         except Exception:
