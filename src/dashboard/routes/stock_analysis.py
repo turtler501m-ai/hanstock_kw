@@ -554,6 +554,9 @@ def apply_selected_ai_strategies():
                 )
         elif current and current.get("enabled"):
             save_strategy_schedule(strategy_id, enabled=False)
+    from src.strategy.seven_split import sync_watchlist_runtime
+
+    sync_watchlist_runtime()
     return {
         "ok": True,
         "applied_strategy_ids": strategy_ids,

@@ -391,6 +391,34 @@ class TraderCoreTests(unittest.TestCase):
     def test_kospi_universe_has_no_duplicates(self):
         self.assertEqual(len(KOSPI_UNIVERSE), len(set(KOSPI_UNIVERSE)))
 
+    def test_selected_independent_strategies_inherit_shared_watchlist(self):
+        from src.strategy.seven_split import sync_selected_strategy_universes
+
+        strategies = [
+            {
+                "id": "plunge_bounce_strategy",
+                "selected": True,
+                "status": "approved",
+            },
+            {"id": "draft_strategy", "selected": True, "status": "draft"},
+        ]
+        with patch(
+            "src.db.repository.load_ai_strategies", return_value=strategies
+        ), patch(
+            "src.db.repository.load_strategy_universe_symbols", return_value=["005930"]
+        ), patch(
+            "src.db.repository.add_strategy_universe_symbol"
+        ) as add_symbol:
+            result = sync_selected_strategy_universes({
+                "symbols": ["005930", "000660"],
+                "names": {"000660": "SK Hynix"},
+            })
+
+        self.assertEqual(result, {"plunge_bounce_strategy": 1})
+        add_symbol.assert_called_once_with(
+            "plunge_bounce_strategy", "000660", "SK Hynix"
+        )
+
     def test_build_scan_universe_always_includes_watchlist(self):
         """거래량 API가 빈 결과를 돌려줘도 WATCHLIST는 항상 포함된다."""
         class _FakeAPI:

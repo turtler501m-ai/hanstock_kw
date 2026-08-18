@@ -22,12 +22,48 @@ from src.strategy.position_tracker import update_position_peak
 
 WATCHLIST = []
 
+def sync_selected_strategy_universes(watchlist_data: dict) -> dict[str, int]:
+    """Add shared watchlist symbols to every selected isolated strategy."""
+    from src.db.repository import (
+        add_strategy_universe_symbol,
+        load_ai_strategies,
+        load_strategy_universe_symbols,
+    )
+    from src.strategy_ids import INDEPENDENT_STOCK_SCHEDULE_IDS
+
+    symbols = [str(symbol) for symbol in watchlist_data.get("symbols", []) if symbol]
+    names = watchlist_data.get("names", {})
+    selected_ids = [
+        str(item.get("id") or "")
+        for item in load_ai_strategies()
+        if item.get("selected")
+        and str(item.get("status") or "") == "approved"
+        and str(item.get("id") or "") in INDEPENDENT_STOCK_SCHEDULE_IDS
+    ]
+    added: dict[str, int] = {}
+    for strategy_id in selected_ids:
+        existing = set(load_strategy_universe_symbols(strategy_id))
+        count = 0
+        for symbol in symbols:
+            if symbol in existing:
+                continue
+            add_strategy_universe_symbol(
+                strategy_id,
+                symbol,
+                str(names.get(symbol) or ""),
+            )
+            count += 1
+        added[strategy_id] = count
+    return added
+
+
 def sync_watchlist_runtime() -> None:
     from src.db.repository import load_watchlist_data
     try:
         data = load_watchlist_data()
         WATCHLIST.clear()
         WATCHLIST.extend(data.get("symbols", []))
+        sync_selected_strategy_universes(data)
     except Exception as e:
         logger.warning(f"Failed to sync watchlist runtime: {e}")
 
