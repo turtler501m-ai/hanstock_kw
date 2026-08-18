@@ -34,6 +34,16 @@ class VmScheduleScriptTests(unittest.TestCase):
         self.assertIn('TIME_SPEC="${1:-0 9,15 * * 1-5}"', daily_installer)
         self.assertIn('TIME_SPEC="${1:-7-57/10 9-15 * * 1-5}"', dispatch_installer)
 
+    def test_cron_jobs_do_not_depend_on_executable_git_mode(self):
+        installers = [
+            "install-daily-auto-cron.sh",
+            "install-strategy-dispatch-cron.sh",
+            "install-plunge-bounce-cron.sh",
+        ]
+        for name in installers:
+            content = (ROOT / "scripts" / "vm" / name).read_text(encoding="utf-8")
+            self.assertIn("&& bash $ROOT_DIR/scripts/vm/", content, name)
+
 
 if __name__ == "__main__":
     unittest.main()

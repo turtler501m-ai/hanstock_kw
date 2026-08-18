@@ -5,7 +5,7 @@ TIME_SPEC="${1:-*/15 9-15 * * 1-5}"
 CRON_TZ_VALUE="${HANSTOCK_CRON_TZ:-Asia/Seoul}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
-JOB="$TIME_SPEC cd $ROOT_DIR && $ROOT_DIR/scripts/vm/plunge-bounce-auto.sh"
+JOB="$TIME_SPEC cd $ROOT_DIR && bash $ROOT_DIR/scripts/vm/plunge-bounce-auto.sh"
 
 existing="$(mktemp)"
 crontab -l 2>/dev/null | awk '

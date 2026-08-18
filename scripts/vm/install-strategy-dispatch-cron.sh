@@ -11,7 +11,7 @@ TIME_SPEC="${1:-7-57/10 9-15 * * 1-5}"
 CRON_TZ_VALUE="${HANSTOCK_CRON_TZ:-Asia/Seoul}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
-JOB="$TIME_SPEC cd $ROOT_DIR && $ROOT_DIR/scripts/vm/strategy-dispatch.sh"
+JOB="$TIME_SPEC cd $ROOT_DIR && bash $ROOT_DIR/scripts/vm/strategy-dispatch.sh"
 
 existing="$(mktemp)"
 crontab -l 2>/dev/null | awk '
