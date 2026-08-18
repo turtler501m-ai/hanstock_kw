@@ -1,4 +1,5 @@
 import os
+import math
 import yfinance as yf
 from datetime import datetime, timezone, timedelta
 from src.strategy.indicators import calc_rsi, calc_sma
@@ -21,7 +22,9 @@ class PlungeBounceStrategy:
         self.rsi_threshold = float(get_watchlist_setting("PLUNGE_RSI_THRESHOLD", os.environ.get("PLUNGE_RSI_THRESHOLD", "30.0")))
         self.vol_ratio_threshold = float(get_watchlist_setting("PLUNGE_VOL_RATIO_THRESHOLD", os.environ.get("PLUNGE_VOL_RATIO_THRESHOLD", "1.4")))
         self.min_val_krw = float(get_watchlist_setting("PLUNGE_MIN_VAL_KRW", "1000000.0"))
-        self.max_val_krw = float(get_watchlist_setting("PLUNGE_MAX_VAL_KRW", "500000000.0"))
+        # Zero disables the upper bound.  A fixed 500M KRW ceiling excluded almost
+        # every liquid KRX stock from an automatically populated universe.
+        self.max_val_krw = float(get_watchlist_setting("PLUNGE_MAX_VAL_KRW", "0"))
         self.index_filter_enabled = get_watchlist_setting("PLUNGE_INDEX_FILTER_ENABLED", "1") == "1"
 
     def _is_index_above_sma(self, symbol: str) -> bool:
@@ -33,7 +36,7 @@ class PlungeBounceStrategy:
         index_ticker = "^KS11"  # Default to KOSPI
         if symbol.endswith(".KQ"):
             index_ticker = "^KQ11"  # KOSDAQ
-        elif not symbol.endswith(".KS") and not symbol.endswith(".KQ"):
+        elif not (symbol.isdigit() and len(symbol) == 6) and not symbol.endswith(".KS") and not symbol.endswith(".KQ"):
             index_ticker = "SPY"  # US Market
             
         now = datetime.now()
@@ -50,6 +53,12 @@ class PlungeBounceStrategy:
                 closes = df["Close"].squeeze()
                 sma200 = closes.rolling(window=200).mean().iloc[-1]
                 latest_close = closes.iloc[-1]
+                if not math.isfinite(float(latest_close)) or not math.isfinite(float(sma200)):
+                    logger.warning(
+                        f"[PlungeBounce] Invalid index trend data for {index_ticker}; "
+                        "skipping market filter"
+                    )
+                    return True
                 is_above = bool(latest_close > sma200)
                 self._index_cache[index_ticker] = is_above
                 self._last_cache_time = now
@@ -113,7 +122,9 @@ class PlungeBounceStrategy:
         
         val_passed = False
         if is_kr:
-            val_passed = self.min_val_krw <= latest_val <= self.max_val_krw
+            val_passed = latest_val >= self.min_val_krw and (
+                self.max_val_krw <= 0 or latest_val <= self.max_val_krw
+            )
             if not val_passed:
                 pb_reasons.append(f"거래대금 범위 초과 ({latest_val:,.0f} KRW)")
         else:

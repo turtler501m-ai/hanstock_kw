@@ -500,7 +500,7 @@ def get_plunge_bounce_settings():
                 "PLUNGE_RSI_THRESHOLD": float(get_watchlist_setting("PLUNGE_RSI_THRESHOLD", "30.0")),
                 "PLUNGE_VOL_RATIO_THRESHOLD": float(get_watchlist_setting("PLUNGE_VOL_RATIO_THRESHOLD", "1.4")),
                 "PLUNGE_MIN_VAL_KRW": float(get_watchlist_setting("PLUNGE_MIN_VAL_KRW", "1000000.0")),
-                "PLUNGE_MAX_VAL_KRW": float(get_watchlist_setting("PLUNGE_MAX_VAL_KRW", "500000000.0")),
+                "PLUNGE_MAX_VAL_KRW": float(get_watchlist_setting("PLUNGE_MAX_VAL_KRW", "0")),
                 "PLUNGE_INDEX_FILTER_ENABLED": get_watchlist_setting("PLUNGE_INDEX_FILTER_ENABLED", "1") == "1",
             }
         }
