@@ -96,7 +96,8 @@ class AutonomyRuntime:
         if self.planner_provider is not None:
             provider = self.planner_provider
         elif (
-            str(strategy.get("model") or "none").lower() == "none"
+            str(strategy.get("provider") or "none").lower() == "none"
+            or str(strategy.get("model") or "none").lower() == "none"
         ):
             provider = DemoRulePlanner()
         else:
