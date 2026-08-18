@@ -234,20 +234,6 @@ def load_watchlist_data() -> dict:
                     )
                 conn.commit()
             
-            # 종목 개수가 아예 비었을 때(0개)만 대표 우량주 5종목 자동 마이그레이션
-            if len(symbols) == 0:
-                default_symbols: list[str] = []
-                ts = datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S")
-                for s in default_symbols:
-                    name = resolve_stock_name(s, STOCK_NAMES.get(s, "우량 종목"))
-                    conn.execute(
-                        "INSERT OR IGNORE INTO watchlist (symbol, name, created_at) VALUES (?, ?, ?)",
-                        (s, name, ts)
-                    )
-                conn.commit()
-                symbols = default_symbols
-                names = {s: resolve_stock_name(s, STOCK_NAMES.get(s, "우량 종목")) for s in default_symbols}
-            
             c_set = conn.execute("SELECT value FROM watchlist_settings WHERE key = 'ai_auto_add'")
             row_set = c_set.fetchone()
             if row_set is None:
