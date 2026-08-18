@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+import hashlib
 import threading
 import time
 from typing import Any, Callable, Mapping
@@ -54,6 +55,9 @@ class KiwoomPage:
 class KiwoomRestClient:
     """OAuth and JSON POST transport shared by higher-level adapters."""
 
+    _shared_tokens: dict[tuple[str, str, str], tuple[str, datetime]] = {}
+    _shared_token_lock = threading.Lock()
+
     def __init__(
         self,
         app_key: str,
@@ -78,12 +82,28 @@ class KiwoomRestClient:
         self._access_token = ""
         self._token_expires_at: datetime | None = None
 
+    def _token_cache_key(self) -> tuple[str, str, str]:
+        secret_digest = hashlib.sha256(self._secret_key.encode("utf-8")).hexdigest()
+        return self.environment, self.app_key, secret_digest
+
+    @classmethod
+    def clear_shared_token_cache(cls) -> None:
+        with cls._shared_token_lock:
+            cls._shared_tokens.clear()
+
     def __repr__(self) -> str:
         return f"{type(self).__name__}(environment={self.environment!r}, base_url={self.base_url!r})"
 
     def get_access_token(self) -> str:
         # Refresh early so a token cannot expire while an order is in flight.
         if self._access_token and self._token_expires_at and self._now() < self._token_expires_at - timedelta(seconds=30):
+            return self._access_token
+
+        cache_key = self._token_cache_key()
+        with self._shared_token_lock:
+            shared = self._shared_tokens.get(cache_key)
+        if shared and self._now() < shared[1] - timedelta(seconds=30):
+            self._access_token, self._token_expires_at = shared
             return self._access_token
 
         response = self._session.post(
@@ -97,6 +117,8 @@ class KiwoomRestClient:
             raise KiwoomApiError("OAuth token response did not contain a token")
         self._access_token = token
         self._token_expires_at = self._parse_expiry(payload)
+        with self._shared_token_lock:
+            self._shared_tokens[cache_key] = (self._access_token, self._token_expires_at)
         return token
 
     def post(

@@ -15,6 +15,7 @@ def response(payload, headers=None):
 
 class KiwoomRestClientTests(unittest.TestCase):
     def setUp(self):
+        KiwoomRestClient.clear_shared_token_cache()
         self.now = datetime(2026, 8, 14, tzinfo=timezone.utc)
         self.session = Mock()
 
@@ -32,6 +33,15 @@ class KiwoomRestClientTests(unittest.TestCase):
         self.assertEqual(client.get_access_token(), "TOKEN")
         self.assertEqual(self.session.post.call_count, 1)
         self.assertNotIn("very-secret", repr(client))
+
+    def test_token_is_shared_between_clients_with_same_credentials(self):
+        self.session.post.return_value = response({"token": "TOKEN", "expires_in": 3600})
+        first = self.client()
+        second = self.client()
+
+        self.assertEqual(first.get_access_token(), "TOKEN")
+        self.assertEqual(second.get_access_token(), "TOKEN")
+        self.assertEqual(self.session.post.call_count, 1)
 
     def test_expiring_token_is_refreshed(self):
         self.session.post.side_effect = [
