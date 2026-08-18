@@ -290,7 +290,10 @@ class DashboardPlanViewRegressionTests(unittest.TestCase):
             },
         )
         build_universe.assert_called_once()
-        build_orders.assert_called_once_with(scan_result["candidates"], fake_api.get_quote, 1, 900000)
+        args = build_orders.call_args.args
+        self.assertEqual(args[0], scan_result["candidates"])
+        self.assertTrue(callable(args[1]))
+        self.assertEqual(args[2:], (1, 900000))
         save_cache.assert_called_once_with(2, body["candidates"], scan_result["scan_summary"], 9)
 
     def test_candidates_returns_cached_payload_without_rebuilding_scan(self):

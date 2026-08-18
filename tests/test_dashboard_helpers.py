@@ -206,7 +206,37 @@ class DashboardHelperTests(unittest.TestCase):
         )
         build_universe.assert_called_once_with(api, {"005930"})
         find_candidates.assert_called_once_with({"005930"}, universe=universe, min_score=2)
-        build_orders.assert_called_once_with(scan_result["candidates"], api.get_quote, 1, 850000)
+        args = build_orders.call_args.args
+        self.assertEqual(args[0], scan_result["candidates"])
+        self.assertTrue(callable(args[1]))
+        self.assertEqual(args[2:], (1, 850000))
+
+    def test_build_dashboard_candidates_uses_scan_price_when_live_quote_fails(self):
+        api = MagicMock()
+        api.get_quote.side_effect = RuntimeError("quote unavailable")
+        parsed = {"cash": 300000, "holdings": []}
+        scan_result = {
+            "candidates": [{
+                "ticker": "251270", "current_price": 10000,
+                "score": 3, "reasons": ["test"],
+            }],
+            "scan_summary": [], "scanned": 1, "scan_error": None,
+        }
+
+        def build_orders(candidates, quote_provider, held_count, cash):
+            self.assertEqual(quote_provider("251270"), {"current": 10000.0})
+            return []
+
+        with patch.object(
+            dashboard.trader, "build_scan_universe", return_value=["251270"]
+        ), patch.object(
+            dashboard.trader, "find_candidates", return_value=scan_result
+        ), patch.object(
+            dashboard.trader, "build_orders", side_effect=build_orders
+        ):
+            result = dashboard.build_dashboard_candidates(api, parsed)
+
+        self.assertEqual(result["scanned"], 1)
 
     def test_build_dashboard_candidates_keeps_scan_error_and_order_fallbacks(self):
         api = MagicMock()

@@ -236,7 +236,7 @@ def load_watchlist_data() -> dict:
             
             # 종목 개수가 아예 비었을 때(0개)만 대표 우량주 5종목 자동 마이그레이션
             if len(symbols) == 0:
-                default_symbols = ["005930", "000660", "035420", "005380", "035720"]
+                default_symbols: list[str] = []
                 ts = datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S")
                 for s in default_symbols:
                     name = resolve_stock_name(s, STOCK_NAMES.get(s, "우량 종목"))

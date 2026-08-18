@@ -106,12 +106,36 @@ class DashboardStockService:
                 )
 
         candidates = scan_result.get("candidates", [])
-        
+        scan_prices = {
+            str(candidate.get("ticker") or ""): float(
+                candidate.get("current_price") or 0
+            )
+            for candidate in candidates
+        }
+
+        def quote_with_scan_fallback(symbol: str) -> dict:
+            try:
+                return api.get_quote(symbol)
+            except Exception as exc:
+                price = scan_prices.get(str(symbol), 0.0)
+                if price <= 0:
+                    raise
+                logger.warning(
+                    "Live quote failed for {}; using scan price for dashboard planning: {}",
+                    symbol,
+                    exc,
+                )
+                return {"current": price}
+
         if optimizer == "score_tilted_inverse_vol":
-            orders = trader.build_orders(candidates, api.get_quote, len(parsed["holdings"]), parsed["cash"])
+            orders = trader.build_orders(
+                candidates, quote_with_scan_fallback,
+                len(parsed["holdings"]), parsed["cash"],
+            )
         else:
             orders = trader.build_orders(
-                candidates, api.get_quote, len(parsed["holdings"]), parsed["cash"], optimizer=optimizer
+                candidates, quote_with_scan_fallback,
+                len(parsed["holdings"]), parsed["cash"], optimizer=optimizer,
             )
             
         order_by_ticker = {order["ticker"]: order for order in orders}
