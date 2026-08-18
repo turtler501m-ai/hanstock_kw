@@ -60,20 +60,14 @@ class MistockMonitorTests(unittest.TestCase):
     def test_run_cycle_alerts_on_circuit_breaker_opened(self, mock_slack, mock_get_client, mock_open):
         mistock_config.trading_env = "demo"
         
-        # Mock Circuit Breaker Status
-        fake_cb = MagicMock()
-        fake_cb.status.return_value = {
+        mock_client = MagicMock()
+        mock_client.circuit_status.return_value = {
             "opened": True,
             "error_count": 5,
             "max_errors": 5,
             "opened_at": datetime.now(timezone.utc).isoformat(),
             "retry_after_seconds": 60,
         }
-        
-        mock_client = MagicMock()
-        mock_client.circuit = fake_cb
-        mock_client.config.circuit_max_errors = 5
-        mock_client.config.circuit_cooldown_seconds = 60
         mock_get_client.return_value = mock_client
 
         # Mock scheduler results path not existing to isolate test
@@ -90,19 +84,30 @@ class MistockMonitorTests(unittest.TestCase):
     def test_run_cycle_healthy_when_no_errors(self, mock_slack, mock_get_client, mock_open):
         mistock_config.trading_env = "demo"
         
-        # Healthy CB Status
-        fake_cb = MagicMock()
-        fake_cb.status.return_value = {"opened": False}
         mock_client = MagicMock()
-        mock_client.circuit = fake_cb
-        mock_client.config.circuit_max_errors = 5
-        mock_client.config.circuit_cooldown_seconds = 60
+        mock_client.circuit_status.return_value = {"opened": False}
         mock_get_client.return_value = mock_client
 
         with patch("src.mistock.monitor.Path.exists", return_value=False):
             result = monitor.run_monitoring_cycle()
 
         self.assertEqual(result["status"], "healthy")
+        mock_slack.assert_not_called()
+
+    @patch("src.mistock.monitor.is_us_market_open", return_value=True)
+    @patch("src.mistock.trader._get_broker_client")
+    @patch("src.mistock.monitor.send_mistock_slack")
+    def test_run_cycle_uses_adapter_circuit_status(self, mock_slack, mock_get_client, mock_open):
+        mistock_config.trading_env = "demo"
+        mock_client = MagicMock()
+        mock_client.circuit_status.return_value = {"opened": False}
+        mock_get_client.return_value = mock_client
+
+        with patch("src.mistock.monitor.Path.exists", return_value=False):
+            result = monitor.run_monitoring_cycle()
+
+        self.assertEqual(result["status"], "healthy")
+        mock_client.circuit_status.assert_called_once_with()
         mock_slack.assert_not_called()
 
 

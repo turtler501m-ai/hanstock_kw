@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from typing import Any, Callable, Mapping
 
 from src.broker.kiwoom_client import KiwoomRestClient
@@ -109,10 +110,18 @@ class KiwoomUSStockAdapter:
 
     @staticmethod
     def _price(value: float) -> str:
-        price = float(value)
-        if price <= 0:
+        try:
+            price = Decimal(str(value))
+        except (InvalidOperation, ValueError) as exc:
+            raise ValueError("price must be a number") from exc
+        if not price.is_finite() or price <= 0:
             raise ValueError("price must be positive")
-        return f"{price:.4f}".rstrip("0").rstrip(".")
+        # Kiwoom US orders accept two decimal places at $1 or above and four
+        # below $1.  Use decimal rounding so binary floats cannot leak extra
+        # digits into ``ord_uv``.
+        tick = Decimal("0.01") if price >= 1 else Decimal("0.0001")
+        rounded = price.quantize(tick, rounding=ROUND_HALF_UP)
+        return format(rounded, "f")
 
     @staticmethod
     def _order_response(payload: Mapping[str, Any]) -> dict[str, Any]:

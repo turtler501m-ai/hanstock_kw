@@ -65,6 +65,12 @@ class KiwoomUSStockAdapterTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "disabled"):
             adapter.place_overseas_order("AAPL", "buy", 190, 1)
 
+    def test_order_price_uses_kiwoom_us_decimal_rules(self):
+        self.assertEqual(KiwoomUSStockAdapter._price(80.125), "80.13")
+        self.assertEqual(KiwoomUSStockAdapter._price(41.494998931884766), "41.49")
+        self.assertEqual(KiwoomUSStockAdapter._price(0.12345), "0.1235")
+        self.assertEqual(KiwoomUSStockAdapter._price(1), "1.00")
+
     def test_order_uses_resolved_exchange_and_rejects_unknown_exchange(self):
         client = Mock()
         client.post.return_value = KiwoomPage(data={"ord_no": "1"})

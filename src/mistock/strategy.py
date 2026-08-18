@@ -84,10 +84,11 @@ def build_scan_universe(api: Any = None) -> list[str]:
         return monitored
 
     # 1순위: 키움 API가 제공되면 해외주식 거래대금 상위 종목을 동적으로 가져온다.
-    if api is not None:
+    get_volume_rank = getattr(api, "get_overseas_volume_rank", None) if api is not None else None
+    if callable(get_volume_rank):
         try:
-            nas_symbols = api.get_overseas_volume_rank(excd="NAS", cnt=50)
-            nys_symbols = api.get_overseas_volume_rank(excd="NYS", cnt=50)
+            nas_symbols = get_volume_rank(excd="NAS", cnt=50)
+            nys_symbols = get_volume_rank(excd="NYS", cnt=50)
             combined = list(dict.fromkeys(nas_symbols + nys_symbols))
             if len(combined) >= 20:
                 logger.info(f"[MISTOCK] 키움 API 해외 거래대금 상위 {len(combined)}종목 동적 수집 완료")

@@ -53,12 +53,15 @@ def run_monitoring_cycle() -> dict:
     try:
         if mistock_config.trading_env in {"demo", "real"}:
             client = mistock_trader._get_broker_client()
-            now_utc = datetime.now(timezone.utc)
-            cb_status = client.circuit.status(
-                now_utc,
-                max_errors=client.config.circuit_max_errors,
-                cooldown_seconds=client.config.circuit_cooldown_seconds
-            )
+            if hasattr(client, "circuit_status"):
+                cb_status = client.circuit_status()
+            else:
+                now_utc = datetime.now(timezone.utc)
+                cb_status = client.circuit.status(
+                    now_utc,
+                    max_errors=client.config.circuit_max_errors,
+                    cooldown_seconds=client.config.circuit_cooldown_seconds,
+                )
             if cb_status.get("opened", False):
                 err_msg = (
                     f"🚨 *[미스톡 경보] 키움 API 서킷 브레이커 오픈 감지!*\n"

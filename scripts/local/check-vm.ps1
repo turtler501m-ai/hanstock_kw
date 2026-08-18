@@ -77,9 +77,9 @@ echo "repo=$REPO_PATH"
 
 echo
 echo "== Server =="
-if [ -x "$REPO_PATH/scripts/vm/server.sh" ]; then
+if [ -f "$REPO_PATH/scripts/vm/server.sh" ]; then
   cd "$REPO_PATH"
-  ./scripts/vm/server.sh status || true
+  bash ./scripts/vm/server.sh status || true
 else
   echo "server script not found: $REPO_PATH/scripts/vm/server.sh"
 fi
@@ -142,7 +142,7 @@ fi
 if [ "__SKIP_MISTOCK__" != "1" ]; then
   echo
   echo "== Mistock Cron =="
-  crontab -l 2>/dev/null | sed -n '/# hanstock-mistock-auto begin/,/# hanstock-mistock-auto end/p' || true
+  crontab -l 2>/dev/null | sed -n '/# hanstock\(-kw\)\?-mistock-auto begin/,/# hanstock\(-kw\)\?-mistock-auto end/p' || true
 
   echo
   echo "== Latest Mistock Auto Log =="
