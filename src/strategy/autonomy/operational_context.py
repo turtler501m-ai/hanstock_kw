@@ -437,9 +437,11 @@ def _classify(values, realized, baseline, breadth):
         return "bear"
     if price < sma60 < sma200 and price > sma20 and r5 > 0:
         return "bear_rally"
-    if abs(price / sma60 - 1) <= .05:
-        return "sideways_high_vol" if ratio >= 1.3 else "sideways_low_vol"
-    return "unknown"
+    # All inputs above are validated and provide a complete 200-session
+    # history. A market that does not match a directional regime is still a
+    # valid sideways regime; returning ``unknown`` here permanently blocks the
+    # risk envelope despite having sufficient quantitative evidence.
+    return "sideways_high_vol" if ratio >= 1.3 else "sideways_low_vol"
 
 
 def _aware(value, name):

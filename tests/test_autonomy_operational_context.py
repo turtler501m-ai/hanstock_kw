@@ -8,6 +8,7 @@ from src.broker.models import AccountBalance, Holding
 from src.strategy.autonomy.operational_context import (
     OperationalSnapshot,
     OperationalSnapshotProvider,
+    _classify,
     assemble_operational_run_once,
 )
 from src.strategy.autonomy.runtime import RuntimeConfigurationError
@@ -237,6 +238,16 @@ class OperationalContextTest(unittest.TestCase):
             account_id="acct", kill_switch_reader=broken,
         )
         self.assertTrue(provider.snapshot("KR", "s1").account["kill_switch_active"])
+
+
+class MarketRegimeClassificationTests(unittest.TestCase):
+    def test_sufficient_non_directional_evidence_falls_back_to_sideways(self):
+        values = [100.0 + index for index in range(200)]
+
+        self.assertEqual(
+            _classify(values, realized=0.2, baseline=0.2, breadth=0.1),
+            "sideways_low_vol",
+        )
 
 
 if __name__ == "__main__":
