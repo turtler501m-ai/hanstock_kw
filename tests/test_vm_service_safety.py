@@ -8,7 +8,10 @@ ROOT = Path(__file__).resolve().parents[1]
 class VmServiceSafetyTest(unittest.TestCase):
     def test_vm_units_use_hanstock_kw_repo_path(self):
         expected_root = "/home/ubuntu/hanstock_kw"
-        for unit_name in ("hanstock-kw.service",):
+        for unit_name in (
+            "hanstock-kw.service",
+            "hanstock-kw-condition-monitor.service",
+        ):
             unit = (ROOT / "scripts/vm" / unit_name).read_text(encoding="utf-8")
             self.assertIn(f"WorkingDirectory={expected_root}", unit)
             self.assertIn(f"EnvironmentFile={expected_root}/.env", unit)
@@ -41,7 +44,10 @@ class VmServiceSafetyTest(unittest.TestCase):
         self.assertIn('bash "$ROOT_DIR/scripts/vm/server.sh" restart', update_script)
         self.assertIn('mkdir -p "$ROOT_DIR/logs" "$ROOT_DIR/.runtime"', update_script)
         self.assertNotIn('scripts/vm/hanstock-autonomy.service', update_script)
-        self.assertNotIn('scripts/vm/hanstock-condition-monitor.service', update_script)
+        self.assertIn('scripts/vm/hanstock-kw-condition-monitor.service', update_script)
+        self.assertNotIn(
+            '/etc/systemd/system/hanstock-condition-monitor.service', update_script
+        )
 
     def test_dashboard_systemd_listens_on_public_interface(self):
         server_script = (ROOT / "scripts/vm/server.sh").read_text(encoding="utf-8")
@@ -65,6 +71,10 @@ class VmServiceSafetyTest(unittest.TestCase):
         )
         self.assertLess(install_position, reload_position)
         self.assertLess(reload_position, restart_position)
+
+    def test_deploy_verifies_database_isolation(self):
+        update_script = (ROOT / "scripts/vm/update.sh").read_text(encoding="utf-8")
+        self.assertIn("tools/verify-instance-isolation.py", update_script)
 
     def test_local_vm_dashboard_uses_loopback_tunnel(self):
         tunnel_script = (ROOT / "scripts/local/vm-dashboard.ps1").read_text(

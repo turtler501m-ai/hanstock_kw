@@ -36,15 +36,24 @@ echo "[update] installing requirements"
 
 mkdir -p "$ROOT_DIR/logs" "$ROOT_DIR/.runtime"
 
-echo "[update] syncing Kiwoom dashboard systemd unit"
+echo "[update] verifying Kiwoom database isolation"
+"$PYTHON" "$ROOT_DIR/tools/verify-instance-isolation.py" --root "$ROOT_DIR"
+
+echo "[update] syncing Kiwoom systemd units"
 sudo install -m 0644 \
     "$ROOT_DIR/scripts/vm/hanstock-kw.service" \
     /etc/systemd/system/hanstock-kw.service
+sudo install -m 0644 \
+    "$ROOT_DIR/scripts/vm/hanstock-kw-condition-monitor.service" \
+    /etc/systemd/system/hanstock-kw-condition-monitor.service
 sudo systemctl daemon-reload
 sudo systemctl enable hanstock-kw.service
+sudo systemctl enable hanstock-kw-condition-monitor.service
 
 echo "[update] restarting dashboard"
 bash "$ROOT_DIR/scripts/vm/server.sh" restart
 bash "$ROOT_DIR/scripts/vm/server.sh" status
+sudo systemctl restart hanstock-kw-condition-monitor.service
+sudo systemctl status hanstock-kw-condition-monitor.service --no-pager
 
 echo "[update] done"

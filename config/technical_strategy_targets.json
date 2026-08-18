@@ -34,7 +34,7 @@
       "objects": ["run_condition_monitor_cycle", "run_forever", "condition_monitor_status"],
       "paths": [
         "src/condition_monitor_service.py",
-        "scripts/vm/hanstock-condition-monitor.service",
+        "scripts/vm/hanstock-kw-condition-monitor.service",
         "scripts/vm/update.sh"
       ]
     },
