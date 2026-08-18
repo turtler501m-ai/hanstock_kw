@@ -1,5 +1,6 @@
 import json
 import unittest
+from types import MappingProxyType
 from datetime import datetime, timedelta, timezone
 from unittest.mock import Mock, patch
 
@@ -102,6 +103,26 @@ def contexts():
 
 
 class AutonomousAIAdapterTests(unittest.TestCase):
+    def test_candidate_scan_serializes_immutable_runtime_snapshots(self):
+        provider = FakeProvider([payload()])
+        adapter = AutonomousAIAdapter(
+            strategy_id="s1", strategy_version=7, profile_hash="hash-7",
+            provider=provider,
+        )
+        market, portfolio = contexts()
+        immutable_market = type(market)(
+            market.market,
+            market.regime,
+            market.data_as_of,
+            market.evaluated_at,
+            market.snapshot_id,
+            MappingProxyType(dict(market.features)),
+        )
+
+        intents = adapter.scan(immutable_market, portfolio)
+
+        self.assertEqual(len(intents), 1)
+
     def test_candidate_scan_produces_valid_complete_intent(self):
         provider = FakeProvider([payload()])
         adapter = AutonomousAIAdapter(

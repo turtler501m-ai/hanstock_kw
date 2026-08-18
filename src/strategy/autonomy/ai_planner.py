@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import json
 import hashlib
-from dataclasses import asdict, dataclass, is_dataclass
+from dataclasses import dataclass, fields, is_dataclass
 from datetime import datetime, timedelta
 from enum import Enum
 from typing import Any, Mapping, Protocol, Sequence
@@ -514,7 +514,12 @@ def _find_output_text(body: Mapping[str, Any]) -> str | None:
 
 def _json_safe(value: Any) -> Any:
     if is_dataclass(value):
-        return _json_safe(asdict(value))
+        # ``dataclasses.asdict`` deep-copies every value and fails for the
+        # immutable ``mappingproxy`` objects used by runtime snapshots.
+        return {
+            field.name: _json_safe(getattr(value, field.name))
+            for field in fields(value)
+        }
     if isinstance(value, datetime):
         return value.isoformat()
     if isinstance(value, Enum):
