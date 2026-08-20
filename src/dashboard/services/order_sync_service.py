@@ -97,7 +97,7 @@ def _sync_filled_trades_from_history(
                     _to_int(stored.get("filled_qty")),
                     _to_int(stored.get("filled_price")),
                 )
-                requested_qty = _to_int(stored.get("qty"))
+                requested_qty = _history_requested_qty(row) or _to_int(stored.get("qty"))
                 filled_qty = _to_int(trade.get("filled_qty"))
                 remaining_qty = _history_remaining_qty(row)
                 if _history_order_is_canceled(row):

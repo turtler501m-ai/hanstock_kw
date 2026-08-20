@@ -1732,6 +1732,46 @@ class DashboardCoreTests(unittest.TestCase):
             dashboard.trader.config.trade_db_path = original_db_path
             dashboard.fetch_cloud_trades = original_fetch_cloud_trades
 
+    def test_broker_sync_imports_native_kiwoom_fields_and_open_orders(self):
+        original_db_path = dashboard.trader.config.trade_db_path
+        original_fetch_cloud_trades = dashboard.fetch_cloud_trades
+
+        class _FakeAPI:
+            def get_trade_history(self, start_date, end_date):
+                return [{
+                    "ord_no": "K12345", "stk_cd": "A005930", "stk_nm": "Samsung",
+                    "io_tp_nm": "매수", "ord_dt": "20260820", "ord_tm": "091530",
+                    "ord_qty": "10", "cntr_qty": "4", "oso_qty": "6", "avg_prc": "70100",
+                }, {
+                    "ord_no": "K12346", "stk_cd": "A000660", "stk_nm": "SK Hynix",
+                    "io_tp_nm": "매도", "ord_dt": "20260820", "ord_tm": "091600",
+                    "ord_qty": "2", "cntr_qty": "0", "oso_qty": "2", "avg_prc": "0",
+                }]
+
+        try:
+            with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+                dashboard.trader.config.trade_db_path = f"{tmpdir}/trades.sqlite"
+                dashboard.fetch_cloud_trades = lambda: []
+                result = dashboard._sync_filled_trades_from_history(_FakeAPI(), days=30)
+                with dashboard.trader.connect_db() as conn:
+                    conn.row_factory = sqlite3.Row
+                    rows = conn.execute("SELECT * FROM trades ORDER BY broker_order_id").fetchall()
+
+                self.assertEqual(result["imported_count"], 2)
+                self.assertEqual(rows[0]["symbol"], "005930")
+                self.assertEqual(rows[0]["action"], "buy")
+                self.assertEqual(rows[0]["qty"], 10)
+                self.assertEqual(rows[0]["filled_qty"], 4)
+                self.assertEqual(rows[0]["filled_price"], 70100)
+                self.assertEqual(rows[0]["order_status"], "partial")
+                self.assertEqual(rows[0]["ts"], "2026-08-20 09:15:30")
+                self.assertEqual(rows[1]["action"], "sell")
+                self.assertEqual(rows[1]["order_status"], "open")
+                self.assertEqual(rows[1]["filled_qty"], 0)
+        finally:
+            dashboard.trader.config.trade_db_path = original_db_path
+            dashboard.fetch_cloud_trades = original_fetch_cloud_trades
+
     def test_balance_sync_adjustment_is_reconciled_not_submitted(self):
         import src.dashboard.routes.stock as stock_routes
 

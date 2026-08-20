@@ -42,6 +42,7 @@ from src.dashboard.services.order_history_service import (
     _history_order_is_canceled,
     _history_order_is_rejected,
     _history_remaining_qty,
+    _history_requested_qty,
     _history_row_to_trade,
     _history_symbol,
     _history_text,
