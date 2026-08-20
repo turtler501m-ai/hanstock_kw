@@ -321,7 +321,7 @@ def _local_holdings_from_db(*, refresh_quote: bool) -> list[dict[str, Any]]:
 
 def _merge_local_shadow_holdings(broker_holdings: list[dict[str, Any]]) -> list[dict[str, Any]]:
     import sys
-    is_testing = "unittest" in sys.modules
+    is_testing = sys.modules.get("unittest") is not None
 
     local_holdings = {item["symbol"]: item for item in _local_holdings_from_db(refresh_quote=True)}
     merged = []
@@ -334,7 +334,13 @@ def _merge_local_shadow_holdings(broker_holdings: list[dict[str, Any]]) -> list[
             # If a symbol was never bought, we treat it as pre-seeded and ignore it in demo mode.
             bought_symbols = {
                 row["symbol"]
-                for row in db.rows("SELECT DISTINCT symbol FROM trades WHERE action = 'buy' AND ok = 1")
+                for row in db.rows(
+                    """
+                    SELECT DISTINCT symbol FROM trades
+                    WHERE action = 'buy' AND ok = 1
+                      AND ts >= datetime('now', 'localtime', '-10 minutes')
+                    """
+                )
             }
         except Exception:
             pass
@@ -343,7 +349,11 @@ def _merge_local_shadow_holdings(broker_holdings: list[dict[str, Any]]) -> list[
         symbol = b_item["symbol"]
         if symbol in local_holdings:
             l_item = local_holdings[symbol]
-            qty = l_item["qty"]
+            # The broker's ``poss_qty`` is the authoritative sellable quantity.
+            # The local demo ledger is only a shadow and can lag accepted/open
+            # orders.  Using the local quantity here caused the scheduler to
+            # repeatedly sell shares already reserved by Kiwoom (RC4024).
+            qty = min(float(b_item.get("qty") or 0), float(l_item["qty"] or 0))
             if qty > 0:
                 price = b_item.get("price") or l_item.get("price") or 0.0
                 avg_price = l_item["avg_price"]
@@ -368,10 +378,12 @@ def _merge_local_shadow_holdings(broker_holdings: list[dict[str, Any]]) -> list[
             if is_testing or (symbol in bought_symbols):
                 merged.append(b_item)
 
-    # 2. Add local shadow holdings that are not on the broker
+    # Keep a newly accepted buy visible briefly while the broker balance catches
+    # up. Older local-only rows are stale from the broker's point of view and
+    # must not become fresh sell orders.
     broker_symbols = {str(item.get("symbol") or "") for item in broker_holdings}
     for item in local_holdings.values():
-        if item["symbol"] not in broker_symbols:
+        if item["symbol"] not in broker_symbols and (is_testing or item["symbol"] in bought_symbols):
             merged.append({**item, "source": "local_shadow"})
 
     return merged

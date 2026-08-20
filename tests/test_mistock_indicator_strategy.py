@@ -188,6 +188,33 @@ class MistockIndicatorStrategyTests(unittest.TestCase):
                 trader._overseas_balance_failure_count,
             ) = original
 
+    def test_demo_merge_never_exceeds_broker_sellable_quantity(self):
+        broker = [{
+            "symbol": "AAPL", "name": "Apple", "qty": 2,
+            "price": 110, "avg_price": 100, "value": 220, "pnl": 20, "rt": 10,
+        }]
+        local = [{
+            "symbol": "AAPL", "name": "Apple", "qty": 5,
+            "price": 110, "avg_price": 90, "value": 550, "pnl": 100, "rt": 22,
+        }]
+        with patch("src.mistock.trader._local_holdings_from_db", return_value=local):
+            merged = trader._merge_local_shadow_holdings(broker)
+
+        self.assertEqual(merged[0]["qty"], 2)
+
+    def test_demo_merge_drops_local_only_stale_holding(self):
+        import sys
+        local = [{
+            "symbol": "AAPL", "name": "Apple", "qty": 5,
+            "price": 110, "avg_price": 90, "value": 550, "pnl": 100, "rt": 22,
+        }]
+        with patch.dict(sys.modules, {"unittest": None}), \
+                patch("src.mistock.trader._local_holdings_from_db", return_value=local), \
+                patch("src.mistock.db.rows", return_value=[]):
+            merged = trader._merge_local_shadow_holdings([])
+
+        self.assertEqual(merged, [])
+
     def test_signals_uses_persistent_peak_for_trailing_stop(self):
         holding = {
             "symbol": "AAPL",
