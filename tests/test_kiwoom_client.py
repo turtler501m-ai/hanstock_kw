@@ -87,6 +87,31 @@ class KiwoomRestClientTests(unittest.TestCase):
             self.client().post("api/test", api_id="ka-test")
         self.assertNotIn("very-secret", str(caught.exception))
 
+    def test_query_reauthenticates_once_when_broker_invalidates_cached_token(self):
+        self.session.post.side_effect = [
+            response({"token": "OLD", "expires_in": 3600}),
+            response({"return_code": 8005, "return_msg": "인증에 실패했습니다[8005:Token이 유효하지 않습니다]"}),
+            response({"token": "NEW", "expires_in": 3600}),
+            response({"price": "10"}),
+        ]
+
+        page = self.client().post("api/test", api_id="ka-test")
+
+        self.assertEqual(page.data["price"], "10")
+        self.assertEqual(self.session.post.call_args_list[1].kwargs["headers"]["authorization"], "Bearer OLD")
+        self.assertEqual(self.session.post.call_args_list[3].kwargs["headers"]["authorization"], "Bearer NEW")
+
+    def test_order_does_not_retry_after_invalid_token_response(self):
+        self.session.post.side_effect = [
+            response({"token": "OLD", "expires_in": 3600}),
+            response({"return_code": 8005, "return_msg": "8005:Token이 유효하지 않습니다"}),
+        ]
+
+        with self.assertRaisesRegex(KiwoomApiError, "8005"):
+            self.client().post("api/order", api_id="kt10000", request_kind="order")
+
+        self.assertEqual(self.session.post.call_count, 2)
+
 
 class RequestThrottleTests(unittest.TestCase):
     def test_waits_per_lane(self):

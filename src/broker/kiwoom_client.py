@@ -121,6 +121,26 @@ class KiwoomRestClient:
             self._shared_tokens[cache_key] = (self._access_token, self._token_expires_at)
         return token
 
+    def _invalidate_access_token(self) -> None:
+        self._access_token = ""
+        self._token_expires_at = None
+        with self._shared_token_lock:
+            self._shared_tokens.pop(self._token_cache_key(), None)
+
+    @staticmethod
+    def _is_invalid_token_response(response: Any) -> bool:
+        status_code = getattr(response, "status_code", None)
+        if isinstance(status_code, int) and status_code in {401, 403}:
+            return True
+        try:
+            payload = response.json()
+        except (ValueError, requests.RequestException):
+            return False
+        if not isinstance(payload, Mapping):
+            return False
+        message = str(payload.get("return_msg") or "").lower()
+        return "8005" in message or ("token" in message and "유효하지" in message)
+
     def post(
         self,
         path: str,
@@ -134,16 +154,28 @@ class KiwoomRestClient:
             raise ValueError("request_kind must be 'query' or 'order'")
         lane = f"mock:{api_id}" if self.environment == "mock" else f"live:{request_kind}"
         self._throttle.wait(lane, 1.0 if self.environment == "mock" else 0.2)
-        headers = {
-            "authorization": f"Bearer {self.get_access_token()}",
-            "api-id": api_id,
-            "content-type": "application/json;charset=UTF-8",
-        }
-        if continuation:
-            headers["cont-yn"], headers["next-key"] = continuation
-        response = self._session.post(
-            f"{self.base_url}/{path.lstrip('/')}", json=dict(body or {}), headers=headers, timeout=self.timeout
-        )
+        response = None
+        # Query requests are safe to repeat. If Kiwoom invalidates a token
+        # before its documented expiry, discard both local and shared caches,
+        # obtain a fresh token, and retry once. Orders are never retried here
+        # because an ambiguous response could otherwise duplicate an order.
+        attempts = 2 if request_kind == "query" else 1
+        for attempt in range(attempts):
+            headers = {
+                "authorization": f"Bearer {self.get_access_token()}",
+                "api-id": api_id,
+                "content-type": "application/json;charset=UTF-8",
+            }
+            if continuation:
+                headers["cont-yn"], headers["next-key"] = continuation
+            response = self._session.post(
+                f"{self.base_url}/{path.lstrip('/')}", json=dict(body or {}), headers=headers, timeout=self.timeout
+            )
+            if attempt == 0 and self._is_invalid_token_response(response):
+                self._invalidate_access_token()
+                continue
+            break
+        assert response is not None
         payload = self._decode_response(response, api_id)
         return KiwoomPage(
             data=payload,
