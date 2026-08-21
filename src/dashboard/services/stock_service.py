@@ -130,12 +130,12 @@ class DashboardStockService:
         if optimizer == "score_tilted_inverse_vol":
             orders = trader.build_orders(
                 candidates, quote_with_scan_fallback,
-                len(parsed["holdings"]), parsed["cash"],
+                len(parsed["holdings"]), parsed.get("orderable_cash", parsed["cash"]),
             )
         else:
             orders = trader.build_orders(
                 candidates, quote_with_scan_fallback,
-                len(parsed["holdings"]), parsed["cash"], optimizer=optimizer,
+                len(parsed["holdings"]), parsed.get("orderable_cash", parsed["cash"]), optimizer=optimizer,
             )
             
         order_by_ticker = {order["ticker"]: order for order in orders}
@@ -207,7 +207,7 @@ class DashboardStockService:
             "mode": "dashboard",
             "strategy_id": strategy_id or "seven_split",
             "plan": runtime_bundle["plan"],
-            "cash": parsed_balance["cash"],
+            "cash": parsed_balance.get("orderable_cash", parsed_balance["cash"]),
             "remaining_cash": runtime_bundle["remaining_cash"],
             "total_eval": parsed_balance["total_eval"],
             "pnl": parsed_balance["pnl"],

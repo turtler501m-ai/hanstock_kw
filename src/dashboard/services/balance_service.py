@@ -100,6 +100,7 @@ def parse_balance(balance_data: dict) -> dict:
     if cash == 0 and summary_total > 0:
         cash = summary_total - summary_stock_eval
     totals = portfolio_totals(cash, summary_total, holdings)
+    orderable_cash = to_int(first_summary.get("ord_psbl_cash")) or cash
     previous_stock_eval = 0.0
     daily_change_amount = 0.0
     for holding in holdings:
@@ -110,6 +111,7 @@ def parse_balance(balance_data: dict) -> dict:
         daily_change_amount += value - previous_value
     return {
         "cash": cash,
+        "orderable_cash": orderable_cash,
         "total_eval": totals["total_eval"],
         "broker_total_eval": totals["broker_total_eval"],
         "calculated_total_eval": totals["calculated_total_eval"],

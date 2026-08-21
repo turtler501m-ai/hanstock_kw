@@ -39,6 +39,7 @@ class Holding:
 class AccountBalance:
     holdings: tuple[Holding, ...] = ()
     cash: float = 0.0
+    orderable_cash: float = 0.0
     total_equity: float = 0.0
     stock_value: float = 0.0
     profit_loss: float = 0.0

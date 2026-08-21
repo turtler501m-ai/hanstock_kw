@@ -1085,6 +1085,7 @@ function renderHoldingAccountSummary(balance, displayTotal, realizedPnl = 0) {
     }
     const stockEval = Number(balance.stock_eval || 0);
     const cash = Number(balance.cash || 0);
+    const orderableCash = Number(balance.orderable_cash ?? cash);
     const pnl = Number(balance.pnl || 0);
     const cashRatio = typeof balance.cash_ratio === 'number'
         ? balance.cash_ratio
@@ -1111,7 +1112,7 @@ function renderHoldingAccountSummary(balance, displayTotal, realizedPnl = 0) {
         <div>
             <span>예수금</span>
             <strong>${formatCurrency(cash)}</strong>
-            <small>비중 ${formatNumber(cashRatio * 100, 1)}%</small>
+            <small>비중 ${formatNumber(cashRatio * 100, 1)}% · 주문가능 ${formatCurrency(orderableCash)}</small>
         </div>
         <div>
             <span>평가손익</span>

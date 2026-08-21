@@ -104,7 +104,9 @@ class KiwoomBrokerAdapter:
             ))
         holdings = tuple(self._holding(row) for row in holding_rows)
         orderable_cash = _number(_first(deposit, "ord_alow_amt", "entr", "cash", "dnca_tot_amt"))
-        stock_value = _number(_first(balance, "tot_evlt_amt", "tot_evlu_amt", "stock_value"))
+        summary_stock_value = _number(_first(balance, "tot_evlt_amt", "tot_evlu_amt", "stock_value"))
+        holding_stock_value = sum(row.market_value for row in holdings)
+        stock_value = holding_stock_value if holdings else summary_stock_value
         # kt00018 names the estimated deposit assets field differently from
         # the legacy dictionary-shaped response consumed by the dashboard.
         total_equity = _number(_first(
@@ -127,6 +129,7 @@ class KiwoomBrokerAdapter:
         return AccountBalance(
             holdings=holdings,
             cash=cash,
+            orderable_cash=orderable_cash,
             total_equity=total_equity,
             stock_value=stock_value,
             profit_loss=_number(_first(balance, "tot_evlt_pl", "tot_pl_amt", "profit_loss")),
@@ -358,6 +361,7 @@ class KiwoomBrokerAdapter:
             } for row in balance.holdings],
             "output2": [{
                 "prvs_rcdl_excc_amt": integer_text(balance.cash), "dnca_tot_amt": integer_text(balance.cash),
+                "ord_psbl_cash": integer_text(balance.orderable_cash),
                 "tot_evlu_amt": integer_text(balance.total_equity), "scts_evlu_amt": integer_text(balance.stock_value),
                 "evlu_pfls_smtl_amt": integer_text(balance.profit_loss),
             }],

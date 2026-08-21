@@ -72,9 +72,10 @@ class KiwoomBrokerAdapterTests(unittest.TestCase):
 
     def test_balance_combines_kt00018_and_kt00001(self):
         result = self.adapter.fetch_balance()
-        self.assertEqual(result.cash, 500000)
+        self.assertEqual(result.cash, 1000000)
+        self.assertEqual(result.orderable_cash, 480000)
         self.assertEqual(result.total_equity, 1710000)
-        self.assertEqual(result.stock_value, 1210000)
+        self.assertEqual(result.stock_value, 710000)
         self.assertEqual(result.profit_loss, -40000)
         holding = result.holdings[0]
         self.assertEqual(holding.symbol, "005930")
@@ -107,6 +108,7 @@ class KiwoomBrokerAdapterTests(unittest.TestCase):
         result = self.adapter.fetch_balance()
         self.assertEqual(result.total_equity, 2345678)
         self.assertEqual(result.cash, 2000000)
+        self.assertEqual(result.orderable_cash, 2000000)
         self.assertEqual(result.stock_value, 345678)
 
     def test_balance_merges_all_kiwoom_holding_pages(self):
