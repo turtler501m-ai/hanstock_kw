@@ -41,6 +41,17 @@ class FakeKiwoomClient:
             return [FakePage({"stk_dt_pole_chart_qry": [{"dt": "20260814", "open_pric": "+70,000", "high_pric": "72,000", "low_pric": "-69,500", "cur_prc": "+71,000", "trde_qty": "12,345"}]})]
         if api_id == "ka10030":
             return [FakePage({"trde_qty_upper": [{"stk_cd": "A005930"}]}), FakePage({"trde_qty_upper": [{"stk_cd": "000660"}, {"stk_cd": ""}]})]
+        if api_id == "ka20006":
+            return [FakePage({"inds_dt_pole_qry": [
+                {
+                    "dt": "20260821", "open_pric": "675995", "high_pric": "683304",
+                    "low_pric": "674244", "cur_prc": "678499", "trde_qty": "83,860",
+                },
+                {
+                    "dt": "20260820", "open_pric": "668034", "high_pric": "690455",
+                    "low_pric": "660009", "cur_prc": "685258", "trde_qty": "304,468",
+                },
+            ]})]
         raise AssertionError(api_id)
 
 
@@ -108,6 +119,16 @@ class KiwoomBrokerAdapterTests(unittest.TestCase):
         self.assertEqual(self.client.last_pages[0:2], ("/api/dostk/rkinfo", "ka10030"))
         self.assertEqual(self.client.last_pages[2]["stex_tp"], "1")
         self.assertEqual(result, ["005930", "000660"])
+
+    def test_index_daily_uses_ka20006_response_key_and_decimal_scale(self):
+        result = self.adapter.get_index_daily("0001", n=2)
+
+        self.assertEqual(self.client.last_pages[0:2], ("/api/dostk/chart", "ka20006"))
+        self.assertEqual(self.client.last_pages[2]["inds_cd"], "001")
+        self.assertEqual(result[0]["date"], "20260821")
+        self.assertEqual(result[0]["close"], 6784.99)
+        self.assertEqual(result[0]["low"], 6742.44)
+        self.assertEqual(result[0]["volume"], 83860)
 
     def test_malformed_numbers_are_zero(self):
         self.client.post = lambda *args, **kwargs: FakePage({"cur_prc": "--", "sel_fpr_bid": None})

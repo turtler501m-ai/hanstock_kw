@@ -360,14 +360,23 @@ class KiwoomBrokerAdapter:
         rows = [
             row
             for page in pages
-            for row in _rows(_data(page), "inds_dt_pole_chart_qry", "output", "output1", "bars")
+            for row in _rows(
+                _data(page),
+                # ka20006 names the response array differently from ka10081.
+                "inds_dt_pole_qry",
+                "inds_dt_pole_chart_qry",
+                "output",
+                "output1",
+                "bars",
+            )
         ]
+        index_price = lambda value: _price(value) / 100.0
         return [{
             "date": str(_first(row, "dt", "date")),
-            "open": _price(_first(row, "open_pric", "open")),
-            "high": _price(_first(row, "high_pric", "high")),
-            "low": _price(_first(row, "low_pric", "low")),
-            "close": _price(_first(row, "cur_prc", "close")),
+            "open": index_price(_first(row, "open_pric", "open")),
+            "high": index_price(_first(row, "high_pric", "high")),
+            "low": index_price(_first(row, "low_pric", "low")),
+            "close": index_price(_first(row, "cur_prc", "close")),
             "volume": _number(_first(row, "trde_qty", "volume")),
         } for row in rows[: max(0, n)]]
 
