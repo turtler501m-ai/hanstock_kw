@@ -1,9 +1,49 @@
 import unittest
+import tempfile
+from unittest.mock import patch
 
-from src.dashboard.routes.account import _summarize_holding_strategies
+from src import trader
+from src.dashboard.routes.account import _attach_holding_strategies, _summarize_holding_strategies
+from src.dashboard.routes.stock_order import (
+    _allocate_strategy_reconciliation,
+    _balance_sync_strategy_id,
+)
 
 
 class HoldingStrategySummaryTests(unittest.TestCase):
+    def test_balance_sync_without_owner_uses_broker_baseline(self):
+        self.assertEqual(
+            _allocate_strategy_reconciliation(7, {}, action="buy"),
+            [("broker_account_baseline", 7)],
+        )
+        self.assertEqual(
+            _balance_sync_strategy_id({"reason": "증권사 잔고 전략귀속 동기화"}),
+            "broker_account_baseline",
+        )
+        self.assertEqual(_balance_sync_strategy_id({"reason": "manual buy"}), "")
+
+    def test_legacy_balance_sync_is_attached_as_broker_baseline(self):
+        original_path = trader.config.trade_db_path
+        try:
+            with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+                trader.config.trade_db_path = f"{tmpdir}/trades.sqlite"
+                trader.init_db()
+                trader.save_trade(
+                    "005930", "Samsung", "buy", 2, 80000,
+                    "증권사 잔고 전략귀속 동기화", True, False,
+                    order_status="reconciled", filled_qty=2, filled_price=80000,
+                )
+                parsed = {"holdings": [{
+                    "symbol": "005930", "qty": 2, "value": 160000, "pnl": 0,
+                }]}
+                with patch("src.db.repository.load_ai_strategies", return_value=[]):
+                    result = _attach_holding_strategies(parsed)
+
+                self.assertEqual(result["holdings"][0]["strategy_ids"], ["broker_account_baseline"])
+                self.assertEqual(result["holding_summary"]["attribution_coverage"], 100.0)
+        finally:
+            trader.config.trade_db_path = original_path
+
     def test_strategy_quantities_are_scaled_to_broker_quantity(self):
         parsed = {
             "holdings": [{

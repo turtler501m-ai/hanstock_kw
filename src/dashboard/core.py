@@ -1959,6 +1959,7 @@ def _strategy_label(strategy_id: str) -> str:
         "plunge_bounce_strategy": "급락 반등",
         "issue_sector_rotation_strategy": "이슈 섹터 순환",
         "heikin_ashi_scalping_strategy": "하이킨아시 스캘핑",
+        "broker_account_baseline": "증권사 동기화 기존 보유",
     }
     return defaults.get(strategy_id, strategy_id)
 

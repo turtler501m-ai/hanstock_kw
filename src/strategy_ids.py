@@ -9,6 +9,7 @@ ISOLATED_STOCK_STRATEGY_IDS = frozenset(
 INDEPENDENT_STOCK_SCHEDULE_IDS = ISOLATED_STOCK_STRATEGY_IDS
 AI_STOCK_SCHEDULE_ID = "ai_stock_default_v1"
 AI_REBALANCE_STRATEGY_ID = "ai_rebalance"
+BROKER_BASELINE_STRATEGY_ID = "broker_account_baseline"
 
 
 def resolve_ai_schedule_strategy_ids(

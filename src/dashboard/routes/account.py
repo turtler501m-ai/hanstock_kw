@@ -184,25 +184,40 @@ def _attach_holding_strategies(parsed: dict) -> dict:
         if item.get("id")
     }
     names.setdefault("ai_rebalance", "AI 리밸런싱")
+    from src.strategy_ids import BROKER_BASELINE_STRATEGY_ID
+
+    names.setdefault(BROKER_BASELINE_STRATEGY_ID, "증권사 동기화 기존 보유")
     ownership: dict[str, list[dict]] = {}
     with trader.connect_db() as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
             """
-            SELECT symbol, strategy_id,
+            SELECT symbol,
+                   CASE
+                     WHEN COALESCE(strategy_id, '') <> '' THEN strategy_id
+                     WHEN reason = '증권사 잔고 전략귀속 동기화' THEN ?
+                     ELSE ''
+                   END AS resolved_strategy_id,
                    SUM(CASE WHEN action = 'buy' THEN qty WHEN action = 'sell' THEN -qty ELSE 0 END) AS net_qty
             FROM trades
             WHERE ok = 1
-              AND COALESCE(strategy_id, '') <> ''
+              AND (
+                    COALESCE(strategy_id, '') <> ''
+                    OR reason = '증권사 잔고 전략귀속 동기화'
+                  )
               AND (? = '' OR env = ?)
-            GROUP BY symbol, strategy_id
+            GROUP BY symbol, resolved_strategy_id
             HAVING net_qty > 0
-            ORDER BY net_qty DESC, strategy_id
+            ORDER BY net_qty DESC, resolved_strategy_id
             """,
-            (str(trader.runtime_flags().trading_env or ""), str(trader.runtime_flags().trading_env or "")),
+            (
+                BROKER_BASELINE_STRATEGY_ID,
+                str(trader.runtime_flags().trading_env or ""),
+                str(trader.runtime_flags().trading_env or ""),
+            ),
         ).fetchall()
     for row in rows:
-        sid = str(row["strategy_id"])
+        sid = str(row["resolved_strategy_id"])
         ownership.setdefault(str(row["symbol"]), []).append({
             "id": sid,
             "name": names.get(sid, sid),

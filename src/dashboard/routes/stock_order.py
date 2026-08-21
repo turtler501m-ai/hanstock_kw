@@ -48,6 +48,17 @@ _trade_sync_thread: threading.Thread | None = None
 _ATTRIBUTED_BALANCE_SYNC_REASON = "증권사 잔고 전략귀속 동기화"
 
 
+def _balance_sync_strategy_id(trade: dict) -> str:
+    strategy_id = str(trade.get("strategy_id") or "").strip()
+    if strategy_id:
+        return strategy_id
+    if str(trade.get("reason") or "").strip() == _ATTRIBUTED_BALANCE_SYNC_REASON:
+        from src.strategy_ids import BROKER_BASELINE_STRATEGY_ID
+
+        return BROKER_BASELINE_STRATEGY_ID
+    return ""
+
+
 def _strategy_position_quantities(trades: list[dict]) -> dict[str, dict[str, int]]:
     """Return positive, recorded strategy quantities by symbol."""
     positions: dict[str, dict[str, int]] = {}
@@ -59,7 +70,7 @@ def _strategy_position_quantities(trades: list[dict]) -> dict[str, dict[str, int
     )
     for trade in position_trades:
         symbol = str(trade.get("symbol") or "").strip()
-        strategy_id = str(trade.get("strategy_id") or "").strip()
+        strategy_id = _balance_sync_strategy_id(trade)
         action = str(trade.get("action") or "").strip().lower()
         if not symbol or not strategy_id or action not in {"buy", "sell"}:
             continue
@@ -91,6 +102,10 @@ def _allocate_strategy_reconciliation(
     if qty <= 0:
         return []
     if not owners:
+        if action == "buy":
+            from src.strategy_ids import BROKER_BASELINE_STRATEGY_ID
+
+            return [(BROKER_BASELINE_STRATEGY_ID, qty)]
         return [(None, qty)]
 
     allocatable = min(qty, sum(owner_qty for _, owner_qty in owners)) if action == "sell" else qty
