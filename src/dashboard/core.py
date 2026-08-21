@@ -2039,19 +2039,25 @@ def _load_index_rows() -> dict[str, list[dict]]:
     if time.monotonic() - cached_at < 300:
         return cached_rows
     series: dict[str, list[dict]] = {}
-    try:
-        from src.db.repository import save_daily_charts
+    from src.db.repository import save_daily_charts
 
-        api = _get_api()
-        for name, code in _KIWOOM_INDEX_CODES.items():
-            rows = api.get_index_daily(code, n=120)
-            if rows:
-                save_daily_charts(code, rows)
-                normalized = _safe_index_rows(rows)
-                if normalized:
-                    series[name] = normalized
-    except Exception as exc:
-        logger.info(f"Kiwoom performance benchmark refresh unavailable: {exc}")
+    api = _get_api()
+    for name, code in _KIWOOM_INDEX_CODES.items():
+        rows = []
+        for attempt in range(2):
+            try:
+                rows = api.get_index_daily(code, n=120)
+                break
+            except Exception as exc:
+                if attempt == 0:
+                    time.sleep(0.5)
+                    continue
+                logger.info(f"Kiwoom {name} performance benchmark refresh unavailable: {exc}")
+        if rows:
+            save_daily_charts(code, rows)
+            normalized = _safe_index_rows(rows)
+            if normalized:
+                series[name] = normalized
 
     try:
         from src.db.repository import connect_db

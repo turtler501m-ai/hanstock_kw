@@ -310,7 +310,10 @@ def run_scheduled_cycle(
         run_mode = mode
         execution_categories = allowed_categories
         approval_categories = allowed_categories
-        run_attempts = _env_int("HANSTOCK_SCHEDULER_RETRIES", 1)
+        # Broker balance/deposit queries occasionally fail transiently. Scheduled
+        # strategy cycles are safe to retry because no order is submitted before
+        # the initial account snapshot succeeds.
+        run_attempts = _env_int("HANSTOCK_SCHEDULER_RETRIES", 3)
         retry_delay_seconds = _env_float("HANSTOCK_SCHEDULER_RETRY_DELAY_SECONDS", 5.0)
 
     _slack_cycle_start(mode=mode)

@@ -9,6 +9,7 @@ from src.dashboard import (
     trader,
 )
 from src.dashboard.core import (
+    _load_index_rows,
     _INDEX_SYMBOL_ALIASES,
     _resolved_trade_strategy_id,
     _safe_index_rows,
@@ -38,6 +39,28 @@ class DashboardPeriodicPerformanceTests(unittest.TestCase):
         ])
 
         self.assertEqual(len(rows), 2)
+
+    @patch("src.dashboard.core.time.sleep")
+    @patch("src.dashboard.core._get_api")
+    def test_index_refresh_retries_each_market_without_dropping_the_other(self, get_api, sleep):
+        api = get_api.return_value
+        api.get_index_daily.side_effect = [
+            RuntimeError("temporary KOSPI failure"),
+            [{"date": "2026-08-21", "close": 6784.99}],
+            [{"date": "2026-08-21", "close": 810.81}],
+        ]
+        with patch("src.db.repository.save_daily_charts"):
+            from src.dashboard import core
+            original_cache = core._INDEX_ROWS_CACHE
+            core._INDEX_ROWS_CACHE = (0.0, {})
+            try:
+                result = _load_index_rows()
+            finally:
+                core._INDEX_ROWS_CACHE = original_cache
+
+        self.assertEqual(result["KOSPI"][-1]["close"], 6784.99)
+        self.assertEqual(result["KOSDAQ"][-1]["close"], 810.81)
+        sleep.assert_called_once_with(0.5)
 
     def setUp(self) -> None:
         self.original_dry_run = trader.config.dry_run
