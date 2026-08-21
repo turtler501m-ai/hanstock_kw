@@ -84,24 +84,26 @@ class KiwoomBrokerAdapter:
         self.order_submission_enabled = bool(order_submission_enabled)
 
     def fetch_balance(self) -> AccountBalance:
-        balance_page = self.client.post(
+        balance_pages = self.client.post_all_pages(
             "/api/dostk/acnt", api_id="kt00018", body={"qry_tp": "1", "dmst_stex_tp": "KRX"}
         )
         deposit_page = self.client.post(
             "/api/dostk/acnt", api_id="kt00001", body={"qry_tp": "3"}
         )
-        balance = _data(balance_page)
+        balance = _data(balance_pages[0]) if balance_pages else {}
         deposit = _data(deposit_page)
-        holding_rows = _rows(
-            balance,
-            "acnt_evlt_remn_indv_tot",
-            "acnt_evlt_remn_indv",
-            "output",
-            "output1",
-            "holdings",
-        )
+        holding_rows = []
+        for page in balance_pages:
+            holding_rows.extend(_rows(
+                _data(page),
+                "acnt_evlt_remn_indv_tot",
+                "acnt_evlt_remn_indv",
+                "output",
+                "output1",
+                "holdings",
+            ))
         holdings = tuple(self._holding(row) for row in holding_rows)
-        cash = _number(_first(deposit, "ord_alow_amt", "entr", "cash", "dnca_tot_amt"))
+        orderable_cash = _number(_first(deposit, "ord_alow_amt", "entr", "cash", "dnca_tot_amt"))
         stock_value = _number(_first(balance, "tot_evlt_amt", "tot_evlu_amt", "stock_value"))
         # kt00018 names the estimated deposit assets field differently from
         # the legacy dictionary-shaped response consumed by the dashboard.
@@ -113,7 +115,15 @@ class KiwoomBrokerAdapter:
             "total_equity",
         ))
         if not total_equity:
-            total_equity = cash + stock_value
+            total_equity = orderable_cash + stock_value
+        # ord_alow_amt is buying power, not the cash component of account
+        # equity. Use the broker's own account equation so the dashboard's
+        # cash + stock evaluation always reconciles to estimated assets.
+        cash = (
+            total_equity - stock_value
+            if total_equity > 0 and stock_value >= 0 and total_equity >= stock_value
+            else orderable_cash
+        )
         return AccountBalance(
             holdings=holdings,
             cash=cash,

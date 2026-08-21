@@ -39,6 +39,8 @@ class FakeKiwoomClient:
     def post_all_pages(self, path, *, api_id, body=None, request_kind="query", max_pages=100):
         self.last_pages = (path, api_id, body, request_kind)
         self.page_calls.append(self.last_pages)
+        if api_id == "kt00018":
+            return [self.post(path, api_id=api_id, body=body, request_kind=request_kind)]
         if api_id == "ka10081":
             return [FakePage({"stk_dt_pole_chart_qry": [{"dt": "20260814", "open_pric": "+70,000", "high_pric": "72,000", "low_pric": "-69,500", "cur_prc": "+71,000", "trde_qty": "12,345"}]})]
         if api_id == "ka10030":
@@ -70,7 +72,7 @@ class KiwoomBrokerAdapterTests(unittest.TestCase):
 
     def test_balance_combines_kt00018_and_kt00001(self):
         result = self.adapter.fetch_balance()
-        self.assertEqual(result.cash, 480000)
+        self.assertEqual(result.cash, 500000)
         self.assertEqual(result.total_equity, 1710000)
         self.assertEqual(result.stock_value, 1210000)
         self.assertEqual(result.profit_loss, -40000)
@@ -106,6 +108,27 @@ class KiwoomBrokerAdapterTests(unittest.TestCase):
         self.assertEqual(result.total_equity, 2345678)
         self.assertEqual(result.cash, 2000000)
         self.assertEqual(result.stock_value, 345678)
+
+    def test_balance_merges_all_kiwoom_holding_pages(self):
+        first = FakePage({
+            "prsm_dpst_aset_amt": "1,500,000",
+            "tot_evlt_amt": "1,200,000",
+            "acnt_evlt_remn_indv_tot": [{
+                "stk_cd": "A005930", "stk_nm": "Samsung", "rmnd_qty": "1",
+                "cur_prc": "700,000", "evlt_amt": "700,000",
+            }],
+        })
+        second = FakePage({"acnt_evlt_remn_indv_tot": [{
+            "stk_cd": "A000660", "stk_nm": "SK Hynix", "rmnd_qty": "1",
+            "cur_prc": "500,000", "evlt_amt": "500,000",
+        }]})
+        self.client.post_all_pages = lambda *args, **kwargs: [first, second]
+
+        result = self.adapter.fetch_balance()
+
+        self.assertEqual(len(result.holdings), 2)
+        self.assertEqual(sum(row.market_value for row in result.holdings), 1200000)
+        self.assertEqual(result.cash, 300000)
 
     def test_quote_normalizes_signed_fields(self):
         result = self.adapter.fetch_quote("005930")
