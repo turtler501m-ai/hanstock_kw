@@ -663,7 +663,11 @@ def scan_candidates(
     scan_error = ""
     for symbol in universe:
         try:
-            hist = fetch_history(symbol)
+            history_period = "1y" if strategy_id in {
+                "rsi_limit_strategy",
+                "heikin_ashi_scalping_strategy",
+            } else "6mo"
+            hist = fetch_history(symbol, period=history_period)
             profile = strategy_profile(hist["close"], hist["high"], hist["volume"], model=model)
             if custom_strategy is not None:
                 bb_lo, _bb_mid, _bb_hi = calc_bollinger(hist["close"], 20)
@@ -671,8 +675,8 @@ def scan_candidates(
                     **profile,
                     "symbol": symbol,
                     "highs": hist["high"],
-                    "lows": hist["close"],
-                    "opens": hist["close"],
+                    "lows": hist.get("low", hist["close"]),
+                    "opens": hist.get("open", hist["close"]),
                     "volumes": hist["volume"],
                     "bb_lo": bb_lo,
                 }
@@ -936,17 +940,94 @@ def notify_slack_order(symbol: str, action: str, qty: float, price: float, reaso
         logger.error(f"Failed to send Slack order notification: {e}")
 
 
-def place_order(symbol: str, action: str, qty: float, price: float, reason: str = "", strategy_id: str | None = None) -> dict[str, Any]:
-    from src.online_access import require_online_access
+def _broker_order_no(result: dict[str, Any] | None) -> str | None:
+    result = result or {}
+    output = result.get("output") if isinstance(result.get("output"), dict) else {}
+    value = (
+        output.get("ODNO") or output.get("ord_no") or result.get("broker_order_no")
+        or result.get("order_no") or result.get("ord_no")
+    )
+    return str(value).strip() or None if value is not None else None
 
-    require_online_access("Mistock order execution")
+
+def place_order(
+    symbol: str,
+    action: str,
+    qty: float,
+    price: float,
+    reason: str = "",
+    strategy_id: str | None = None,
+    *,
+    approval_id: int | None = None,
+    client_order_key: str | None = None,
+) -> dict[str, Any]:
+    from src.online_access import require_online_access
+    import uuid
+
     symbol = normalize_symbol(symbol)
     action = str(action).lower()
     qty = float(qty)
-    price = float(price or quote(symbol)["current"] or 0.0)
-    if qty <= 0 or price <= 0:
-        notify_slack_order(symbol, action, qty, price, "qty and price must be greater than 0", False)
-        return {"ok": False, "status": "failed", "message": "qty and price must be greater than 0"}
+    price = float(price or 0)
+    key = str(client_order_key or f"mistock-{uuid.uuid4().hex}")
+    if client_order_key:
+        existing_order = db.get_managed_order_by_key(key)
+        if existing_order:
+            return {
+                "ok": str(existing_order.get("status") or "") not in {"failed", "rejected"},
+                "status": existing_order.get("status"),
+                "message": "existing managed order returned for client_order_key",
+                "managed_order_id": existing_order.get("id"),
+                "client_order_key": key,
+                "broker_order_no": existing_order.get("broker_order_no"),
+                "idempotent": True,
+            }
+    managed_order_id = db.create_managed_order({
+        "client_order_key": key,
+        "approval_id": approval_id,
+        "strategy_id": strategy_id,
+        "symbol": symbol,
+        "action": action,
+        "requested_qty": qty,
+        "requested_price": price,
+        "status": "created",
+    })
+
+    def finish(status: str, *, error: str | None = None, payload: dict | None = None,
+               broker_order_no: str | None = None, filled: bool = False) -> None:
+        db.update_managed_order(
+            managed_order_id,
+            status=status,
+            last_error=error,
+            broker_payload=payload,
+            broker_order_no=broker_order_no,
+            filled_qty=qty if filled else 0,
+            avg_fill_price=price if filled else None,
+            requested_price=price,
+        )
+
+    try:
+        require_online_access("Mistock order execution")
+    except Exception as exc:
+        finish("rejected", error=str(exc))
+        return {
+            "ok": False,
+            "status": "rejected",
+            "message": str(exc),
+            "managed_order_id": managed_order_id,
+            "client_order_key": key,
+        }
+
+    if price <= 0:
+        try:
+            price = float(quote(symbol)["current"] or 0)
+        except Exception as exc:
+            finish("rejected", error=str(exc))
+            return {"ok": False, "status": "rejected", "message": str(exc), "managed_order_id": managed_order_id, "client_order_key": key}
+    if action not in {"buy", "sell"} or qty <= 0 or price <= 0:
+        message = "action must be buy or sell" if action not in {"buy", "sell"} else "qty and price must be greater than 0"
+        finish("rejected", error=message)
+        notify_slack_order(symbol, action, qty, price, message, False)
+        return {"ok": False, "status": "rejected", "message": message, "managed_order_id": managed_order_id, "client_order_key": key}
 
     if config.trading_env not in {"demo", "real"}:
         cash = float(db.get_setting("cash", str(config.total_capital)) or 0.0)
@@ -954,29 +1035,30 @@ def place_order(symbol: str, action: str, qty: float, price: float, reason: str 
         if action == "buy":
             cost = qty * price
             if cost > cash:
+                finish("rejected", error="insufficient cash")
                 notify_slack_order(symbol, action, qty, price, "insufficient cash", False)
-                return {"ok": False, "status": "failed", "message": "insufficient cash"}
+                return {"ok": False, "status": "rejected", "message": "insufficient cash", "managed_order_id": managed_order_id, "client_order_key": key}
             _apply_local_filled_order(symbol, action, qty, price)
             db.set_setting("cash", str(cash - cost))
         elif action == "sell":
             if not existing or float(existing["qty"]) < qty:
+                finish("rejected", error="insufficient holdings")
                 notify_slack_order(symbol, action, qty, price, "insufficient holdings", False)
-                return {"ok": False, "status": "failed", "message": "insufficient holdings"}
+                return {"ok": False, "status": "rejected", "message": "insufficient holdings", "managed_order_id": managed_order_id, "client_order_key": key}
             _apply_local_filled_order(symbol, action, qty, price)
             db.set_setting("cash", str(cash + qty * price))
-        else:
-            notify_slack_order(symbol, action, qty, price, "action must be buy or sell", False)
-            return {"ok": False, "status": "failed", "message": "action must be buy or sell"}
+        finish("filled", payload={"mode": "local_simulation"}, filled=True)
         save_trade(symbol, symbol_name(symbol), action, qty, price, reason, True, "filled", "simulated order filled")
         notify_slack_order(symbol, action, qty, price, reason or "simulated order filled", True)
-        return {"ok": True, "status": "filled", "msg1": "simulated order filled"}
+        return {"ok": True, "status": "filled", "msg1": "simulated order filled", "managed_order_id": managed_order_id, "client_order_key": key}
     else:
         real_orders_enabled = (not config.dry_run) and config.trading_env == "real" and config.enable_live_trading
         order_submission_enabled = (not config.dry_run) and (config.trading_env == "demo" or real_orders_enabled)
         if not order_submission_enabled:
+            finish("dry_run", payload={"mode": "dry_run"})
             save_trade(symbol, symbol_name(symbol), action, qty, price, reason, True, "dry_run", "dry run order skipped")
             notify_slack_order(symbol, action, qty, price, reason or "dry run order skipped", True)
-            return {"ok": True, "status": "dry_run", "msg1": "dry run order skipped"}
+            return {"ok": True, "status": "dry_run", "msg1": "dry run order skipped", "managed_order_id": managed_order_id, "client_order_key": key}
 
         try:
             client = _get_broker_client()
@@ -984,23 +1066,30 @@ def place_order(symbol: str, action: str, qty: float, price: float, reason: str 
             rt_cd = res.get("rt_cd")
             msg = res.get("msg1") or "Kiwoom order response received"
             ok = (rt_cd == "0")
-            status = "filled" if ok else "failed"
-            if ok and config.trading_env == "demo":
-                _apply_local_filled_order(symbol, action, qty, price)
-            elif config.trading_env == "demo" and _demo_order_is_unsupported(msg):
+            broker_order_no = _broker_order_no(res)
+            if config.trading_env == "demo" and _demo_order_is_unsupported(msg):
                 _apply_local_filled_order(symbol, action, qty, price)
                 ok = True
                 status = "demo_local_filled"
                 msg = f"Kiwoom demo overseas order unsupported; local shadow fill applied: {msg}"
-            save_trade(symbol, symbol_name(symbol), action, qty, price, reason, ok, status, msg, strategy_id)
+                finish(status, payload=res, broker_order_no=broker_order_no, filled=True)
+                save_trade(symbol, symbol_name(symbol), action, qty, price, reason, True, status, msg, strategy_id)
+            elif ok:
+                status = "accepted"
+                finish(status, payload=res, broker_order_no=broker_order_no)
+            else:
+                status = "rejected"
+                finish(status, error=str(msg), payload=res, broker_order_no=broker_order_no)
             notify_slack_order(symbol, action, qty, price, reason or msg, ok)
-            return {"ok": ok, "status": status, "msg1": msg, "res": res}
+            return {"ok": ok, "status": status, "msg1": msg, "res": res,
+                    "managed_order_id": managed_order_id, "client_order_key": key,
+                    "broker_order_no": broker_order_no}
         except Exception as e:
             from src.utils.logger import logger
             logger.error(f"Failed to place Kiwoom US order: {e}")
-            save_trade(symbol, symbol_name(symbol), action, qty, price, reason, False, "failed", str(e), strategy_id)
+            finish("failed", error=str(e))
             notify_slack_order(symbol, action, qty, price, str(e), False)
-            return {"ok": False, "status": "failed", "message": str(e)}
+            return {"ok": False, "status": "failed", "message": str(e), "managed_order_id": managed_order_id, "client_order_key": key}
 
 
 def cancel_order(symbol: str, order_no: str, qty: float = 0) -> dict[str, Any]:
@@ -1011,8 +1100,16 @@ def cancel_order(symbol: str, order_no: str, qty: float = 0) -> dict[str, Any]:
         return {"ok": True, "status": "dry_run", "msg1": "dry run cancel skipped"}
     try:
         res = _get_broker_client().cancel_overseas_order(symbol, order_no, qty=qty)
-        return {"ok": res.get("rt_cd") == "0", "status": "submitted" if res.get("rt_cd") == "0" else "failed", "res": res}
+        ok = res.get("rt_cd") == "0"
+        db.update_managed_order_by_broker_no(
+            order_no,
+            status="cancel_requested" if ok else "failed",
+            last_error=None if ok else str(res.get("msg1") or "cancel failed"),
+            broker_payload=res,
+        )
+        return {"ok": ok, "status": "submitted" if ok else "failed", "res": res}
     except Exception as exc:
+        db.update_managed_order_by_broker_no(order_no, status="failed", last_error=str(exc))
         return {"ok": False, "status": "failed", "message": str(exc)}
 
 
@@ -1024,8 +1121,18 @@ def revise_order(symbol: str, order_no: str, qty: float, price: float) -> dict[s
         return {"ok": True, "status": "dry_run", "msg1": "dry run revise skipped"}
     try:
         res = _get_broker_client().revise_overseas_order(symbol, order_no, qty=qty, price=price)
-        return {"ok": res.get("rt_cd") == "0", "status": "submitted" if res.get("rt_cd") == "0" else "failed", "res": res}
+        ok = res.get("rt_cd") == "0"
+        db.update_managed_order_by_broker_no(
+            order_no,
+            status="accepted" if ok else "failed",
+            requested_qty=qty,
+            requested_price=price,
+            last_error=None if ok else str(res.get("msg1") or "revision failed"),
+            broker_payload=res,
+        )
+        return {"ok": ok, "status": "submitted" if ok else "failed", "res": res}
     except Exception as exc:
+        db.update_managed_order_by_broker_no(order_no, status="failed", last_error=str(exc))
         return {"ok": False, "status": "failed", "message": str(exc)}
 
 

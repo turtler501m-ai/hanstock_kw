@@ -80,6 +80,32 @@ class ExecutionPlanTests(unittest.TestCase):
         self.assertIn("new buy score=5", row["reason"])
         self.assertEqual(row["metadata"]["scan_rank"], 1)
 
+    def test_candidate_order_preserves_us_fractional_price(self):
+        row = candidate_order_to_plan_row(
+            {"ticker": "AAPL", "name": "Apple", "score": 4},
+            {
+                "ticker": "AAPL",
+                "quantity": 2,
+                "limit_price": 189.37,
+                "estimated_cost": 378.74,
+            },
+            metadata={"market": "US", "currency": "USD"},
+        )
+
+        self.assertEqual(row["qty"], 2)
+        self.assertEqual(row["price"], 189.37)
+        self.assertEqual(row["metadata"]["currency"], "USD")
+
+    def test_signal_preserves_fractional_price(self):
+        row = signal_to_plan_row(
+            "NVDA",
+            "NVIDIA",
+            {"action": "sell", "qty": 1, "price": 178.125, "reason": "risk", "indicators": {}},
+            metadata={"market": "US"},
+        )
+
+        self.assertEqual(row["price"], 178.125)
+
     def test_build_execution_plan_filters_none_rows(self):
         position_row = signal_to_plan_row(
             "005930",

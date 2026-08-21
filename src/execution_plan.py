@@ -9,8 +9,8 @@ class PlanRow:
     symbol: str
     name: str
     action: str
-    qty: int
-    price: int
+    qty: int | float
+    price: int | float
     reason: str
     source: str
     category: str
@@ -25,6 +25,12 @@ class PlanRow:
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
+
+
+def _plan_number(value: Any) -> int | float:
+    """Preserve fractional US prices while keeping whole KR values compact."""
+    number = float(value or 0)
+    return int(number) if number.is_integer() else number
 
 
 def signal_to_plan_row(
@@ -45,8 +51,8 @@ def signal_to_plan_row(
         symbol=symbol,
         name=name,
         action=action,
-        qty=int(signal.get("qty", 0) or 0),
-        price=int(signal.get("price", 0) or 0),
+        qty=_plan_number(signal.get("qty", 0)),
+        price=_plan_number(signal.get("price", 0)),
         reason=str(signal.get("reason", "")),
         source=source,
         category="position",
@@ -73,8 +79,8 @@ def candidate_order_to_plan_row(
         symbol=str(order.get("ticker", candidate.get("ticker", ""))),
         name=str(candidate.get("name") or order.get("ticker", candidate.get("ticker", ""))),
         action="buy",
-        qty=int(order.get("quantity", 0) or 0),
-        price=int(order.get("limit_price", 0) or 0),
+        qty=_plan_number(order.get("quantity", 0)),
+        price=_plan_number(order.get("limit_price", 0)),
         reason=reason,
         source=source,
         category="candidate",

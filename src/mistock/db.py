@@ -97,6 +97,37 @@ def init_db() -> None:
         )
         conn.execute(
             """
+            CREATE TABLE IF NOT EXISTS managed_orders (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                client_order_key TEXT NOT NULL UNIQUE,
+                broker_order_no TEXT,
+                approval_id INTEGER,
+                strategy_id TEXT,
+                symbol TEXT NOT NULL,
+                action TEXT NOT NULL,
+                requested_qty REAL NOT NULL,
+                requested_price REAL NOT NULL,
+                filled_qty REAL NOT NULL DEFAULT 0,
+                avg_fill_price REAL,
+                status TEXT NOT NULL,
+                last_error TEXT,
+                broker_payload TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_mistock_managed_orders_status ON managed_orders(status, updated_at)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_mistock_managed_orders_broker_no ON managed_orders(broker_order_no)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_mistock_managed_orders_approval ON managed_orders(approval_id)"
+        )
+        conn.execute(
+            """
             CREATE TABLE IF NOT EXISTS scanned_candidates (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 scanned_at TEXT NOT NULL,
@@ -324,3 +355,69 @@ def execute(query: str, params: tuple[Any, ...] = ()) -> int:
         return int(cur.lastrowid or cur.rowcount or 0)
     finally:
         conn.close()
+
+
+def create_managed_order(data: dict[str, Any]) -> int:
+    init_db()
+    now = now_text()
+    conn = connect_db()
+    try:
+        with conn:
+            cur = conn.execute(
+                """
+                INSERT INTO managed_orders (
+                    client_order_key, broker_order_no, approval_id, strategy_id,
+                    symbol, action, requested_qty, requested_price, filled_qty,
+                    avg_fill_price, status, last_error, broker_payload, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    data["client_order_key"], data.get("broker_order_no"), data.get("approval_id"),
+                    data.get("strategy_id"), data["symbol"], data["action"],
+                    float(data.get("requested_qty") or 0), float(data.get("requested_price") or 0),
+                    float(data.get("filled_qty") or 0), data.get("avg_fill_price"),
+                    data.get("status") or "created", data.get("last_error"),
+                    json.dumps(data.get("broker_payload"), ensure_ascii=False, default=str)
+                    if data.get("broker_payload") is not None else None,
+                    data.get("created_at") or now, data.get("updated_at") or now,
+                ),
+            )
+            return int(cur.lastrowid)
+    except sqlite3.IntegrityError:
+        existing = row(
+            "SELECT id FROM managed_orders WHERE client_order_key=?",
+            (str(data["client_order_key"]),),
+        )
+        if existing:
+            return int(existing["id"])
+        raise
+    finally:
+        conn.close()
+
+
+def get_managed_order_by_key(client_order_key: str) -> dict[str, Any] | None:
+    return row("SELECT * FROM managed_orders WHERE client_order_key=?", (str(client_order_key),))
+
+
+def update_managed_order(order_id: int, **values: Any) -> bool:
+    allowed = {
+        "broker_order_no", "approval_id", "filled_qty", "avg_fill_price",
+        "status", "last_error", "broker_payload", "requested_qty", "requested_price",
+    }
+    fields = {key: value for key, value in values.items() if key in allowed}
+    if not fields:
+        return False
+    if "broker_payload" in fields and fields["broker_payload"] is not None:
+        fields["broker_payload"] = json.dumps(fields["broker_payload"], ensure_ascii=False, default=str)
+    fields["updated_at"] = now_text()
+    assignments = ", ".join(f"{key}=?" for key in fields)
+    params = tuple(fields.values()) + (int(order_id),)
+    return execute(f"UPDATE managed_orders SET {assignments} WHERE id=?", params) > 0
+
+
+def update_managed_order_by_broker_no(order_no: str, **values: Any) -> bool:
+    item = row(
+        "SELECT id FROM managed_orders WHERE broker_order_no=? ORDER BY id DESC LIMIT 1",
+        (str(order_no),),
+    )
+    return update_managed_order(int(item["id"]), **values) if item else False

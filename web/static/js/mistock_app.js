@@ -9,6 +9,14 @@ let holdingStrategyFilter = 'all';
 let holdingPnlFilter = 'all';
 let activeStrategyAuditId = '';
 let schedulerPollInterval = null;
+let operationsLoaded = false;
+let operationsRequest = null;
+let insightsLoaded = false;
+let insightsRequest = null;
+let mistockStrategiesCache = [];
+let activeMistockStrategyDetail = null;
+let activeMistockWorkbenchId = '';
+let managedOrdersCache = [];
 
 let currentCurrency = 'USD';
 let exchangeRate = 1380.0;
@@ -402,6 +410,511 @@ async function fetchJson(url, timeoutMs = 60000) {
     }
 }
 
+function operationsCount(value) {
+    if (Array.isArray(value)) return value.length;
+    if (value && typeof value === 'object') {
+        return Object.values(value).reduce((sum, count) => sum + (Number(count) || 0), 0);
+    }
+    return Number(value) || 0;
+}
+
+function renderOperationsCounts(containerId, counts, emptyText) {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+    const entries = Object.entries(counts || {}).filter(([, count]) => ['number', 'string', 'boolean'].includes(typeof count));
+    container.innerHTML = entries.length
+        ? entries.map(([label, count]) => {
+            const numeric = typeof count === 'number' || (typeof count === 'string' && count.trim() !== '' && Number.isFinite(Number(count)));
+            const display = numeric ? `${formatNumber(count)}건` : String(count);
+            return `<div class="operations-list-item"><span>${escapeHtml(label)}</span><strong>${escapeHtml(display)}</strong></div>`;
+        }).join('')
+        : `<span class="time-muted">${escapeHtml(emptyText)}</span>`;
+}
+
+function renderOperationsDiagnostics(diagnostics, errors = {}) {
+    const container = document.getElementById('operations-diagnostics');
+    if (!container) return;
+    const rows = [
+        ['전략 포지션', `${(diagnostics.positions || []).length}건`],
+        ['자동화 정책', `${(diagnostics.automation_policies || []).length}건`],
+        ['최근 자동화 실행', `${(diagnostics.automation_runs || []).length}건`],
+        ['의사결정 기록', `${(diagnostics.decisions || []).length}건`],
+        ['조회 오류', Object.keys(errors).length ? Object.entries(errors).map(([key, value]) => `${key}: ${value}`).join(' · ') : '없음'],
+    ];
+    if (!rows.length) rows.push(['진단', '공통 자동화 진단 정보가 없습니다.']);
+    container.innerHTML = rows.map(([label, value]) => `<div class="operations-list-item"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`).join('');
+}
+
+function operationSource(sources, key) {
+    const list = Array.isArray(sources) ? sources : Object.values(sources || {});
+    return list.find((source) => String(source.key || '').toLowerCase().includes(key)) || {};
+}
+
+function renderOperationSource(containerId, source, fallbackText) {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+    const details = source.summary || source.counts || {};
+    const rows = Object.entries(details);
+    const sourceRows = [
+        ['출처', source.label || fallbackText],
+        ['기준시각', formatKstTime(source.as_of)],
+        ...rows,
+    ];
+    container.innerHTML = sourceRows.map(([label, value]) => `<div class="operations-list-item"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`).join('');
+}
+
+function renderOperationsOrders(orders) {
+    const tbody = document.querySelector('#table-operations-orders tbody');
+    if (!tbody) return;
+    tbody.innerHTML = orders.length ? orders.map((order) => {
+        const requested = order.requested_qty ?? order.quantity ?? '-';
+        const filled = order.filled_qty ?? '-';
+        return `<tr><td>${escapeHtml(order.id ?? '-')}</td><td><strong>${escapeHtml(order.symbol || '-')}</strong></td>` +
+            `<td>${escapeHtml(toKorAction(order.action || order.side || '-'))}</td><td>${pill(order.status || '-', order.status === 'filled' ? 'buy' : order.status === 'failed' ? 'sell' : 'hold')}</td>` +
+            `<td>${escapeHtml(requested)} / ${escapeHtml(filled)}</td><td>${escapeHtml(order.last_error || '-')}</td><td>${escapeHtml(formatKstTime(order.updated_at || order.last_synced_at))}</td></tr>`;
+    }).join('') : '<tr><td colspan="7">US 시장 관리주문이 없습니다.</td></tr>';
+}
+
+async function renderMistockOperations() {
+    const force = arguments[0] === true;
+    const status = document.getElementById('operations-status');
+    const button = document.getElementById('btn-refresh-operations');
+    if (!status) return;
+    if (operationsLoaded && !force) return;
+    if (operationsRequest) return operationsRequest;
+    setButtonBusy(button, true);
+    status.textContent = '공통 AI 파이프라인의 US 시장 데이터를 조회하는 중입니다.';
+    operationsRequest = (async () => {
+      try {
+        const response = await fetchJson('/api/mistock/operations');
+        const data = response.data || response.operations || response;
+        const summary = data.summary || {};
+        const decisionFlow = data.decision_flow || {};
+        const flowSummary = decisionFlow.summary || {};
+        const sections = data.sections || {};
+        const orders = Array.isArray(data.managed_orders) ? data.managed_orders : [];
+        const reservationsValue = sections.risk_reservations || data.diagnostics?.risk_reservations;
+        const protectionsValue = sections.position_protections || data.diagnostics?.position_protections;
+        const unprotectedValue = sections.unprotected_positions || data.diagnostics?.unprotected_positions;
+        const reservations = Array.isArray(reservationsValue) ? reservationsValue : [];
+        const protections = Array.isArray(protectionsValue) ? protectionsValue : [];
+        const unprotected = Array.isArray(unprotectedValue) ? unprotectedValue : [];
+        const commonSource = operationSource(data.sources, 'shared_ai_stock');
+        setElementText('operations-decision-count', formatNumber(summary.decision_count ?? summary.candidate_count ?? (decisionFlow.candidates || []).length));
+        setElementText('operations-order-count', formatNumber(summary.managed_order_count ?? orders.length));
+        setElementText('operations-reservation-count', formatNumber(summary.risk_reservation_count ?? reservations.length));
+        setElementText('operations-unprotected-count', formatNumber(summary.unprotected_position_count ?? unprotected.length));
+        renderOperationsCounts('operations-decisions', flowSummary, 'US 시장 의사결정이 없습니다.');
+        renderOperationSource('operations-reservations', { ...commonSource, summary: { 전체: reservations.length, 활성: reservations.filter((row) => row.status === 'active').length } }, '공통 AI 위험예약 저장소');
+        renderOperationSource('operations-protections', { ...commonSource, summary: { 전체: protections.length, 미보호: unprotected.length } }, '공통 AI 포지션 보호 저장소');
+        renderOperationsDiagnostics(data.diagnostics || {}, data.errors || {});
+        renderOperationsOrders(orders.filter((order) => order && typeof order === 'object'));
+        setElementText('operations-updated-at', formatKstTime(response.generated_at || data.generated_at || new Date().toISOString()));
+        status.textContent = data.partial
+            ? `부분 조회 완료 · ${Object.keys(data.errors || {}).length}개 영역 오류 · 공통 AI 저장소 / US 시장 / 읽기 전용`
+            : '조회 완료 · 공통 AI 저장소 / US 시장 / 읽기 전용';
+        operationsLoaded = true;
+      } catch (err) {
+        status.textContent = `공통 운영실 조회 실패: ${err.message}`;
+        operationsLoaded = false;
+      } finally {
+        setButtonBusy(button, false);
+        operationsRequest = null;
+      }
+    })();
+    return operationsRequest;
+}
+
+window.renderMistockOperations = renderMistockOperations;
+
+function insightValue(value, formatter = escapeHtml) {
+    if (value && typeof value === 'object') {
+        if (value.available === false || value.unavailable === true || value.availability === 'unavailable') value = null;
+        else value = value.value ?? value.amount ?? value.status ?? null;
+    }
+    return value === null || value === undefined || value === ''
+        ? '<span class="insights-unavailable">제공 안 됨</span>'
+        : formatter(value);
+}
+
+function insightRows(value) {
+    if (Array.isArray(value)) return value;
+    if (value && Array.isArray(value.items)) return value.items;
+    if (value && Array.isArray(value.rows)) return value.rows;
+    if (value && Array.isArray(value.positions)) return value.positions;
+    if (value && Array.isArray(value.protections)) return value.protections;
+    if (value && Array.isArray(value.mismatches)) return value.mismatches;
+    return [];
+}
+
+function renderInsightPnl(pnl) {
+    const container = document.getElementById('insights-pnl-breakdown');
+    if (!container) return;
+    const usd = pnl.usd || {
+        realized: pnl.realized,
+        net: pnl.realized_net_usd,
+        fees: pnl.fees_usd ?? pnl.fees,
+        tax: pnl.tax_usd ?? pnl.tax,
+    };
+    const krw = pnl.krw || {
+        realized: pnl.realized_krw,
+        net: pnl.realized_net_krw,
+        fees: pnl.fees_krw,
+        tax: pnl.tax_krw,
+        fx_effect: pnl.fx_effect_krw ?? pnl.fx_effect,
+    };
+    const currency = (value, code) => new Intl.NumberFormat('ko-KR', { style:'currency', currency:code, maximumFractionDigits:code === 'KRW' ? 0 : 2 }).format(Number(value));
+    const fields = [
+        ['USD 실현손익', usd, ['realized_pnl','realized']], ['USD 순손익', usd, ['net_pnl','net']], ['USD 수수료', usd, ['fees','fee']], ['USD 세금', usd, ['taxes','tax']],
+        ['KRW 실현손익', krw, ['realized_pnl','realized']], ['KRW 순손익', krw, ['net_pnl','net']], ['KRW 수수료', krw, ['fees','fee']], ['KRW 세금', krw, ['taxes','tax']], ['KRW 환율효과', krw, ['fx_effect','exchange_rate_effect']],
+    ];
+    container.innerHTML = fields.map(([label, scope, keys]) => {
+        const key = keys.find((candidate) => scope?.[candidate] !== undefined);
+        const code = label.startsWith('KRW') ? 'KRW' : 'USD';
+        return `<div class="card glass"><h3>${label}</h3><div class="value">${insightValue(key ? scope[key] : null, (value) => escapeHtml(currency(value, code)))}</div></div>`;
+    }).join('');
+}
+
+function marketRegimeRows(data) {
+    if (Array.isArray(data.assets)) return data.assets;
+    if (Array.isArray(data.instruments)) return data.instruments;
+    if (Array.isArray(data.markets)) return data.markets;
+    if (Array.isArray(data.rows)) return data.rows;
+    const object = data.indices || data.quotes || {};
+    return Object.entries(object).map(([symbol, value]) => ({ symbol, ...(value && typeof value === 'object' ? value : { value }) }));
+}
+
+function renderMarketRegime(data) {
+    const summary = data.summary || data;
+    const session = summary.market_session ?? data.market_session ?? summary.session ?? data.session;
+    const sessionValue = typeof session === 'object'
+        ? (session.status ?? session.state ?? (session.open === true || session.is_open === true ? 'OPEN' : session.open === false || session.is_open === false ? 'CLOSED' : null))
+        : session;
+    const summaryContainer = document.getElementById('market-regime-summary');
+    if (summaryContainer) summaryContainer.innerHTML = [
+        ['종합 국면', summary.regime ?? data.regime], ['위험 배수', summary.risk_multiplier ?? data.risk_multiplier], ['미국장', sessionValue],
+    ].map(([label,value]) => `<div><span>${label}</span><strong>${insightValue(value)}</strong></div>`).join('');
+    const required = ['QQQ','SPY','SOXX','VIX','USDKRW'];
+    const indexed = new Map(marketRegimeRows(data).map((row) => [String(row.key || row.symbol || row.ticker || row.code || '').toUpperCase(), row]));
+    const tbody = document.querySelector('#table-market-regime tbody');
+    if (!tbody) return;
+    tbody.innerHTML = required.map((symbol) => {
+        const row = indexed.get(symbol) || {};
+        const label = symbol === 'USDKRW' ? 'USD/KRW' : symbol;
+        return `<tr><td><strong>${label}</strong></td><td>${insightValue(row.latest ?? row.value ?? row.last ?? row.price)}</td><td>${insightValue(row.change_pct ?? row.change)}</td>` +
+            `<td>${insightValue(row.sma20 ?? row.sma_20)}</td><td>${insightValue(row.sma60 ?? row.sma_60)}</td><td>${insightValue(row.trend)}</td><td>${insightValue(row.data_quality ?? data.data_quality)}<div class="time-muted">${escapeHtml(formatKstTime(row.as_of || row.data_as_of || data.as_of || data.generated_at))}</div></td></tr>`;
+    }).join('');
+}
+
+function insightStatusKind(status) {
+    const value = String(status || '').toLowerCase();
+    return ['ok', 'matched', 'protected', 'active', 'candidate', 'passed'].includes(value) ? 'buy'
+        : ['error', 'mismatch', 'unprotected', 'failed', 'blocked'].includes(value) ? 'sell' : 'hold';
+}
+
+function renderInsightReconciliation(value) {
+    const tbody = document.querySelector('#table-insights-reconciliation tbody');
+    if (!tbody) return;
+    const rows = insightRows(value);
+    tbody.innerHTML = rows.length ? rows.map((row) => `<tr><td><strong>${escapeHtml(row.symbol || '-')}</strong></td>` +
+        `<td>${insightValue(row.broker_qty)}</td><td>${insightValue(row.local_qty)}</td><td>${insightValue(row.strategy_qty ?? row.strategy_total_qty)}</td>` +
+        `<td>${insightValue(row.delta ?? row.quantity_delta)}</td><td>${pill(row.status || '-', insightStatusKind(row.status))}</td><td>${escapeHtml(formatKstTime(row.as_of || row.updated_at))}</td></tr>`).join('')
+        : '<tr><td colspan="7">계좌 정합성 기록이 없습니다.</td></tr>';
+}
+
+function renderInsightKeyValues(containerId, value, emptyText) {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+    const object = value?.summary || value?.funnel || value || {};
+    const entries = Object.entries(object).flatMap(([key, item]) => {
+        if (item === null || ['string', 'number', 'boolean'].includes(typeof item)) return [[key, item]];
+        if (item && typeof item === 'object' && !Array.isArray(item)) {
+            return Object.entries(item).filter(([, nested]) => nested === null || ['string', 'number', 'boolean'].includes(typeof nested)).map(([nestedKey, nested]) => [`${key} · ${nestedKey}`, nested]);
+        }
+        return [];
+    });
+    container.innerHTML = entries.length ? entries.map(([key, item]) => `<div class="operations-list-item"><span>${escapeHtml(key)}</span><strong>${insightValue(item)}</strong></div>`).join('')
+        : `<span class="time-muted">${escapeHtml(emptyText)}</span>`;
+}
+
+function renderInsightScan(value) {
+    const tbody = document.querySelector('#table-insights-scan tbody');
+    if (!tbody) return;
+    const rows = [...insightRows(value?.candidates), ...insightRows(value?.recent_candidates), ...insightRows(value?.errors), ...(Array.isArray(value) ? value : [])];
+    tbody.innerHTML = rows.length ? rows.map((row) => `<tr><td><strong>${escapeHtml(row.symbol || '-')}</strong></td>` +
+        `<td>${pill(row.status || row.result || (row.error ? '오류' : '-'), insightStatusKind(row.status || row.result || (row.error ? 'error' : '')))}</td>` +
+        `<td>${insightValue(row.score)}</td><td>${escapeHtml(row.reason || row.reasons || row.error || row.excluded_reason || '-')}</td>` +
+        `<td>${escapeHtml(row.source || row.data_source || '-')}</td><td>${escapeHtml(formatKstTime(row.as_of || row.data_as_of || row.scanned_at))}</td></tr>`).join('')
+        : '<tr><td colspan="6">스캔 후보 또는 오류 기록이 없습니다.</td></tr>';
+}
+
+function renderInsightProtection(value) {
+    const tbody = document.querySelector('#table-insights-protection tbody');
+    if (!tbody) return;
+    const rows = [...insightRows(value), ...insightRows(value?.unprotected_positions).map((row) => ({ ...row, status: row.status || 'unprotected' }))];
+    tbody.innerHTML = rows.length ? rows.map((row) => `<tr><td><strong>${escapeHtml(row.symbol || '-')}</strong></td>` +
+        `<td>${pill(row.status || '-', insightStatusKind(row.status))}</td><td>${insightValue(row.stop_price)}</td><td>${insightValue(row.target_price ?? row.take_profit_price)}</td>` +
+        `<td>${insightValue(row.trailing_stop ?? row.trailing_status)}</td><td>${escapeHtml(row.protection_order_no || row.broker_order_no || '-')}</td>` +
+        `<td>${escapeHtml(formatKstTime(row.last_monitored_at || row.updated_at))}</td></tr>`).join('')
+        : '<tr><td colspan="7">포지션 보호 기록이 없습니다.</td></tr>';
+}
+
+function renderInsightSources(sources) {
+    const container = document.getElementById('insights-sources');
+    if (!container) return;
+    const rows = (Array.isArray(sources) ? sources : Object.values(sources || {})).filter((source) => source && typeof source === 'object');
+    container.innerHTML = rows.length ? rows.map((source) => `<span class="insights-source-chip"><strong>${escapeHtml(source.label || source.key || '출처')}</strong> · ${escapeHtml(formatKstTime(source.as_of))}</span>`).join('')
+        : '<span class="insights-unavailable">출처 정보가 제공되지 않았습니다.</span>';
+}
+
+function renderInsightFunnel(value) {
+    const container = document.getElementById('insights-scan-funnel');
+    if (!container) return;
+    const rows = Array.isArray(value?.funnel) ? value.funnel : [];
+    container.innerHTML = rows.length ? rows.map((row) => `<div class="operations-list-item"><span>${escapeHtml(row.label || row.stage || '-')}</span><strong>${insightValue(row.count, (count) => `${escapeHtml(count)}건`)}</strong></div>`).join('')
+        : '<span class="time-muted">스캔 집계가 없습니다.</span>';
+}
+
+async function renderMistockInsights(force = false) {
+    const status = document.getElementById('insights-status');
+    const button = document.getElementById('btn-refresh-insights');
+    if (!status) return;
+    if (insightsLoaded && !force) return;
+    if (insightsRequest) return insightsRequest;
+    setButtonBusy(button, true);
+    status.textContent = '계좌·시장 진단 데이터를 조회하는 중입니다.';
+    insightsRequest = (async () => {
+        try {
+            const response = await fetchJson('/api/mistock/insights');
+            const data = response.data || response.insights || response;
+            renderInsightPnl(data.pnl_breakdown || {});
+            renderInsightReconciliation(data.reconciliation);
+            renderInsightKeyValues('insights-market-context', data.market_context, '미국시장 컨텍스트가 없습니다.');
+            renderInsightFunnel(data.scan_diagnostics);
+            renderInsightScan(data.scan_diagnostics);
+            renderInsightProtection(data.position_protection);
+            renderInsightSources(data.sources);
+            try {
+                const regime = await fetchJson('/api/mistock/market-regime', 30000);
+                renderMarketRegime(regime.data || regime);
+                renderInsightKeyValues('insights-market-context', (regime.data || regime).summary || regime.data || regime, '미국시장 컨텍스트가 없습니다.');
+            } catch (marketError) {
+                renderMarketRegime(data.market_context || {});
+                console.warn('Market regime fallback:', marketError);
+            }
+            setElementText('insights-updated-at', formatKstTime(data.generated_at || response.generated_at));
+            const errorCount = Object.keys(data.errors || {}).length;
+            status.textContent = errorCount ? `부분 조회 완료 · ${errorCount}개 영역 오류` : '조회 완료 · 읽기 전용';
+            insightsLoaded = true;
+        } catch (err) {
+            status.textContent = `계좌·시장 진단 조회 실패: ${err.message}`;
+            insightsLoaded = false;
+        } finally {
+            setButtonBusy(button, false);
+            insightsRequest = null;
+        }
+    })();
+    return insightsRequest;
+}
+
+window.renderMistockInsights = renderMistockInsights;
+
+function openMistockStrategyDetail(id) {
+    const strategy = mistockStrategiesCache.find((item) => String(item.id) === String(id));
+    const panel = document.getElementById('mistock-strategy-detail-panel');
+    const form = document.getElementById('form-edit-mistock-strategy');
+    if (!strategy || !panel || !form) return;
+    activeMistockStrategyDetail = strategy;
+    const risk = strategy.risk || strategy.profile?.risk || {};
+    const set = (name, value) => { if (form.elements[name]) form.elements[name].value = value ?? ''; };
+    set('strategy_id', strategy.id); set('expected_version', strategy.strategy_version ?? strategy.version ?? strategy.profile_version ?? 0);
+    set('name', strategy.name); set('description', strategy.description); set('weight', strategy.profile?.ai_weight ?? strategy.weight);
+    ['max_risk_per_trade_pct','max_total_open_risk_pct','max_strategy_exposure_pct','min_cash_reserve_pct'].forEach((key) => set(key, risk[key]));
+    const regimes = strategy.market_regime_filter || strategy.profile?.market_regime_filter || [];
+    set('market_regime_filter', Array.isArray(regimes) ? regimes.join(', ') : regimes);
+    setElementText('mistock-strategy-detail-version', `v${strategy.strategy_version ?? strategy.version ?? strategy.profile_version ?? '-'}`);
+    setElementText('strategy-detail-status', ''); panel.hidden = false; panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    renderStrategyWorkbench(id);
+}
+
+function workbenchItems(rows, emptyText) {
+    const values = Array.isArray(rows) ? rows.slice(0, 8) : [];
+    return values.length ? values.map((row) => {
+        const title = row.symbol || row.name || row.event_type || row.action || `#${row.id || '-'}`;
+        const status = row.status || row.order_status || row.action || row.event_type || '-';
+        const time = row.updated_at || row.created_at || row.scanned_at || row.ts || '';
+        return `<div class="operations-list-item"><span><strong>${escapeHtml(title)}</strong><small class="time-muted">${escapeHtml(formatKstTime(time))}</small></span><strong>${escapeHtml(status)}</strong></div>`;
+    }).join('') : `<span class="time-muted">${escapeHtml(emptyText)}</span>`;
+}
+
+async function renderStrategyWorkbench(strategyId = activeMistockWorkbenchId) {
+    const panel = document.getElementById('mistock-strategy-workbench');
+    const status = document.getElementById('strategy-workbench-status');
+    if (!panel || !status || !strategyId) return;
+    activeMistockWorkbenchId = strategyId;
+    panel.hidden = false;
+    status.textContent = '전략 운영 데이터를 조회하는 중입니다.';
+    try {
+        const data = await fetchJson(`/api/mistock/strategy-workbench/${encodeURIComponent(strategyId)}`);
+        const sections = data.sections || data;
+        const strategy = sections.strategy || {};
+        const performance = sections.performance || {};
+        const summary = {
+            전략: strategy.name || strategyId,
+            버전: strategy.strategy_version ?? '-',
+            상태: strategy.status || '-',
+            후보: Array.isArray(sections.candidates) ? sections.candidates.length : 0,
+            승인: Array.isArray(sections.approvals) ? sections.approvals.length : 0,
+            관리주문: Array.isArray(sections.managed_orders) ? sections.managed_orders.length : 0,
+            체결거래: performance.filled_trade_count ?? 0,
+        };
+        document.getElementById('strategy-workbench-summary').innerHTML = Object.entries(summary).map(([key,value]) => `<div><span>${escapeHtml(key)}</span><strong>${escapeHtml(value)}</strong></div>`).join('');
+        document.getElementById('strategy-workbench-decisions').innerHTML = workbenchItems([...(sections.candidates || []), ...(sections.approvals || [])], '최근 후보·승인이 없습니다.');
+        document.getElementById('strategy-workbench-orders').innerHTML = workbenchItems([...(sections.managed_orders || []), ...(sections.trades || [])], '최근 주문·거래가 없습니다.');
+        const events = Array.isArray(sections.events) ? sections.events : [];
+        document.querySelector('#table-strategy-workbench-events tbody').innerHTML = events.length ? events.map((row) => `<tr><td>${escapeHtml(formatKstTime(row.ts || row.created_at))}</td><td>${escapeHtml(row.event_type || '-')}</td><td>${escapeHtml(row.status || '-')}</td><td>${escapeHtml(row.message || row.payload || '-')}</td></tr>`).join('') : '<tr><td colspan="4">전략 이벤트가 없습니다.</td></tr>';
+        status.textContent = data.partial ? `부분 조회 완료 · ${Object.keys(data.errors || {}).length}개 오류` : `조회 완료 · ${escapeHtml(data.source || '미스톡 전략 원장')}`;
+    } catch (err) {
+        status.textContent = `전략 워크벤치 조회 실패: ${err.message}`;
+    }
+}
+
+async function runStrategyWorkbench(mode) {
+    if (!activeMistockWorkbenchId) return;
+    const button = document.getElementById(mode === 'execute' ? 'btn-workbench-execute' : 'btn-workbench-analysis');
+    const label = mode === 'execute' ? '주문 사이클' : '분석';
+    if (mode === 'execute' && !confirm(`${activeMistockWorkbenchId} 전략의 주문 사이클을 실행하시겠습니까?`)) return;
+    setButtonBusy(button, true);
+    try {
+        await postJson(`/api/mistock/strategy-workbench/${encodeURIComponent(activeMistockWorkbenchId)}/run`, { mode });
+        setElementText('strategy-workbench-status', `${label} 실행을 요청했습니다.`);
+        await renderStrategyWorkbench();
+    } catch (err) {
+        setElementText('strategy-workbench-status', `${label} 실행 실패: ${err.message}`);
+    } finally {
+        setButtonBusy(button, false);
+    }
+}
+
+window.renderStrategyWorkbench = renderStrategyWorkbench;
+
+async function renderWatchlistPolicy() {
+    const form = document.getElementById('form-watchlist-policy');
+    if (!form) return;
+    try {
+        const data = await fetchJson('/api/mistock/watchlist/policy');
+        const policy = data.policy || data;
+        ['enabled','allow_auto_add','block_held','block_pending'].forEach((key) => { form.elements[key].checked = Boolean(policy[key]); });
+        ['max_symbols','min_score','rebuy_cooldown_hours'].forEach((key) => { form.elements[key].value = policy[key] ?? ''; });
+        setElementText('watchlist-policy-version', `v${policy.version ?? '-'}`);
+        form.dataset.version = policy.version ?? '';
+        const stats = data.stats || policy.stats || {};
+        document.getElementById('watchlist-policy-stats').innerHTML = Object.entries(stats).filter(([,v]) => ['string','number','boolean'].includes(typeof v)).map(([k,v]) => `<div><span>${escapeHtml(k)}</span><strong>${escapeHtml(v)}</strong></div>`).join('') || '<span class="time-muted">상태 통계가 없습니다.</span>';
+    } catch (err) { setElementText('watchlist-policy-status', `정책 조회 실패: ${err.message}`); }
+}
+
+async function renderMistockSchedules() {
+    const tbody = document.querySelector('#table-mistock-schedules tbody');
+    if (!tbody) return;
+    try {
+        const data = await fetchJson('/api/mistock/schedules');
+        const rows = Array.isArray(data) ? data : data.schedules || data.items || [];
+        tbody.innerHTML = rows.length ? rows.map((row) => `<tr data-id="${escapeHtml(row.strategy_id || row.id)}">
+          <td><strong>${escapeHtml(row.strategy_name || row.strategy_id || row.id)}</strong></td><td><input name="interval_minutes" type="number" min="1" value="${escapeHtml(row.interval_minutes ?? '')}" aria-label="실행 간격(분)"></td>
+          <td><input name="start_hm" type="time" value="${escapeHtml(String(row.start_hm || '').replace(/^(\d{2})(\d{2})$/, '$1:$2'))}" aria-label="시작 시각"> ~ <input name="end_hm" type="time" value="${escapeHtml(String(row.end_hm || '').replace(/^(\d{2})(\d{2})$/, '$1:$2'))}" aria-label="종료 시각"></td>
+          <td><input name="weekdays" value="${escapeHtml(row.weekdays || '')}" aria-label="실행 요일"></td>
+          <td><select name="mode"><option value="analysis_only" ${row.mode === 'analysis_only' ? 'selected':''}>analysis_only</option><option value="execute" ${row.mode === 'execute' ? 'selected':''}>execute</option></select></td>
+          <td><input name="auto_approve" type="checkbox" ${row.auto_approve ? 'checked':''} aria-label="자동 승인"></td><td><input name="enabled" type="checkbox" ${row.enabled ? 'checked':''} aria-label="활성"></td><td><button type="button" class="btn-save-schedule compact-button">저장</button></td></tr>`).join('') : '<tr><td colspan="8">전략별 스케줄이 없습니다.</td></tr>';
+        tbody.querySelectorAll('.btn-save-schedule').forEach((button) => button.addEventListener('click', async () => {
+            const row = button.closest('tr'); const value = (name) => row.querySelector(`[name="${name}"]`);
+            setButtonBusy(button, true);
+            try { await patchJson('/api/mistock/schedules', { strategy_id:row.dataset.id, interval_minutes:Number(value('interval_minutes').value), start_hm:value('start_hm').value.replace(':','') || null, end_hm:value('end_hm').value.replace(':','') || null, weekdays:value('weekdays').value, mode:value('mode').value, auto_approve:value('auto_approve').checked, enabled:value('enabled').checked }); setElementText('schedules-status','스케줄을 저장했습니다.'); await renderMistockSchedules(); }
+            catch(err) { setElementText('schedules-status', err.status === 409 ? `버전 충돌: ${err.message}` : `저장 실패: ${err.message}`); } finally { setButtonBusy(button,false); }
+        }));
+    } catch (err) { setTableMessage('#table-mistock-schedules tbody', 8, err.message); }
+}
+
+window.openMistockStrategyDetail = openMistockStrategyDetail;
+window.renderWatchlistPolicy = renderWatchlistPolicy;
+window.renderMistockSchedules = renderMistockSchedules;
+
+const MANAGED_ORDER_STATUS_LABELS = { accepted:'접수', partial:'부분체결', partially_filled:'부분체결', filled:'체결', cancelled:'취소', rejected:'거부', failed:'실패', demo_local_filled:'데모 로컬 체결' };
+
+function managedOrderStatusKind(status) {
+    if (['filled','demo_local_filled'].includes(status)) return 'buy';
+    if (['cancelled','rejected','failed'].includes(status)) return 'sell';
+    return 'hold';
+}
+
+function renderManagedOrderRows() {
+    const tbody = document.querySelector('#table-managed-orders tbody');
+    if (!tbody) return;
+    const filter = document.getElementById('managed-order-status-filter')?.value || '';
+    const rows = managedOrdersCache.filter((row) => !filter || row.status === filter || (filter === 'partial' && row.status === 'partially_filled'));
+    tbody.innerHTML = rows.length ? rows.map((row) => {
+        const orderNo = row.broker_order_no || row.order_no || '';
+        const canManage = Boolean(orderNo) && ['accepted','partial','partially_filled'].includes(String(row.status));
+        const actions = canManage ? `<div class="button-row"><button type="button" class="button-ghost compact-button btn-revise-managed-order" data-id="${escapeHtml(row.id)}">정정</button><button type="button" class="button-danger compact-button btn-cancel-managed-order" data-id="${escapeHtml(row.id)}">취소</button></div>` : '-';
+        return `<tr><td><strong>${escapeHtml(row.symbol || '-')}</strong><div class="time-muted">${escapeHtml(row.strategy_name || row.strategy_id || '전략 미기록')}</div></td><td>${escapeHtml(toKorAction(row.side || row.action || '-'))}</td>` +
+          `<td>${insightValue(row.requested_qty ?? row.qty)} / ${insightValue(row.filled_qty)}</td><td>${insightValue(row.limit_price ?? row.requested_price)} / ${insightValue(row.avg_fill_price ?? row.filled_price)}</td>` +
+          `<td>${pill(MANAGED_ORDER_STATUS_LABELS[row.status] || row.status || '-', managedOrderStatusKind(row.status))}</td><td>${escapeHtml(orderNo || '-')}</td><td>${escapeHtml(formatKstTime(row.updated_at || row.last_synced_at))}</td><td>${actions}</td></tr>`;
+    }).join('') : '<tr><td colspan="8">선택한 상태의 관리주문이 없습니다.</td></tr>';
+    const byId = (id) => managedOrdersCache.find((row) => String(row.id) === String(id));
+    tbody.querySelectorAll('.btn-cancel-managed-order').forEach((button) => button.addEventListener('click', async () => {
+        const row = byId(button.dataset.id); const orderNo = row?.broker_order_no || row?.order_no; if (!row || !orderNo || !confirm(`${row.symbol} 주문을 취소하시겠습니까?`)) return;
+        setButtonBusy(button,true); try { await postJson('/api/mistock/orders/cancel',{symbol:row.symbol,order_no:orderNo,qty:row.requested_qty ?? row.qty}); setStatus('취소 요청을 전송했습니다.',true); await renderManagedOrders(true); } catch(err) { setElementText('managed-orders-status',`취소 실패: ${err.message}`); } finally { setButtonBusy(button,false); }
+    }));
+    tbody.querySelectorAll('.btn-revise-managed-order').forEach((button) => button.addEventListener('click', async () => {
+        const row = byId(button.dataset.id); const orderNo = row?.broker_order_no || row?.order_no; if (!row || !orderNo) return;
+        const qty = Number(prompt('정정 수량', row.requested_qty ?? row.qty ?? '')); if (!qty) return; const price = Number(prompt('정정 가격', row.limit_price ?? row.requested_price ?? '')); if (!price || !confirm(`${row.symbol} 주문을 ${qty}주 / ${price}로 정정하시겠습니까?`)) return;
+        setButtonBusy(button,true); try { await postJson('/api/mistock/orders/revise',{symbol:row.symbol,order_no:orderNo,qty,price}); setStatus('정정 요청을 전송했습니다.',true); await renderManagedOrders(true); } catch(err) { setElementText('managed-orders-status',`정정 실패: ${err.message}`); } finally { setButtonBusy(button,false); }
+    }));
+}
+
+async function renderManagedOrders() {
+    const force = arguments[0] === true;
+    const status = document.getElementById('managed-orders-status'); if (!status) return;
+    status.textContent = '미스톡 주문 원장을 조회하는 중입니다.';
+    try {
+        const data = await fetchJson('/api/mistock/managed-orders');
+        managedOrdersCache = (Array.isArray(data.orders) ? data.orders : []).filter((row) => row && typeof row === 'object');
+        const summary = data.summary || {};
+        document.getElementById('managed-orders-summary').innerHTML = Object.entries(summary).filter(([,v]) => ['string','number','boolean'].includes(typeof v)).map(([key,value]) => `<div class="card glass"><h3>${escapeHtml(MANAGED_ORDER_STATUS_LABELS[key] || key)}</h3><div class="value">${escapeHtml(value)}</div></div>`).join('') || '<span class="time-muted">요약 정보가 없습니다.</span>';
+        setElementText('managed-orders-source', data.source?.label || data.source || '미스톡 주문 원장'); setElementText('managed-orders-as-of', formatKstTime(data.as_of));
+        const sync = data.sync || {}; setElementText('managed-orders-sync', sync.availability || data.sync_availability || '제공 안 됨');
+        status.textContent = data.partial ? '부분 조회 완료' : '조회 완료 · 접수는 체결이 아닙니다.'; renderManagedOrderRows();
+    } catch(err) { status.textContent = `관리주문 조회 실패: ${err.message}`; if (!managedOrdersCache.length) setTableMessage('#table-managed-orders tbody',8,err.message); }
+}
+window.renderManagedOrders = renderManagedOrders;
+
+function renderDiagnosticObject(containerId, value, emptyText) {
+    const container = document.getElementById(containerId); if (!container) return;
+    const entries = Object.entries(value || {}).filter(([,item]) => item === null || ['string','number','boolean'].includes(typeof item));
+    container.innerHTML = entries.length ? entries.map(([key,item]) => `<div class="operations-list-item"><span>${escapeHtml(key)}</span><strong>${insightValue(item)}</strong></div>`).join('') : `<span class="time-muted">${escapeHtml(emptyText)}</span>`;
+}
+
+async function renderMistockDiagnostics() {
+    const status = document.getElementById('mistock-diagnostics-status'); if (!status) return;
+    const button = document.getElementById('btn-refresh-mistock-diagnostics'); setButtonBusy(button,true); status.textContent = '미스톡 런타임 진단을 조회하는 중입니다.';
+    try {
+        const data = await fetchJson('/api/mistock/diagnostics');
+        const scheduler = data.scheduler || {};
+        renderDiagnosticObject('mistock-diagnostics-runtime', { ...(data.runtime_flags || {}), scheduler_heartbeat:scheduler.heartbeat, scheduler_last_success_at:scheduler.last_success_at }, '런타임 정보가 없습니다.');
+        const gateContainer = document.getElementById('mistock-diagnostics-gates');
+        const gates = Array.isArray(data.gates) ? data.gates : [];
+        const blocked = Array.isArray(data.blocked_reasons) ? data.blocked_reasons : [];
+        if (gateContainer) gateContainer.innerHTML = gates.length ? gates.map((gate) => `<div class="operations-list-item"><span><strong>${escapeHtml(gate.label || gate.code || 'Gate')}</strong><small class="time-muted">${escapeHtml(gate.code || '')} · ${escapeHtml(gate.severity || '-')}</small></span><strong>${escapeHtml(gate.ok ? '통과' : '차단')}<small class="time-muted">${escapeHtml(gate.reason || '-')}</small></strong></div>`).join('') +
+            (blocked.length ? `<div class="operations-list-item"><span>차단 사유</span><strong>${escapeHtml(blocked.join(' · '))}</strong></div>` : '') : '<span class="time-muted">Gate 정보가 없습니다.</span>';
+        const managed = data.managed_orders || {};
+        renderDiagnosticObject('mistock-diagnostics-orders', { ...(managed.status_counts || {}), unsettled_count:managed.unsettled_count }, '관리주문이 없습니다.');
+        renderDiagnosticObject('mistock-diagnostics-broker', data.broker_cache, '증권사 캐시 정보가 없습니다.');
+        setElementText('mistock-diagnostics-source', data.source?.label || data.source || '미스톡 자동매매 진단'); setElementText('mistock-diagnostics-as-of', formatKstTime(data.generated_at));
+        status.textContent = data.partial ? '부분 조회 완료' : '조회 완료 · 공통 AI 진단과 별도';
+    } catch(err) { status.textContent = `자동매매 진단 조회 실패: ${err.message}`; }
+    finally { setButtonBusy(button,false); }
+}
+window.renderMistockDiagnostics = renderMistockDiagnostics;
+
 async function postJson(url, payload = {}) {
     const response = await fetch(url, {
         method: 'POST',
@@ -411,6 +924,17 @@ async function postJson(url, payload = {}) {
     const data = await response.json();
     if (!response.ok) {
         throw new Error(data.detail || `요청 실패: ${response.status}`);
+    }
+    return data;
+}
+
+async function patchJson(url, payload = {}) {
+    const response = await fetch(url, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+        const error = new Error(data.detail || (response.status === 409 ? '다른 사용자가 먼저 수정했습니다. 새로고침 후 다시 시도하세요.' : `요청 실패: ${response.status}`));
+        error.status = response.status;
+        throw error;
     }
     return data;
 }
@@ -1757,6 +2281,7 @@ async function renderAiStrategies() {
         const data = await fetchJson('/api/mistock/ai-strategies');
         tbody.innerHTML = '';
         const strategies = data.strategies || [];
+        mistockStrategiesCache = strategies;
         if (!strategies.length) {
             setTableMessage('#table-ai-strategies tbody', 6, '등록된 AI 전략이 없습니다.');
             return;
@@ -1783,6 +2308,7 @@ async function renderAiStrategies() {
                         <button type="button" class="button-ghost btn-quick-apply-strategy compact-button" data-id="${escapeHtml(strategy.id)}">적용</button>
                         <button type="button" class="button-ghost btn-quick-validate-strategy compact-button" data-id="${escapeHtml(strategy.id)}">자동검증</button>
                         <button type="button" class="button-ghost btn-performance-strategy compact-button" data-id="${escapeHtml(strategy.id)}">성과</button>
+                        <button type="button" class="button-ghost btn-detail-strategy compact-button" data-id="${escapeHtml(strategy.id)}">상세</button>
                         <button type="button" class="button-ghost btn-evolve-strategy compact-button" style="background: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.3);" data-id="${escapeHtml(strategy.id)}">🌱 자가진화</button>
                     </div>
                     <details class="strategy-advanced-actions">
@@ -1879,6 +2405,7 @@ async function renderAiStrategies() {
             await renderStrategyAudit(id);
             setStatus('전략 성과와 이벤트를 불러왔습니다.', true);
         });
+        tbody.querySelectorAll('.btn-detail-strategy').forEach((button) => button.addEventListener('click', () => openMistockStrategyDetail(button.dataset.id)));
         bindStrategyAction('.btn-evolve-strategy', async (id) => {
             const result = await postJson(`/api/mistock/ai-strategies/${id}/evolve`, {});
             const params = result.result?.params || {};
@@ -2616,9 +3143,11 @@ async function renderApprovals() {
         const data = await fetchJson('/api/mistock/approvals?limit=50');
         const tbody = document.querySelector('#table-approvals tbody');
         if (!tbody) return;
+        const selectAll = document.getElementById('select-all-approvals');
+        if (selectAll) selectAll.checked = false;
         tbody.innerHTML = '';
         if (!data.approvals.length) {
-            setTableMessage('#table-approvals tbody', 8, '승인 대기 주문이 없습니다');
+            setTableMessage('#table-approvals tbody', 9, '승인 대기 주문이 없습니다');
             return;
         }
 
@@ -2638,6 +3167,7 @@ async function renderApprovals() {
 
             const tr = document.createElement('tr');
             tr.innerHTML = `
+                <td><input type="checkbox" class="approval-row-select" value="${escapeHtml(row.id)}" aria-label="${escapeHtml(row.symbol)} 승인 선택" ${status !== 'pending' || autoApprovalInProgress ? 'disabled' : ''}></td>
                 <td>
                     <div>${escapeHtml(String(row.created_at || '').split(' ')[0])}</div>
                     <div class="time-muted">${escapeHtml(String(row.created_at || '').split(' ')[1] || '')}</div>
@@ -2663,8 +3193,26 @@ async function renderApprovals() {
             button.addEventListener('click', () => handleApprovalAction(button, 'reject'));
         });
     } catch (err) {
-        setTableMessage('#table-approvals tbody', 8, err.message);
+        setTableMessage('#table-approvals tbody', 9, err.message);
     }
+}
+
+async function processApprovalBatch(action) {
+    const ids = Array.from(document.querySelectorAll('.approval-row-select:checked')).map((input) => Number(input.value)).filter(Number.isFinite);
+    if (!ids.length) { setElementText('approval-batch-result','선택한 승인 대기 주문이 없습니다.'); return; }
+    const label = action === 'approve' ? '승인' : '거절';
+    if (!confirm(`선택한 ${ids.length}건을 ${label}하시겠습니까?`)) return;
+    const approve = document.getElementById('btn-approve-selected'); const reject = document.getElementById('btn-reject-selected'); setButtonBusy(approve,true); setButtonBusy(reject,true);
+    try {
+        const result = await postJson('/api/mistock/approvals/batch',{ids,action});
+        const summary = result.summary || result;
+        const results = Array.isArray(result.results) ? result.results : [];
+        const successCount = summary.success_count ?? summary.succeeded ?? results.filter((row) => row.ok !== false && row.status !== 'failed').length;
+        const failedCount = summary.failed_count ?? summary.failed ?? results.filter((row) => row.ok === false || row.status === 'failed').length;
+        setElementText('approval-batch-result',`${label} 처리 완료 · 성공 ${successCount}건 · 실패 ${failedCount}건`);
+        await Promise.all([renderApprovals(), renderManagedOrders(true), renderMistockDiagnostics()]);
+    } catch(err) { setElementText('approval-batch-result',`${label} 일괄 처리 실패: ${err.message}`); }
+    finally { setButtonBusy(approve,false); setButtonBusy(reject,false); }
 }
 
 let pendingApprovalButton = null;
@@ -3269,6 +3817,46 @@ async function fetchDashboardData() {
 
 // 매수후보 포착 히스토리 새로고침 버튼 바인딩
 document.addEventListener('DOMContentLoaded', () => {
+    document.getElementById('btn-refresh-workbench')?.addEventListener('click', () => renderStrategyWorkbench());
+    document.getElementById('btn-workbench-analysis')?.addEventListener('click', () => runStrategyWorkbench('analysis_only'));
+    document.getElementById('btn-workbench-execute')?.addEventListener('click', () => runStrategyWorkbench('execute'));
+    document.getElementById('btn-refresh-mistock-diagnostics')?.addEventListener('click', renderMistockDiagnostics);
+    document.getElementById('btn-approve-selected')?.addEventListener('click', () => processApprovalBatch('approve'));
+    document.getElementById('btn-reject-selected')?.addEventListener('click', () => processApprovalBatch('reject'));
+    document.getElementById('select-all-approvals')?.addEventListener('change', (event) => {
+        document.querySelectorAll('.approval-row-select:not(:disabled)').forEach((input) => { input.checked = event.target.checked; });
+    });
+    document.getElementById('btn-refresh-managed-orders')?.addEventListener('click', () => renderManagedOrders(true));
+    document.getElementById('managed-order-status-filter')?.addEventListener('change', renderManagedOrderRows);
+
+    const strategyDetailForm = document.getElementById('form-edit-mistock-strategy');
+    if (strategyDetailForm) strategyDetailForm.addEventListener('submit', async (event) => {
+        event.preventDefault(); const submit = strategyDetailForm.querySelector('[type="submit"]'); const form = new FormData(strategyDetailForm);
+        const number = (key) => form.get(key) === '' ? null : Number(form.get(key));
+        const existingProfile = activeMistockStrategyDetail?.profile || {};
+        const existingRisk = existingProfile.risk || activeMistockStrategyDetail?.risk || {};
+        const payload = { name: form.get('name'), description: form.get('description') || '', weight: number('weight'), expected_version:Number(form.get('expected_version')),
+            profile: { ...existingProfile, risk: { ...existingRisk, max_risk_per_trade_pct:number('max_risk_per_trade_pct'), max_total_open_risk_pct:number('max_total_open_risk_pct'), max_strategy_exposure_pct:number('max_strategy_exposure_pct'), min_cash_reserve_pct:number('min_cash_reserve_pct') },
+                market_regime_filter:String(form.get('market_regime_filter') || '').split(',').map(v=>v.trim()).filter(Boolean) } };
+        setButtonBusy(submit,true); try { await patchJson(`/api/mistock/ai-strategies/${encodeURIComponent(form.get('strategy_id'))}`, payload); await renderAiStrategies(); document.getElementById('mistock-strategy-detail-panel').hidden = true; setStatus('전략 상세를 저장했습니다.', true); }
+        catch(err) { setElementText('strategy-detail-status', err.status === 409 ? `버전 충돌: ${err.message}` : `저장 실패: ${err.message}`); } finally { setButtonBusy(submit,false); }
+    });
+    document.getElementById('btn-close-strategy-detail')?.addEventListener('click', () => { document.getElementById('mistock-strategy-detail-panel').hidden = true; });
+    const policyForm = document.getElementById('form-watchlist-policy');
+    if (policyForm) policyForm.addEventListener('submit', async (event) => {
+        event.preventDefault(); const submit = policyForm.querySelector('[type="submit"]'); const value = (name) => policyForm.elements[name];
+        const optionalNumber = (name) => value(name).value === '' ? null : Number(value(name).value);
+        const payload = { enabled:value('enabled').checked, max_symbols:optionalNumber('max_symbols'), allow_auto_add:value('allow_auto_add').checked, min_score:optionalNumber('min_score'), block_held:value('block_held').checked, block_pending:value('block_pending').checked, rebuy_cooldown_hours:optionalNumber('rebuy_cooldown_hours') };
+        setButtonBusy(submit,true); try { await patchJson('/api/mistock/watchlist/policy', payload); setElementText('watchlist-policy-status','정책을 저장했습니다.'); await renderWatchlistPolicy(); }
+        catch(err) { setElementText('watchlist-policy-status', err.status === 409 ? `버전 충돌: ${err.message}` : `저장 실패: ${err.message}`); } finally { setButtonBusy(submit,false); }
+    });
+    document.getElementById('btn-refresh-schedules')?.addEventListener('click', renderMistockSchedules);
+
+    const operationsRefreshBtn = document.getElementById('btn-refresh-operations');
+    if (operationsRefreshBtn) operationsRefreshBtn.addEventListener('click', () => renderMistockOperations(true));
+    const insightsRefreshBtn = document.getElementById('btn-refresh-insights');
+    if (insightsRefreshBtn) insightsRefreshBtn.addEventListener('click', () => renderMistockInsights(true));
+
     const histRefreshBtn = document.getElementById('btn-candidates-history-refresh');
     if (histRefreshBtn) {
         histRefreshBtn.addEventListener('click', async () => {
@@ -3599,7 +4187,7 @@ document.addEventListener('DOMContentLoaded', () => {
     setTableMessage('#table-candidates tbody', 9, '찾기를 누르면 관심종목에서 매수 후보를 검색합니다');
     setTableMessage('#table-indicator-strategy tbody', 7, '스캔 테스트를 누르면 MACD+RSI 후보를 확인합니다');
     setTableMessage('#table-execution-plan tbody', 8, '불러오기를 누르면 다음 사이클 실행 계획을 표시합니다');
-    setTableMessage('#table-approvals tbody', 8, '승인 대기 주문이 없습니다');
+    setTableMessage('#table-approvals tbody', 9, '승인 대기 주문이 없습니다');
     setTableMessage('#table-ai-allocation tbody', 8, '계산을 누르면 AI 목표 비중을 확인합니다');
     setTableMessage('#table-optimizer tbody', 7, '최적화를 누르면 리스크 기반 목표 비중을 확인합니다');
     

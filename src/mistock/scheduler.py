@@ -18,6 +18,8 @@ if str(ROOT) not in sys.path:
 from src.mistock import trader as mistock_trader
 from src.mistock.config import config as mistock_config
 from src.mistock import db as mistock_db
+from src.mistock.approval_service import get_approval_service
+from src.approval_service import ApprovalStatusError
 from src.notifier.slack import send_mistock_slack
 from src.utils.logger import logger
 
@@ -116,10 +118,12 @@ def _order_delay_seconds() -> float:
         return 1.2
 
 
-def _place_order(symbol: str, action: str, qty: float, price: float, reason: str, strategy_id: str | None):
+def _place_order(symbol: str, action: str, qty: float, price: float, reason: str, strategy_id: str | None, approval_id: int | None = None):
     kwargs = {"reason": reason}
     if strategy_id:
         kwargs["strategy_id"] = strategy_id
+    if approval_id is not None:
+        kwargs["approval_id"] = approval_id
     retries = max(0, mistock_config.rate_limit_retries)
     result = {}
     for attempt in range(retries + 1):
@@ -232,24 +236,39 @@ def _execute_pending_scheduler_approvals(strategy_id: str | None = None) -> list
         (strategy_id, strategy_id),
     )
     processed = []
-    for idx, item in enumerate(pending):
-        result = _place_order(
-            item["symbol"],
-            item["action"],
-            float(item["qty"]),
-            float(item["price"]),
-            item.get("reason") or "scheduler pending approval",
-            item.get("strategy_id") or strategy_id,
-        )
+    approval_service = get_approval_service()
+    for item in pending:
+        try:
+            approval_service.transition_pending(
+                int(item["id"]),
+                status="executing",
+                response_msg="Claimed by Mistock scheduler",
+            )
+        except ApprovalStatusError:
+            logger.info(
+                f"[MISTOCK SCHEDULER] Approval already claimed; skipping id={item['id']}"
+            )
+            continue
+        try:
+            result = _place_order(
+                item["symbol"],
+                item["action"],
+                float(item["qty"]),
+                float(item["price"]),
+                item.get("reason") or "scheduler pending approval",
+                item.get("strategy_id") or strategy_id,
+                int(item["id"]),
+            )
+        except Exception as exc:
+            logger.exception(
+                f"[MISTOCK SCHEDULER] Claimed approval execution failed id={item['id']}"
+            )
+            result = {"ok": False, "message": str(exc)}
         status = "executed" if result.get("ok") else "failed"
-        mistock_db.execute(
-            "UPDATE approvals SET status = ?, updated_at = ?, response_msg = ? WHERE id = ?",
-            (
-                status,
-                mistock_db.now_text(),
-                result.get("message") or result.get("msg1") or status,
-                item["id"],
-            ),
+        approval_service.update_status(
+            int(item["id"]),
+            status=status,
+            response_msg=str(result.get("message") or result.get("msg1") or status),
         )
         processed.append(
             {
@@ -261,7 +280,7 @@ def _execute_pending_scheduler_approvals(strategy_id: str | None = None) -> list
                 "result": result,
             }
         )
-        if idx < len(pending) - 1:
+        if len(processed) < len(pending):
             time.sleep(_order_delay_seconds())
     return processed
 
@@ -332,13 +351,15 @@ def run_mistock_scheduled_cycle(mode: str = "execute", strategy_id: str | None =
                 )
                 continue
             logger.info(f"[MISTOCK SCHEDULER] Auto-approval/order submission disabled or skipped (market_open={market_open}). Queuing {sig['symbol']} as pending approval.")
-            now = mistock_db.now_text()
-            mistock_db.execute(
-                """
-                INSERT INTO approvals (created_at, updated_at, symbol, name, action, qty, price, reason, source, status, response_msg, strategy_id)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', '', ?)
-                """,
-                (now, now, sig["symbol"], symbol_name(sig["symbol"]), "sell", qty, price, sig.get("reason") or "보유 종목 매도 신호", "scheduler", strategy_id),
+            get_approval_service().queue_approval(
+                sig["symbol"],
+                symbol_name(sig["symbol"]),
+                "sell",
+                qty,
+                price,
+                sig.get("reason") or "holding sell signal",
+                source="scheduler",
+                strategy_id=strategy_id or "",
             )
                  
     # 4. 매수 주문 조립 및 집행/대기등록
@@ -408,13 +429,15 @@ def run_mistock_scheduled_cycle(mode: str = "execute", strategy_id: str | None =
             for ord in orders:
                 qty = float(ord["quantity"])
                 price = float(ord["price"])
-                now = mistock_db.now_text()
-                mistock_db.execute(
-                    """
-                    INSERT INTO approvals (created_at, updated_at, symbol, name, action, qty, price, reason, source, status, response_msg, strategy_id)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', '', ?)
-                    """,
-                    (now, now, ord["symbol"], symbol_name(ord["symbol"]), "buy", qty, price, ord.get("reason") or "매수 계획", "scheduler", strategy_id),
+                get_approval_service().queue_approval(
+                    ord["symbol"],
+                    symbol_name(ord["symbol"]),
+                    "buy",
+                    qty,
+                    price,
+                    ord.get("reason") or "buy plan",
+                    source="scheduler",
+                    strategy_id=strategy_id or "",
                 )
             
     order_failures = [

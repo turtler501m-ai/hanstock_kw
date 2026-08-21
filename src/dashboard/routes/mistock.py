@@ -5,7 +5,7 @@ import json
 import os
 import time
 from pathlib import Path
-from fastapi import APIRouter, Body, HTTPException
+from fastapi import APIRouter, Body, HTTPException, Query
 from fastapi.responses import FileResponse
 
 import src.dashboard.core as _core
@@ -228,6 +228,518 @@ def mistock_health():
     }
 
 
+@router.get("/api/mistock/operations")
+def mistock_operations(
+    strategy_id: str | None = Query(default=None),
+    limit: int = Query(default=40, ge=1, le=100),
+):
+    """Return the shared AI-stock US operational projection for Mistock.
+
+    This endpoint is deliberately read-only.  Its records live in the shared
+    AI-stock repositories, not in Mistock's trade/performance database, so the
+    response identifies that scope explicitly.  A failure in one projection
+    must not hide the remaining operational evidence from the dashboard.
+    """
+    from src.ai_stock.decision_pipeline_service import build_pipeline
+    from src.db import ai_dashboard_repository as ai_repo
+    from datetime import datetime, timezone
+
+    market = "US"
+    selected_strategy = str(strategy_id or "").strip() or None
+    sections: dict[str, object] = {}
+    errors: dict[str, str] = {}
+
+    def load_section(name: str, loader) -> None:
+        try:
+            sections[name] = loader()
+        except Exception as exc:
+            logger.warning(f"mistock shared AI operations section failed section={name}: {exc}")
+            sections[name] = [] if name != "decision_pipeline" else None
+            errors[name] = str(exc)
+
+    load_section(
+        "decision_pipeline",
+        lambda: build_pipeline(
+            market=market,
+            strategy_id=selected_strategy,
+            limit=limit,
+        ),
+    )
+    load_section(
+        "positions",
+        lambda: ai_repo.list_strategy_positions(
+            market=market,
+            strategy_id=selected_strategy,
+            active_only=False,
+        )[:limit],
+    )
+    load_section(
+        "decisions",
+        lambda: ai_repo.list_strategy_decisions(
+            market=market,
+            strategy_id=selected_strategy,
+            limit=limit,
+        ),
+    )
+    load_section(
+        "managed_orders",
+        lambda: ai_repo.list_managed_orders(
+            market=market,
+            strategy_id=selected_strategy,
+            limit=limit,
+        ),
+    )
+    load_section(
+        "risk_reservations",
+        lambda: ai_repo.list_risk_reservations(
+            market=market,
+            strategy_id=selected_strategy,
+            limit=limit,
+        ),
+    )
+    load_section(
+        "position_protections",
+        lambda: [
+            row
+            for row in ai_repo.list_position_protections(market=market)
+            if not selected_strategy or row.get("strategy_id") == selected_strategy
+        ][:limit],
+    )
+    load_section(
+        "unprotected_positions",
+        lambda: [
+            row
+            for row in ai_repo.list_unprotected_strategy_positions(market=market)
+            if not selected_strategy or row.get("strategy_id") == selected_strategy
+        ][:limit],
+    )
+    load_section(
+        "automation_policies",
+        lambda: [
+            row
+            for row in ai_repo.list_policies(market=market)
+            if not selected_strategy or row.get("strategy_id") == selected_strategy
+        ][:limit],
+    )
+    load_section(
+        "automation_runs",
+        lambda: ai_repo.list_execution_runs(
+            market=market,
+            strategy_id=selected_strategy,
+            limit=limit,
+        ),
+    )
+
+    generated_at = datetime.now(timezone.utc).isoformat()
+    decision_flow = sections.get("decision_pipeline")
+    managed_orders = sections.get("managed_orders") or []
+    diagnostics = {
+        key: value
+        for key, value in sections.items()
+        if key not in {"decision_pipeline", "managed_orders"}
+    }
+    diagnostics["errors"] = errors
+    summary = {
+        "status": "partial" if errors else "ok",
+        "partial": bool(errors),
+        "managed_order_count": len(managed_orders) if isinstance(managed_orders, list) else 0,
+        "failed_section_count": len(errors),
+    }
+    if isinstance(decision_flow, dict) and isinstance(decision_flow.get("summary"), dict):
+        summary.update(decision_flow["summary"])
+
+    return {
+        "ok": not errors,
+        "partial": bool(errors),
+        "generated_at": generated_at,
+        "summary": summary,
+        "decision_flow": decision_flow,
+        "managed_orders": managed_orders,
+        "diagnostics": diagnostics,
+        "sources": [
+            {
+                "key": "shared_ai_stock",
+                "label": "AI common pipeline (US)",
+                "as_of": generated_at,
+            },
+            {
+                "key": "mistock_operations_projection",
+                "label": "Mistock read-only operations projection",
+                "as_of": generated_at,
+            },
+        ],
+        "source": "shared_ai_stock",
+        "scope": {
+            "market": market,
+            "strategy_id": selected_strategy,
+            "read_only": True,
+            "excludes": ["mistock_trades", "mistock_account_performance"],
+        },
+        "sections": sections,
+        "errors": errors,
+        "meta": {
+            "data_domain": "ai_stock_operational_evidence",
+            "display_label": "AI common pipeline (US)",
+            "limit": limit,
+            "section_count": len(sections),
+            "failed_section_count": len(errors),
+        },
+    }
+
+
+def _mistock_insight_pnl(trades: list[dict], broker_holdings: list[dict] | None) -> dict:
+    positions: dict[str, dict[str, float]] = {}
+    realized = 0.0
+    realized_krw = 0.0
+    fx_effect_krw = 0.0
+    fx_complete = True
+    filled_trades = []
+    for trade in trades:
+        if not bool(trade.get("ok")) or str(trade.get("order_status") or "") not in {
+            "filled", "demo_local_filled"
+        }:
+            continue
+        symbol = str(trade.get("symbol") or "")
+        action = str(trade.get("action") or "").lower()
+        qty = float(trade.get("qty") or 0)
+        price = float(trade.get("price") or 0)
+        if not symbol or action not in {"buy", "sell"} or qty <= 0 or price <= 0:
+            continue
+        filled_trades.append(trade)
+        exchange_rate = float(trade.get("exchange_rate") or 0)
+        valid_fx = exchange_rate >= 100
+        if not valid_fx:
+            fx_complete = False
+        position = positions.setdefault(symbol, {
+            "qty": 0.0, "avg_price": 0.0, "avg_price_krw": 0.0, "fx_complete": 1.0,
+        })
+        if action == "buy":
+            total_qty = position["qty"] + qty
+            position["avg_price"] = (
+                (position["qty"] * position["avg_price"] + qty * price) / total_qty
+            )
+            if valid_fx and bool(position["fx_complete"]):
+                position["avg_price_krw"] = (
+                    position["qty"] * position["avg_price_krw"] + qty * price * exchange_rate
+                ) / total_qty
+            else:
+                position["fx_complete"] = 0.0
+            position["qty"] = total_qty
+        else:
+            sold_qty = min(qty, position["qty"])
+            trade_realized_usd = (price - position["avg_price"]) * sold_qty
+            realized += trade_realized_usd
+            if valid_fx and bool(position["fx_complete"]):
+                trade_realized_krw = (price * exchange_rate - position["avg_price_krw"]) * sold_qty
+                realized_krw += trade_realized_krw
+                fx_effect_krw += trade_realized_krw - trade_realized_usd * exchange_rate
+            elif sold_qty > 0:
+                fx_complete = False
+            position["qty"] -= sold_qty
+            if position["qty"] <= 0:
+                position["avg_price"] = 0.0
+                position["avg_price_krw"] = 0.0
+                position["fx_complete"] = 1.0
+
+    fees = sum(float(row.get("fee") or 0) for row in filled_trades)
+    tax = sum(float(row.get("tax") or 0) for row in filled_trades)
+    fees_krw = sum(
+        float(row.get("fee") or 0) * float(row.get("exchange_rate") or 0)
+        for row in filled_trades if float(row.get("exchange_rate") or 0) >= 100
+    )
+    tax_krw = sum(
+        float(row.get("tax") or 0) * float(row.get("exchange_rate") or 0)
+        for row in filled_trades if float(row.get("exchange_rate") or 0) >= 100
+    )
+    fx_available = fx_complete and bool(filled_trades)
+    fx_reason = (
+        None if fx_available else
+        "No filled trades are available." if not filled_trades else
+        "One or more filled trades have no valid USD/KRW exchange rate."
+    )
+    fx_availability = "available" if fx_available else "unavailable" if not filled_trades else "partial"
+    realized_net_usd = realized - fees - tax
+    realized_net_krw = realized_krw - fees_krw - tax_krw if fx_available else None
+    unrealized = None
+    unrealized_reason = "No cached broker holdings with current prices are available."
+    if broker_holdings is not None:
+        unrealized = round(sum(float(row.get("pnl") or 0) for row in broker_holdings), 2)
+        unrealized_reason = None
+    return {
+        "availability": "available" if unrealized is not None else "partial",
+        "reason": unrealized_reason,
+        "currency": "USD",
+        "realized": {"value": round(realized, 2), "availability": "available", "reason": None},
+        "realized_krw": {
+            "value": round(realized_krw, 2) if fx_available else None,
+            "availability": fx_availability,
+            "reason": fx_reason,
+        },
+        "realized_net_usd": {"value": round(realized_net_usd, 2), "availability": "available", "reason": None},
+        "realized_net_krw": {
+            "value": round(realized_net_krw, 2) if realized_net_krw is not None else None,
+            "availability": fx_availability,
+            "reason": fx_reason,
+        },
+        "unrealized": {
+            "value": unrealized,
+            "availability": "available" if unrealized is not None else "unavailable",
+            "reason": unrealized_reason,
+        },
+        "fees": {"value": round(fees, 2), "availability": "available", "reason": None},
+        "tax": {"value": round(tax, 2), "availability": "available", "reason": None},
+        "fees_usd": round(fees, 2),
+        "fees_krw": round(fees_krw, 2) if fx_available else None,
+        "tax_usd": round(tax, 2),
+        "tax_krw": round(tax_krw, 2) if fx_available else None,
+        "fx_effect": {
+            "value": round(fx_effect_krw, 2) if fx_available else None,
+            "availability": fx_availability,
+            "reason": fx_reason,
+        },
+        "fx_effect_krw": round(fx_effect_krw, 2) if fx_available else None,
+    }
+
+
+def _mistock_insight_reconciliation(
+    local_holdings: list[dict],
+    broker_holdings: list[dict] | None,
+    strategy_positions: list[dict],
+    *,
+    as_of: str,
+) -> dict:
+    local = {str(row.get("symbol")): float(row.get("qty") or 0) for row in local_holdings}
+    broker = None if broker_holdings is None else {
+        str(row.get("symbol")): float(row.get("qty") or 0) for row in broker_holdings
+    }
+    strategy: dict[str, float] = {}
+    for row in strategy_positions:
+        if str(row.get("status") or "") not in {"pending_entry", "open", "exit_pending"}:
+            continue
+        symbol = str(row.get("symbol") or "")
+        strategy[symbol] = strategy.get(symbol, 0.0) + float(row.get("remaining_qty") or 0)
+    symbols = set(local) | set(strategy) | (set(broker) if broker is not None else set())
+    rows = []
+    for symbol in sorted(symbols):
+        local_qty = local.get(symbol, 0.0)
+        strategy_qty = strategy.get(symbol, 0.0)
+        broker_qty = broker.get(symbol, 0.0) if broker is not None else None
+        if broker_qty is None:
+            status, delta = "broker_unavailable", None
+        else:
+            delta = round(broker_qty - local_qty, 8)
+            strategy_delta = round(local_qty - strategy_qty, 8)
+            status = "reconciled" if delta == 0 and strategy_delta == 0 else "mismatch"
+        rows.append({
+            "symbol": symbol,
+            "broker_qty": broker_qty,
+            "local_qty": local_qty,
+            "strategy_qty": strategy_qty,
+            "delta": delta,
+            "strategy_delta": round(local_qty - strategy_qty, 8),
+            "status": status,
+            "source": "cached_broker/local_mistock/shared_ai_stock",
+            "as_of": as_of,
+        })
+    return {
+        "availability": "available" if broker is not None else "partial",
+        "reason": None if broker is not None else "No broker balance cache is available; no broker request was made.",
+        "rows": rows,
+        "mismatch_count": sum(row["status"] == "mismatch" for row in rows),
+    }
+
+
+def _mistock_insight_scan_diagnostics(candidates: list[dict]) -> dict:
+    if not candidates:
+        return {
+            "availability": "unavailable",
+            "reason": "No persisted scan candidates are available.",
+            "scanned": None,
+            "candidate": 0,
+            "error": None,
+            "funnel": [],
+            "recent_candidates": [],
+        }
+    latest_at = str(candidates[0].get("scanned_at") or "")
+    latest = [row for row in candidates if str(row.get("scanned_at") or "") == latest_at]
+    return {
+        "availability": "partial",
+        "reason": "Only persisted candidates are stored; total scanned and scan errors are not persisted.",
+        "scanned": None,
+        "candidate": len(latest),
+        "error": None,
+        "funnel": [
+            {"stage": "persisted_candidates", "count": len(latest), "availability": "available"},
+            {"stage": "total_scanned", "count": None, "availability": "unavailable"},
+        ],
+        "as_of": latest_at or None,
+        "recent_candidates": [
+            {
+                "symbol": row.get("symbol"),
+                "name": row.get("name"),
+                "score": row.get("score"),
+                "reasons": row.get("reasons"),
+                "market_regime": row.get("market_regime"),
+                "data_as_of": row.get("data_as_of") or row.get("scanned_at"),
+            }
+            for row in latest[:10]
+        ],
+    }
+
+
+def _mistock_insight_market_context(candidates: list[dict]) -> dict:
+    evidence = [
+        {
+            "symbol": row.get("symbol"),
+            "market_regime": row.get("market_regime"),
+            "data_source": row.get("data_source") or "shared_ai_stock_repository",
+            "data_as_of": row.get("data_as_of") or row.get("scanned_at") or row.get("created_at"),
+            "data_quality": row.get("data_quality"),
+        }
+        for row in candidates
+        if row.get("market_regime")
+    ]
+    return {
+        "availability": "available" if evidence else "unavailable",
+        "reason": None if evidence else "No persisted US candidate contains market-regime evidence.",
+        "regime": evidence[0]["market_regime"] if evidence else None,
+        "evidence": evidence[:10],
+        "freshness": {
+            "as_of": evidence[0]["data_as_of"] if evidence else None,
+            "status": "reported_by_source" if evidence else "unknown",
+        },
+    }
+
+
+def _mistock_insight_position_protection(
+    protections: list[dict], unprotected: list[dict]
+) -> dict:
+    return {
+        "availability": "available",
+        "protected_count": sum(
+            str(row.get("status") or "") in {"active", "requested"} for row in protections
+        ),
+        "unprotected_count": len(unprotected),
+        "protections": protections,
+        "unprotected_positions": unprotected,
+    }
+
+
+@router.get("/api/mistock/insights")
+def mistock_insights():
+    """Combine persisted Mistock and shared US-AI evidence without network I/O."""
+    from datetime import datetime, timezone
+    from src.db import ai_dashboard_repository as ai_repo
+
+    generated_at = datetime.now(timezone.utc).isoformat()
+    sections: dict[str, object] = {}
+    errors: dict[str, str] = {}
+
+    def load(name: str, loader) -> object | None:
+        try:
+            value = loader()
+            sections[name] = value
+            return value
+        except Exception as exc:
+            logger.warning(f"mistock insights section failed section={name}: {exc}")
+            errors[name] = str(exc)
+            sections[name] = {
+                "availability": "unavailable",
+                "reason": str(exc),
+            }
+            return None
+
+    trades = load("_trades", lambda: mistock_db.rows("SELECT * FROM trades ORDER BY ts, id"))
+    local_holdings = load(
+        "_local_holdings",
+        lambda: mistock_db.rows(
+            "SELECT symbol, name, qty, avg_price, updated_at FROM holdings ORDER BY symbol"
+        ),
+    )
+    mistock_candidates = load(
+        "_mistock_candidates",
+        lambda: mistock_db.rows("SELECT * FROM scanned_candidates ORDER BY id DESC LIMIT 200"),
+    )
+    strategy_positions = load(
+        "_strategy_positions",
+        lambda: ai_repo.list_strategy_positions(market="US", active_only=False),
+    )
+    shared_candidates = load(
+        "_shared_candidates",
+        lambda: ai_repo.list_candidates(market="US", limit=100),
+    )
+    protections = load(
+        "_protections", lambda: ai_repo.list_position_protections(market="US")
+    )
+    unprotected = load(
+        "_unprotected", lambda: ai_repo.list_unprotected_strategy_positions(market="US")
+    )
+
+    broker_holdings = None
+    cached_balance = getattr(mistock_trader, "_overseas_balance_cache", None)
+    if isinstance(cached_balance, dict) and not cached_balance.get("_error"):
+        try:
+            broker_holdings = mistock_trader._holdings_from_overseas_balance(cached_balance)
+        except Exception as exc:
+            errors["cached_broker_balance"] = str(exc)
+
+    sections["pnl_breakdown"] = _mistock_insight_pnl(
+        trades if isinstance(trades, list) else [], broker_holdings
+    )
+    sections["reconciliation"] = _mistock_insight_reconciliation(
+        local_holdings if isinstance(local_holdings, list) else [],
+        broker_holdings,
+        strategy_positions if isinstance(strategy_positions, list) else [],
+        as_of=generated_at,
+    )
+    sections["scan_diagnostics"] = _mistock_insight_scan_diagnostics(
+        mistock_candidates if isinstance(mistock_candidates, list) else []
+    )
+    sections["position_protection"] = _mistock_insight_position_protection(
+        protections if isinstance(protections, list) else [],
+        unprotected if isinstance(unprotected, list) else [],
+    )
+    sections["market_context"] = _mistock_insight_market_context(
+        shared_candidates if isinstance(shared_candidates, list) else []
+    )
+
+    for key in [name for name in sections if name.startswith("_")]:
+        sections.pop(key, None)
+    return {
+        "ok": not errors,
+        "partial": bool(errors),
+        "generated_at": generated_at,
+        "read_only": True,
+        "source": "mistock_persisted_and_shared_ai_stock",
+        "sources": [
+            {
+                "key": "mistock_persisted",
+                "label": "Mistock persisted trading data",
+                "as_of": generated_at,
+            },
+            {
+                "key": "shared_ai_stock_us",
+                "label": "AI common pipeline (US)",
+                "as_of": generated_at,
+            },
+        ],
+        "scope": {
+            "market": "US",
+            "network_calls": False,
+            "balance_source": "broker_cache" if broker_holdings is not None else "local_only",
+        },
+        "sources": [
+            {"key": "mistock_db", "label": "Mistock persisted trading data", "as_of": generated_at},
+            {"key": "shared_ai_stock", "label": "Shared AI-stock US repository", "as_of": generated_at},
+            {
+                "key": "broker_balance_cache",
+                "label": "Existing broker balance cache (no refresh)",
+                "as_of": generated_at if broker_holdings is not None else None,
+            },
+        ],
+        **sections,
+        "errors": errors,
+    }
 from src.utils.exchange_rate import get_usd_krw_rate
 
 
@@ -684,6 +1196,111 @@ def mistock_ai_strategies():
     return {"strategies": _strategy_rows()}
 
 
+def _mistock_strategy_patch_values(payload: dict) -> dict:
+    allowed = {"name", "description", "weight", "profile"}
+    unsupported = set(payload) - allowed - {"expected_version"}
+    if unsupported:
+        raise HTTPException(status_code=400, detail=f"unsupported strategy fields: {', '.join(sorted(unsupported))}")
+    values = {key: payload[key] for key in allowed if key in payload}
+    if "name" in values:
+        values["name"] = str(values["name"]).strip()
+        if not values["name"]:
+            raise HTTPException(status_code=400, detail="name must not be empty")
+    if "description" in values:
+        values["description"] = str(values["description"] or "")
+    if "weight" in values:
+        try:
+            values["weight"] = float(values["weight"])
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail="weight must be a number") from exc
+        if not 0 <= values["weight"] <= 1:
+            raise HTTPException(status_code=400, detail="weight must be between 0 and 1")
+    if "profile" in values and not isinstance(values["profile"], dict):
+        raise HTTPException(status_code=400, detail="profile must be an object")
+    if not values:
+        raise HTTPException(status_code=400, detail="at least one editable field is required")
+    return values
+
+
+@router.patch("/api/mistock/ai-strategies/{strategy_id}")
+def mistock_patch_ai_strategy(strategy_id: str, payload: dict = Body(...)):
+    import hashlib
+
+    values = _mistock_strategy_patch_values(payload)
+    expected = payload.get("expected_version")
+    if expected is not None:
+        try:
+            expected = int(expected)
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail="expected_version must be an integer") from exc
+    conn = mistock_db.connect_db()
+    try:
+        with conn:
+            conn.row_factory = __import__("sqlite3").Row
+            current_row = conn.execute("SELECT * FROM ai_strategies WHERE id = ?", (strategy_id,)).fetchone()
+            if current_row is None:
+                raise HTTPException(status_code=404, detail="strategy not found")
+            current = dict(current_row)
+            current_version = int(current.get("strategy_version") or 1)
+            if expected is not None and expected != current_version:
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"strategy version conflict: expected {expected}, current {current_version}",
+                )
+            profile = values.get("profile")
+            if profile is None:
+                try:
+                    profile = json.loads(current.get("profile_json") or "{}")
+                except (TypeError, ValueError):
+                    profile = {}
+            profile_json = json.dumps(profile, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+            profile_hash = hashlib.sha256(profile_json.encode("utf-8")).hexdigest()
+            new_version = current_version + 1
+            validation = json.dumps(
+                {"status": "review_required", "reason": "strategy edited", "checks": {}},
+                ensure_ascii=False,
+                sort_keys=True,
+            )
+            cur = conn.execute(
+                """
+                UPDATE ai_strategies
+                SET name=?, description=?, weight=?, profile_json=?, profile_hash=?,
+                    strategy_version=?, status='review_required', last_validation_result=?
+                WHERE id=? AND strategy_version=?
+                """,
+                (
+                    values.get("name", current.get("name")),
+                    values.get("description", current.get("description") or ""),
+                    values.get("weight", float(current.get("weight") or 0)),
+                    profile_json,
+                    profile_hash,
+                    new_version,
+                    validation,
+                    strategy_id,
+                    current_version,
+                ),
+            )
+            if cur.rowcount != 1:
+                raise HTTPException(status_code=409, detail="strategy changed concurrently")
+            conn.execute(
+                """
+                INSERT INTO ai_strategy_events
+                    (ts, strategy_id, strategy_version, event_type, payload)
+                VALUES (?, ?, ?, 'strategy_edited', ?)
+                """,
+                (
+                    mistock_db.now_text(),
+                    strategy_id,
+                    new_version,
+                    json.dumps({"changed_fields": sorted(values), "profile_hash": profile_hash}, ensure_ascii=False),
+                ),
+            )
+    finally:
+        conn.close()
+    strategy = mistock_db.row("SELECT * FROM ai_strategies WHERE id = ?", (strategy_id,))
+    return {"ok": True, "strategy": strategy, "review_required": True}
+
+
 @router.post("/api/mistock/ai-strategies")
 def mistock_create_ai_strategy(payload: dict = Body(...)):
     strategy_id = normalize_symbol(str(payload.get("name") or "mistock_strategy")).lower().replace(".", "_")
@@ -876,6 +1493,149 @@ def mistock_strategy_performance(strategy_id: str, days: int = 30):
     return {"strategy_id": strategy_id, "days": days, "return_pct": 0.0, "win_rate": 0.0, "trades": 0, "max_drawdown_pct": 0.0}
 
 
+@router.get("/api/mistock/strategy-workbench/{strategy_id}")
+def mistock_strategy_workbench(strategy_id: str, limit: int = 50):
+    from datetime import datetime, timezone
+
+    strategy = mistock_db.row("SELECT * FROM ai_strategies WHERE id=?", (strategy_id,))
+    if not strategy:
+        raise HTTPException(status_code=404, detail="strategy not found")
+    safe_limit = max(1, min(int(limit), 200))
+    generated_at = datetime.now(timezone.utc).isoformat()
+    sections: dict[str, object] = {}
+    errors: dict[str, str] = {}
+
+    def load(name: str, loader, default):
+        try:
+            value = loader()
+            sections[name] = value
+            return value
+        except Exception as exc:
+            logger.warning(f"mistock strategy workbench section failed section={name}: {exc}")
+            errors[name] = str(exc)
+            sections[name] = default
+            return default
+
+    def strategy_projection() -> dict:
+        item = dict(strategy)
+        for source_field, target_field in (
+            ("profile_json", "profile"),
+            ("last_validation_result", "validation"),
+        ):
+            try:
+                item[target_field] = json.loads(item.get(source_field) or "{}")
+            except (TypeError, ValueError):
+                item[target_field] = {}
+        return item
+
+    load("strategy", strategy_projection, {})
+    load(
+        "schedule",
+        lambda: mistock_db.row("SELECT * FROM strategy_schedules WHERE strategy_id=?", (strategy_id,)),
+        None,
+    )
+    load(
+        "candidates",
+        lambda: mistock_db.rows(
+            "SELECT * FROM scanned_candidates WHERE strategy_id=? ORDER BY id DESC LIMIT ?",
+            (strategy_id, safe_limit),
+        ),
+        [],
+    )
+    load(
+        "approvals",
+        lambda: mistock_db.rows(
+            "SELECT * FROM approvals WHERE strategy_id=? ORDER BY id DESC LIMIT ?",
+            (strategy_id, safe_limit),
+        ),
+        [],
+    )
+    load(
+        "managed_orders",
+        lambda: mistock_db.rows(
+            "SELECT * FROM managed_orders WHERE strategy_id=? ORDER BY id DESC LIMIT ?",
+            (strategy_id, safe_limit),
+        ),
+        [],
+    )
+    strategy_trades = load(
+        "trades",
+        lambda: mistock_db.rows(
+            "SELECT * FROM trades WHERE strategy_id=? ORDER BY id DESC LIMIT ?",
+            (strategy_id, safe_limit),
+        ),
+        [],
+    )
+    load(
+        "events",
+        lambda: mistock_db.rows(
+            "SELECT * FROM ai_strategy_events WHERE strategy_id=? ORDER BY id DESC LIMIT ?",
+            (strategy_id, safe_limit),
+        ),
+        [],
+    )
+
+    def performance_projection() -> dict:
+        rows = mistock_db.rows(
+            "SELECT * FROM trades WHERE strategy_id=? ORDER BY ts, id", (strategy_id,)
+        )
+        pnl = _mistock_insight_pnl(rows, None)
+        filled = [
+            row for row in rows
+            if bool(row.get("ok")) and str(row.get("order_status") or "") in {"filled", "demo_local_filled"}
+        ]
+        sells = [row for row in filled if str(row.get("action") or "").lower() == "sell"]
+        return {
+            "strategy_id": strategy_id,
+            "filled_trade_count": len(filled),
+            "sell_count": len(sells),
+            "pnl_breakdown": pnl,
+            "availability": "available" if filled else "unavailable",
+            "reason": None if filled else "No filled strategy trades are persisted.",
+        }
+
+    load("performance", performance_projection, {
+        "strategy_id": strategy_id, "availability": "unavailable", "reason": "performance unavailable",
+    })
+    timestamps = []
+    for value in sections.values():
+        rows = value if isinstance(value, list) else [value] if isinstance(value, dict) else []
+        for row in rows:
+            for key in ("updated_at", "ts", "scanned_at", "created_at", "last_run_at"):
+                if row.get(key):
+                    timestamps.append(str(row[key]))
+                    break
+    return {
+        "ok": not errors,
+        "partial": bool(errors),
+        "strategy_id": strategy_id,
+        "source": "mistock_persisted_strategy_workbench",
+        "as_of": max(timestamps) if timestamps else generated_at,
+        "generated_at": generated_at,
+        "read_only": True,
+        "sections": sections,
+        **sections,
+        "errors": errors,
+    }
+
+
+@router.post("/api/mistock/strategy-workbench/{strategy_id}/run")
+def mistock_strategy_workbench_run(strategy_id: str, payload: dict = Body(default={})):
+    if not mistock_db.row("SELECT id FROM ai_strategies WHERE id=?", (strategy_id,)):
+        raise HTTPException(status_code=404, detail="strategy not found")
+    mode = str(payload.get("mode") or "analysis_only").lower()
+    if mode not in {"analysis_only", "execute"}:
+        raise HTTPException(status_code=400, detail="mode must be analysis_only or execute")
+    result = mistock_scheduler_run({"mode": mode, "strategy_ids": [strategy_id]})
+    return {
+        "ok": True,
+        "delegated": True,
+        "strategy_id": strategy_id,
+        "mode": mode,
+        "scheduler": result,
+    }
+
+
 @router.get("/api/mistock/watchlist")
 def mistock_watchlist():
     items = mistock_trader.get_watchlist()
@@ -903,6 +1663,150 @@ def mistock_watchlist():
         "ai_auto_add": mistock_db.get_setting("ai_auto_add", "false") == "true",
         "ai_auto_add_threshold": float(mistock_db.get_setting("ai_auto_add_threshold", "3") or 3),
     }
+
+
+_MISTOCK_WATCHLIST_POLICY_DEFAULTS = {
+    "enabled": True,
+    "max_symbols": 100,
+    "allow_auto_add": False,
+    "min_score": 3.0,
+    "block_held": True,
+    "block_pending": True,
+    "rebuy_cooldown_hours": 24,
+}
+
+
+def _mistock_validate_watchlist_policy(payload: dict, current: dict | None = None) -> dict:
+    policy = {**_MISTOCK_WATCHLIST_POLICY_DEFAULTS, **(current or {})}
+    unsupported = set(payload) - set(policy)
+    if unsupported:
+        raise HTTPException(status_code=400, detail=f"unsupported policy fields: {', '.join(sorted(unsupported))}")
+    for key in ("enabled", "allow_auto_add", "block_held", "block_pending"):
+        if key in payload:
+            if not isinstance(payload[key], bool):
+                raise HTTPException(status_code=400, detail=f"{key} must be boolean")
+            policy[key] = payload[key]
+    for key, minimum, maximum, caster in (
+        ("max_symbols", 1, 1000, int),
+        ("min_score", 0, 100, float),
+        ("rebuy_cooldown_hours", 0, 24 * 365, int),
+    ):
+        if key in payload:
+            try:
+                value = caster(payload[key])
+            except (TypeError, ValueError) as exc:
+                raise HTTPException(status_code=400, detail=f"{key} must be numeric") from exc
+            if value < minimum or value > maximum:
+                raise HTTPException(status_code=400, detail=f"{key} must be between {minimum} and {maximum}")
+            policy[key] = value
+    return policy
+
+
+def _mistock_load_watchlist_policy() -> dict:
+    result = {}
+    for key, default in _MISTOCK_WATCHLIST_POLICY_DEFAULTS.items():
+        raw = mistock_db.get_setting(f"watchlist_policy_{key}", json.dumps(default))
+        try:
+            result[key] = json.loads(raw)
+        except (TypeError, ValueError):
+            result[key] = default
+    return _mistock_validate_watchlist_policy({}, result)
+
+
+def _mistock_watchlist_policy_summary(
+    policy: dict,
+    watchlist: list[dict],
+    held_symbols: set[str],
+    pending_symbols: set[str],
+    cooldown_symbols: set[str],
+) -> dict:
+    allowed, blocked = [], []
+    for row in watchlist:
+        symbol = str(row.get("symbol") or "")
+        reasons = []
+        if not policy["enabled"]:
+            reasons.append("policy_disabled")
+        if policy["block_held"] and symbol in held_symbols:
+            reasons.append("held")
+        if policy["block_pending"] and symbol in pending_symbols:
+            reasons.append("pending_order")
+        if symbol in cooldown_symbols:
+            reasons.append("rebuy_cooldown")
+        score = row.get("score")
+        if score is None:
+            reasons.append("score_unavailable")
+        elif float(score) < float(policy["min_score"]):
+            reasons.append("below_min_score")
+        target = blocked if reasons else allowed
+        target.append({**row, "blocked_reasons": reasons})
+    if len(allowed) > policy["max_symbols"]:
+        overflow = allowed[policy["max_symbols"]:]
+        allowed = allowed[:policy["max_symbols"]]
+        blocked.extend({**row, "blocked_reasons": ["max_symbols"]} for row in overflow)
+    return {
+        "watchlist_count": len(watchlist),
+        "held_symbols": sorted(held_symbols),
+        "pending_symbols": sorted(pending_symbols),
+        "cooldown_symbols": sorted(cooldown_symbols),
+        "allowed": allowed,
+        "blocked": blocked,
+        "allowed_count": len(allowed),
+        "blocked_count": len(blocked),
+    }
+
+
+def _mistock_watchlist_policy_response() -> dict:
+    from datetime import datetime, timedelta, timezone
+
+    policy = _mistock_load_watchlist_policy()
+    watchlist = mistock_db.rows(
+        """
+        SELECT w.symbol, w.name, w.created_at, sc.score, sc.scanned_at
+        FROM watchlist w
+        LEFT JOIN scanned_candidates sc ON sc.id=(
+            SELECT MAX(latest.id) FROM scanned_candidates latest WHERE latest.symbol=w.symbol
+        )
+        ORDER BY w.symbol
+        """
+    )
+    held = {str(row["symbol"]) for row in mistock_db.rows("SELECT symbol FROM holdings WHERE qty > 0")}
+    pending = {
+        str(row["symbol"])
+        for row in mistock_db.rows(
+            "SELECT DISTINCT symbol FROM approvals WHERE status IN ('pending', 'executing')"
+        )
+    }
+    cutoff = (datetime.now(timezone(timedelta(hours=9))) - timedelta(
+        hours=int(policy["rebuy_cooldown_hours"])
+    )).strftime("%Y-%m-%d %H:%M:%S")
+    cooldown = {
+        str(row["symbol"])
+        for row in mistock_db.rows(
+            "SELECT DISTINCT symbol FROM trades WHERE action='sell' AND ok=1 AND ts>=?",
+            (cutoff,),
+        )
+    }
+    return {
+        "policy": policy,
+        "summary": _mistock_watchlist_policy_summary(policy, watchlist, held, pending, cooldown),
+        "read_only_evaluation": True,
+    }
+
+
+@router.get("/api/mistock/watchlist/policy")
+def mistock_get_watchlist_policy():
+    return _mistock_watchlist_policy_response()
+
+
+@router.patch("/api/mistock/watchlist/policy")
+def mistock_patch_watchlist_policy(payload: dict = Body(...)):
+    policy = _mistock_validate_watchlist_policy(payload, _mistock_load_watchlist_policy())
+    for key, value in policy.items():
+        mistock_db.set_setting(f"watchlist_policy_{key}", json.dumps(value))
+    # Keep the legacy auto-add controls aligned without changing scan behavior.
+    mistock_db.set_setting("ai_auto_add", "true" if policy["allow_auto_add"] else "false")
+    mistock_db.set_setting("ai_auto_add_threshold", str(policy["min_score"]))
+    return {"ok": True, **_mistock_watchlist_policy_response()}
 
 
 @router.post("/api/mistock/watchlist")
@@ -1089,6 +1993,7 @@ def _is_mistock_order_window_open() -> bool:
 @router.post("/api/mistock/approvals")
 def mistock_create_approval(payload: dict = Body(...)):
     from src.online_access import is_online_access_blocked
+    from src.mistock.approval_service import get_approval_service
 
     symbol = normalize_symbol(str(payload.get("symbol", "")))
     action = str(payload.get("action", "")).lower()
@@ -1099,13 +2004,22 @@ def mistock_create_approval(payload: dict = Body(...)):
     if not symbol or action not in {"buy", "sell"} or qty <= 0:
         raise HTTPException(status_code=400, detail="symbol, action, qty required")
     name = str(payload.get("name") or symbol_name(symbol))
-    now = mistock_db.now_text()
-    approval_id = mistock_db.execute(
-        """
-        INSERT INTO approvals (created_at, updated_at, symbol, name, action, qty, price, reason, source, status, response_msg, strategy_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', '', ?)
-        """,
-        (now, now, symbol, name, action, qty, price, str(payload.get("reason") or ""), str(payload.get("source") or "mistock_dashboard"), str(payload.get("strategy_id") or "") or None),
+    approval_id = get_approval_service().queue_approval(
+        symbol,
+        name,
+        action,
+        qty,
+        price,
+        str(payload.get("reason") or ""),
+        source=str(payload.get("source") or "mistock_dashboard"),
+        strategy_id=str(payload.get("strategy_id") or ""),
+        strategy_version=payload.get("strategy_version"),
+        profile_hash=str(payload.get("profile_hash") or ""),
+        source_candidate_id=payload.get("source_candidate_id"),
+        managed_order_id=payload.get("managed_order_id"),
+        decision_id=payload.get("decision_id"),
+        position_id=payload.get("position_id"),
+        client_order_key=str(payload.get("client_order_key") or ""),
     )
     if (
         not is_online_access_blocked()
@@ -1146,31 +2060,51 @@ def mistock_approvals(limit: int = 50):
 
 def _execute_approval(approval_id: int, *, approve: bool) -> dict:
     from src.online_access import is_online_access_blocked
+    from src.approval_service import ApprovalStatusError
+    from src.mistock.approval_service import get_approval_service
 
     item = mistock_db.row("SELECT * FROM approvals WHERE id = ?", (approval_id,))
     if not item:
         raise HTTPException(status_code=404, detail="approval not found")
     if item["status"] != "pending":
         return item
+    approval_service = get_approval_service()
     if not approve:
-        mistock_db.execute(
-            "UPDATE approvals SET status = 'rejected', updated_at = ?, response_msg = 'Rejected by dashboard' WHERE id = ?",
-            (mistock_db.now_text(), approval_id),
-        )
+        try:
+            approval_service.reject_approval(approval_id)
+        except ApprovalStatusError:
+            current = mistock_db.row("SELECT * FROM approvals WHERE id = ?", (approval_id,))
+            return current or item
         updated = mistock_db.row("SELECT * FROM approvals WHERE id = ?", (approval_id,))
         return {**updated, "ok": True}
     if is_online_access_blocked():
         raise HTTPException(status_code=409, detail="Online access is blocked. Approval remains pending.")
     if not _is_mistock_order_window_open():
         raise HTTPException(status_code=409, detail="US market is not open. Approval remains pending.")
-    result = mistock_trader.place_order(
-        item["symbol"], item["action"], item["qty"], item["price"], item.get("reason") or "",
-        strategy_id=item.get("strategy_id"),
-    )
+    try:
+        approval_service.transition_pending(
+            approval_id,
+            status="executing",
+            response_msg="Claimed by Mistock dashboard",
+        )
+    except ApprovalStatusError:
+        current = mistock_db.row("SELECT * FROM approvals WHERE id = ?", (approval_id,))
+        return current or item
+    try:
+        result = mistock_trader.place_order(
+            item["symbol"], item["action"], item["qty"], item["price"], item.get("reason") or "",
+            strategy_id=item.get("strategy_id"),
+            approval_id=approval_id,
+            client_order_key=item.get("client_order_key") or None,
+        )
+    except Exception as exc:
+        logger.exception(f"mistock approval execution failed approval_id={approval_id}")
+        result = {"ok": False, "message": str(exc)}
     status = "executed" if result.get("ok") else "failed"
-    mistock_db.execute(
-        "UPDATE approvals SET status = ?, updated_at = ?, response_msg = ? WHERE id = ?",
-        (status, mistock_db.now_text(), result.get("message") or result.get("msg1") or status, approval_id),
+    approval_service.update_status(
+        approval_id,
+        status=status,
+        response_msg=str(result.get("message") or result.get("msg1") or status),
     )
     updated = mistock_db.row("SELECT * FROM approvals WHERE id = ?", (approval_id,))
     return {**updated, "ok": bool(result.get("ok"))}
@@ -1184,6 +2118,71 @@ def mistock_approve(approval_id: int):
 @router.post("/api/mistock/approvals/{approval_id}/reject")
 def mistock_reject(approval_id: int):
     return _execute_approval(approval_id, approve=False)
+
+
+@router.post("/api/mistock/approvals/batch")
+def mistock_approval_batch(payload: dict = Body(...)):
+    raw_ids = payload.get("ids")
+    action = str(payload.get("action") or "").lower()
+    if action not in {"approve", "reject"}:
+        raise HTTPException(status_code=400, detail="action must be approve or reject")
+    if not isinstance(raw_ids, list) or not raw_ids:
+        raise HTTPException(status_code=400, detail="ids must be a non-empty list")
+    ids = []
+    for value in raw_ids:
+        try:
+            approval_id = int(value)
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail="every approval id must be an integer") from exc
+        if approval_id <= 0:
+            raise HTTPException(status_code=400, detail="every approval id must be positive")
+        if approval_id not in ids:
+            ids.append(approval_id)
+    if len(ids) > 50:
+        raise HTTPException(status_code=400, detail="at most 50 unique approval ids are allowed")
+
+    results = []
+    for approval_id in ids:
+        before = mistock_db.row("SELECT status FROM approvals WHERE id=?", (approval_id,))
+        if before and before.get("status") != "pending":
+            results.append({
+                "id": approval_id,
+                "outcome": "skipped",
+                "status": before.get("status"),
+                "reason": "approval is not pending",
+            })
+            continue
+        try:
+            result = _execute_approval(approval_id, approve=action == "approve")
+            results.append({
+                "id": approval_id,
+                "outcome": "success" if result.get("ok", True) else "failed",
+                "status": result.get("status"),
+                "result": result,
+            })
+        except HTTPException as exc:
+            results.append({
+                "id": approval_id,
+                "outcome": "failed",
+                "status_code": exc.status_code,
+                "reason": str(exc.detail),
+            })
+        except Exception as exc:
+            logger.exception(f"mistock approval batch item failed approval_id={approval_id}")
+            results.append({"id": approval_id, "outcome": "failed", "reason": str(exc)})
+    summary = {
+        "requested": len(ids),
+        "success": sum(row["outcome"] == "success" for row in results),
+        "failed": sum(row["outcome"] == "failed" for row in results),
+        "skipped": sum(row["outcome"] == "skipped" for row in results),
+    }
+    return {
+        "ok": summary["failed"] == 0,
+        "action": action,
+        "summary": summary,
+        "results": results,
+        "execution": {"mode": "synchronous", "bounded": True, "max_items": 50},
+    }
 
 
 @router.post("/api/mistock/holdings/sell-all")
@@ -1312,6 +2311,11 @@ def _period_bucket() -> dict:
 _MISTOCK_INDEX_TICKERS = {
     "sp500": "^GSPC",
     "nasdaq": "^IXIC",
+    "QQQ": "QQQ",
+    "SPY": "SPY",
+    "SOXX": "SOXX",
+    "VIX": "^VIX",
+    "USDKRW": "KRW=X",
 }
 _MISTOCK_INDEX_CACHE: tuple[float, dict[str, list[dict]]] = (0.0, {})
 _MISTOCK_PRICE_CACHE: tuple[float, dict[str, list[dict]]] = (0.0, {})
@@ -1330,29 +2334,99 @@ def _load_mistock_index_rows() -> dict[str, list[dict]]:
 
         require_online_access("미스톡 성과 탭 시장지수 조회")
         for name, ticker in _MISTOCK_INDEX_TICKERS.items():
-            data = yf.download(
-                ticker,
-                period="6mo",
-                interval="1d",
-                auto_adjust=False,
-                progress=False,
-                threads=False,
-                timeout=5,
-            )
-            if data is None or data.empty:
-                continue
-            close = data["Close"]
-            if getattr(close, "ndim", 1) > 1:
-                close = close.iloc[:, 0]
-            series[name] = [
-                {"date": str(index)[:10], "close": float(value)}
-                for index, value in close.dropna().items()
-            ]
+            try:
+                data = yf.download(
+                    ticker,
+                    period="6mo",
+                    interval="1d",
+                    auto_adjust=False,
+                    progress=False,
+                    threads=False,
+                    timeout=5,
+                )
+                if data is None or data.empty:
+                    continue
+                close = data["Close"]
+                if getattr(close, "ndim", 1) > 1:
+                    close = close.iloc[:, 0]
+                series[name] = [
+                    {"date": str(index)[:10], "close": float(value)}
+                    for index, value in close.dropna().items()
+                ]
+            except Exception as exc:
+                logger.info(f"Mistock market ticker unavailable ticker={ticker}: {exc}")
     except Exception as exc:
         logger.info(f"Mistock performance benchmark data unavailable: {exc}")
 
     _MISTOCK_INDEX_CACHE = (time.monotonic(), series)
     return series
+
+
+def _mistock_market_regime_projection(
+    index_rows: dict[str, list[dict]], market_open: bool
+) -> dict:
+    assets = []
+    for name, ticker in _MISTOCK_INDEX_TICKERS.items():
+        rows = index_rows.get(name) or []
+        closes = [float(row.get("close") or 0) for row in rows if float(row.get("close") or 0) > 0]
+        latest = closes[-1] if closes else None
+        change = (latest / closes[-2] - 1) * 100 if latest is not None and len(closes) >= 2 else None
+        sma20 = sum(closes[-20:]) / 20 if len(closes) >= 20 else None
+        sma60 = sum(closes[-60:]) / 60 if len(closes) >= 60 else None
+        if latest is None:
+            trend = "unknown"
+        elif sma20 is not None and sma60 is not None and latest > sma20 > sma60:
+            trend = "up"
+        elif sma20 is not None and sma60 is not None and latest < sma20 < sma60:
+            trend = "down"
+        else:
+            trend = "neutral"
+        assets.append({
+            "key": name,
+            "ticker": ticker,
+            "latest": round(latest, 4) if latest is not None else None,
+            "as_of": rows[-1].get("date") if rows else None,
+            "change_pct": round(change, 3) if change is not None else None,
+            "sma20": round(sma20, 4) if sma20 is not None else None,
+            "sma60": round(sma60, 4) if sma60 is not None else None,
+            "trend": trend,
+            "data_quality": "good" if len(closes) >= 60 else "partial" if closes else "unavailable",
+        })
+    by_key = {row["key"]: row for row in assets}
+    risk_assets = [by_key[key] for key in ("QQQ", "SPY", "SOXX") if key in by_key]
+    up = sum(row["trend"] == "up" for row in risk_assets)
+    down = sum(row["trend"] == "down" for row in risk_assets)
+    vix = by_key.get("VIX", {}).get("latest")
+    if (vix is not None and vix >= 30) or down >= 2:
+        regime, multiplier = "risk_off", 0.4
+    elif up >= 2 and (vix is None or vix < 25):
+        regime, multiplier = "risk_on", 1.0
+    else:
+        regime, multiplier = "neutral", 0.7
+    return {
+        "assets": assets,
+        "regime": regime,
+        "risk_multiplier": multiplier,
+        "market_session": {
+            "market": "US",
+            "open": bool(market_open),
+            "reason": "US order window is open" if market_open else "US order window is closed",
+        },
+        "partial": any(row["data_quality"] != "good" for row in assets),
+    }
+
+
+@router.get("/api/mistock/market-regime")
+def mistock_market_regime():
+    from src.mistock.scheduler import is_us_market_open
+
+    rows = _load_mistock_index_rows()
+    result = _mistock_market_regime_projection(rows, is_us_market_open())
+    return {
+        **result,
+        "source": "yfinance_5m_cache",
+        "cache_ttl_seconds": 300,
+    }
 
 
 def _load_mistock_price_rows(symbols: list[str]) -> dict[str, list[dict]]:
@@ -2208,6 +3282,119 @@ def _clear_stale_mistock_scheduler_error(last_result: dict | None) -> None:
     })
 
 
+def _mistock_validate_schedule(payload: dict, current: dict | None = None) -> dict:
+    import re
+
+    defaults = {
+        "enabled": True,
+        "interval_minutes": 60,
+        "start_hm": "2100",
+        "end_hm": "0600",
+        "weekdays": "1-5/2-6",
+        "mode": "execute",
+        "auto_approve": False,
+    }
+    schedule = {**defaults, **(current or {})}
+    unsupported = set(payload) - set(defaults) - {"strategy_id"}
+    if unsupported:
+        raise HTTPException(status_code=400, detail=f"unsupported schedule fields: {', '.join(sorted(unsupported))}")
+    for key in ("enabled", "auto_approve"):
+        if key in payload:
+            if not isinstance(payload[key], bool):
+                raise HTTPException(status_code=400, detail=f"{key} must be boolean")
+            schedule[key] = payload[key]
+    if "interval_minutes" in payload:
+        try:
+            interval = int(payload["interval_minutes"])
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail="interval_minutes must be an integer") from exc
+        if not 1 <= interval <= 10080:
+            raise HTTPException(status_code=400, detail="interval_minutes must be between 1 and 10080")
+        schedule["interval_minutes"] = interval
+    for key in ("start_hm", "end_hm"):
+        if key in payload:
+            value = str(payload[key]).strip()
+            if not re.fullmatch(r"(?:[01]\d|2[0-3])[0-5]\d", value):
+                raise HTTPException(status_code=400, detail=f"{key} must be HHMM")
+            schedule[key] = value
+    if "weekdays" in payload:
+        value = str(payload["weekdays"]).strip()
+        part = r"[1-7](?:-[1-7])?(?:,[1-7](?:-[1-7])?)*"
+        if not re.fullmatch(fr"{part}(?:/{part})?", value):
+            raise HTTPException(status_code=400, detail="weekdays must contain ISO weekdays 1-7")
+        schedule["weekdays"] = value
+    if "mode" in payload:
+        mode = str(payload["mode"]).lower()
+        if mode not in {"execute", "analysis_only"}:
+            raise HTTPException(status_code=400, detail="mode must be execute or analysis_only")
+        schedule["mode"] = mode
+    return {key: schedule[key] for key in defaults}
+
+
+def _mistock_schedule_rows() -> list[dict]:
+    rows = mistock_db.rows(
+        """
+        SELECT s.*, a.name
+        FROM strategy_schedules s
+        LEFT JOIN ai_strategies a ON a.id=s.strategy_id
+        ORDER BY s.strategy_id
+        """
+    )
+    return [
+        {
+            **row,
+            "enabled": bool(row.get("enabled")),
+            "auto_approve": bool(row.get("auto_approve")),
+            "display_name": row.get("name") or row.get("strategy_id"),
+        }
+        for row in rows
+    ]
+
+
+@router.get("/api/mistock/schedules")
+def mistock_schedules():
+    rows = _mistock_schedule_rows()
+    return {"schedules": rows, "count": len(rows)}
+
+
+@router.patch("/api/mistock/schedules")
+def mistock_patch_schedule(payload: dict = Body(...)):
+    strategy_id = str(payload.get("strategy_id") or "").strip()
+    if not strategy_id:
+        raise HTTPException(status_code=400, detail="strategy_id is required")
+    if not mistock_db.row("SELECT id FROM ai_strategies WHERE id=?", (strategy_id,)):
+        raise HTTPException(status_code=404, detail="strategy not found")
+    current = mistock_db.row("SELECT * FROM strategy_schedules WHERE strategy_id=?", (strategy_id,))
+    schedule = _mistock_validate_schedule(payload, current)
+    mistock_db.execute(
+        """
+        INSERT INTO strategy_schedules
+            (strategy_id, enabled, interval_minutes, start_hm, end_hm, weekdays, mode, auto_approve)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(strategy_id) DO UPDATE SET
+            enabled=excluded.enabled,
+            interval_minutes=excluded.interval_minutes,
+            start_hm=excluded.start_hm,
+            end_hm=excluded.end_hm,
+            weekdays=excluded.weekdays,
+            mode=excluded.mode,
+            auto_approve=excluded.auto_approve
+        """,
+        (
+            strategy_id,
+            int(schedule["enabled"]),
+            schedule["interval_minutes"],
+            schedule["start_hm"],
+            schedule["end_hm"],
+            schedule["weekdays"],
+            schedule["mode"],
+            int(schedule["auto_approve"]),
+        ),
+    )
+    row = next(row for row in _mistock_schedule_rows() if row["strategy_id"] == strategy_id)
+    return {"ok": True, "schedule": row}
+
+
 @router.get("/api/mistock/scheduler/status")
 def mistock_scheduler_status():
     global _mistock_scheduler_run_state
@@ -2396,6 +3583,193 @@ def mistock_set_auto_approval(payload: dict = Body(...)):
     mistock_db.set_setting("auto_approval", "true" if enabled else "false")
     processed = _auto_approve_mistock_pending_approvals() if enabled else []
     return {"ok": True, "enabled": enabled, "processed": processed, "processed_count": len(processed)}
+
+
+@router.get("/api/mistock/managed-orders")
+def mistock_managed_orders(limit: int = 100, status: str = ""):
+    safe_limit = max(1, min(int(limit), 500))
+    where = " WHERE status=?" if status.strip() else ""
+    params = (status.strip(),) if status.strip() else ()
+    rows = mistock_db.rows(
+        f"SELECT * FROM managed_orders{where} ORDER BY id DESC LIMIT ?",
+        params + (safe_limit,),
+    )
+    for row in rows:
+        try:
+            row["broker_payload"] = json.loads(row.get("broker_payload") or "null")
+        except (TypeError, ValueError):
+            pass
+    counts = mistock_db.rows(
+        "SELECT status, COUNT(*) AS count FROM managed_orders GROUP BY status ORDER BY status"
+    )
+    status_summary = {str(row["status"]): int(row["count"]) for row in counts}
+    as_of = str(rows[0].get("updated_at") or mistock_db.now_text()) if rows else mistock_db.now_text()
+    return {
+        "orders": rows,
+        "count": len(rows),
+        "status_summary": status_summary,
+        "summary": status_summary,
+        "source": "mistock_managed_orders",
+        "as_of": as_of,
+        "sync": {
+            "availability": "unavailable",
+            "reason": "Kiwoom overseas fill-status query is not implemented; no fill is inferred.",
+            "estimated_fills": False,
+        },
+        "read_only": True,
+    }
+
+
+@router.get("/api/mistock/managed-orders/sync")
+def mistock_managed_order_sync_status():
+    return {
+        "availability": "unavailable",
+        "reason": "Kiwoom overseas fill-status query is not implemented; accepted orders remain unsettled.",
+        "estimated_fills": False,
+        "mutated": False,
+    }
+
+
+def _mistock_diagnostic_gate(
+    code: str, label: str, ok: bool, reason: str, severity: str = "blocking"
+) -> dict:
+    return {"code": code, "label": label, "ok": bool(ok), "reason": reason, "severity": severity}
+
+
+@router.get("/api/mistock/diagnostics")
+def mistock_diagnostics():
+    """Return a no-network operational diagnosis with fail-isolated evidence."""
+    import time as monotonic_time
+    from datetime import datetime, timezone
+    from src.db import ai_dashboard_repository as ai_repo
+    from src.mistock.scheduler import is_us_market_open
+    from src.online_access import is_online_access_blocked
+
+    generated_at = datetime.now(timezone.utc).isoformat()
+    errors: dict[str, str] = {}
+
+    def safe(name: str, loader, default):
+        try:
+            return loader()
+        except Exception as exc:
+            logger.warning(f"mistock diagnostics section failed section={name}: {exc}")
+            errors[name] = str(exc)
+            return default
+
+    flags = safe("runtime_flags", mistock_trader.runtime_flags, {})
+    market_open = safe("market_clock", is_us_market_open, False)
+    market_reason = "US order window is open" if market_open else "US order window is closed"
+
+    def scheduler_projection() -> dict:
+        _mistock_scheduler_run_state.refresh()
+        state = _mistock_scheduler_run_state.copy()
+        recent = load_mistock_daily_runs(days=30)
+        last_result = merge_mistock_runs(recent)
+        successful = last_result if last_result and last_result.get("status") != "failed" else None
+        return {
+            "heartbeat": "running" if state.get("is_running") else "idle",
+            "current_run": state,
+            "last_success": successful,
+            "last_success_at": (successful or {}).get("recorded_at") or state.get("completed_at"),
+        }
+
+    scheduler = safe("scheduler", scheduler_projection, {
+        "heartbeat": "unknown", "current_run": {}, "last_success": None, "last_success_at": None,
+    })
+    approval_counts = safe(
+        "approvals",
+        lambda: mistock_db.rows(
+            "SELECT status, COUNT(*) AS count FROM approvals WHERE status IN ('pending','executing') GROUP BY status"
+        ),
+        [],
+    )
+    approvals = {str(row["status"]): int(row["count"]) for row in approval_counts}
+    managed_counts_rows = safe(
+        "managed_orders",
+        lambda: mistock_db.rows("SELECT status, COUNT(*) AS count FROM managed_orders GROUP BY status"),
+        [],
+    )
+    managed_counts = {str(row["status"]): int(row["count"]) for row in managed_counts_rows}
+    unsettled_statuses = {"created", "accepted", "partially_filled", "cancel_requested"}
+    unsettled_count = sum(count for status, count in managed_counts.items() if status in unsettled_statuses)
+
+    cached_balance = getattr(mistock_trader, "_overseas_balance_cache", None)
+    cached_at = float(getattr(mistock_trader, "_overseas_balance_cache_at", 0) or 0)
+    broker_cache_age = (
+        max(0.0, monotonic_time.monotonic() - cached_at)
+        if isinstance(cached_balance, dict) and cached_at > 0 else None
+    )
+    broker_cache = {
+        "available": isinstance(cached_balance, dict),
+        "age_seconds": round(broker_cache_age, 3) if broker_cache_age is not None else None,
+        "source": (cached_balance or {}).get("_broker") if isinstance(cached_balance, dict) else None,
+        "error": (cached_balance or {}).get("_error") if isinstance(cached_balance, dict) else None,
+        "refreshed": False,
+    }
+    broker_holdings = None
+    if broker_cache["available"] and not broker_cache["error"]:
+        broker_holdings = safe(
+            "broker_cache_parse",
+            lambda: mistock_trader._holdings_from_overseas_balance(cached_balance),
+            None,
+        )
+    local_holdings = safe(
+        "local_holdings",
+        lambda: mistock_db.rows("SELECT symbol, qty FROM holdings WHERE qty>0"),
+        [],
+    )
+    strategy_positions = safe(
+        "strategy_positions",
+        lambda: ai_repo.list_strategy_positions(market="US", active_only=False),
+        [],
+    )
+    reconciliation = _mistock_insight_reconciliation(
+        local_holdings, broker_holdings, strategy_positions, as_of=generated_at
+    )
+    unprotected = safe(
+        "unprotected_positions",
+        lambda: ai_repo.list_unprotected_strategy_positions(market="US"),
+        [],
+    )
+    online_blocked = safe("online_access", is_online_access_blocked, True)
+    gates = [
+        _mistock_diagnostic_gate("online_access", "Online access", not online_blocked,
+                                 "Online access is allowed" if not online_blocked else "Online access is blocked"),
+        _mistock_diagnostic_gate("market_open", "US market window", market_open, market_reason, "warning"),
+        _mistock_diagnostic_gate("live_trading", "Live trading safety",
+                                 bool(flags.get("order_submission_enabled")) or bool(flags.get("dry_run")),
+                                 "Order mode is configured" if flags else "Runtime flags unavailable"),
+        _mistock_diagnostic_gate("scheduler", "Scheduler state", scheduler["heartbeat"] != "unknown",
+                                 f"Scheduler is {scheduler['heartbeat']}", "warning"),
+        _mistock_diagnostic_gate("reconciliation", "Position reconciliation",
+                                 reconciliation.get("mismatch_count", 0) == 0,
+                                 f"{reconciliation.get('mismatch_count', 0)} mismatches"),
+        _mistock_diagnostic_gate("position_protection", "Position protection", len(unprotected) == 0,
+                                 f"{len(unprotected)} unprotected positions"),
+        _mistock_diagnostic_gate("managed_orders", "Unsettled managed orders", unsettled_count == 0,
+                                 f"{unsettled_count} unsettled orders", "warning"),
+        _mistock_diagnostic_gate("broker_cache", "Broker balance cache", broker_cache["available"],
+                                 "Broker cache is available" if broker_cache["available"] else "Broker cache unavailable; no refresh attempted", "warning"),
+    ]
+    blocked_reasons = [gate["reason"] for gate in gates if not gate["ok"] and gate["severity"] == "blocking"]
+    return {
+        "ok": not errors and not blocked_reasons,
+        "partial": bool(errors),
+        "generated_at": generated_at,
+        "source": "mistock_runtime_and_persisted_state",
+        "scope": {"market": "US", "network_calls": False, "read_only": True},
+        "runtime_flags": flags,
+        "market": {"open": market_open, "reason": market_reason},
+        "scheduler": scheduler,
+        "approvals": {"counts": approvals, "pending": approvals.get("pending", 0), "executing": approvals.get("executing", 0)},
+        "managed_orders": {"status_counts": managed_counts, "unsettled_count": unsettled_count},
+        "broker_cache": broker_cache,
+        "reconciliation": reconciliation,
+        "position_protection": {"unprotected_count": len(unprotected), "unprotected_positions": unprotected},
+        "gates": gates,
+        "blocked_reasons": blocked_reasons,
+        "errors": errors,
+    }
 
 
 @router.post("/api/mistock/runtime/order-mode")

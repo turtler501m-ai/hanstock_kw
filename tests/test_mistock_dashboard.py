@@ -332,7 +332,7 @@ class MistockDashboardTests(unittest.TestCase):
         self.assertEqual(balance["total_eval"], 5000.0)
         self.assertEqual(balance["balance_source"], "demo_config_fallback")
 
-    def test_demo_order_success_updates_dashboard_before_broker_balance_catches_up(self):
+    def test_demo_order_acceptance_does_not_create_a_shadow_fill(self):
         class FakeClient:
             def get_overseas_balance(self):
                 return {
@@ -359,13 +359,13 @@ class MistockDashboardTests(unittest.TestCase):
             object.__setattr__(mistock_config, "dry_run", original_dry_run)
 
         self.assertTrue(order["ok"])
-        self.assertEqual(balance["balance_source"], "demo_local_shadow")
-        self.assertEqual(balance["cash"], 799.8)
-        self.assertEqual(balance["stock_eval"], 200.0)
-        self.assertEqual(balance["total_eval"], 999.8)
-        self.assertEqual(balance["holdings"][0]["symbol"], "AAPL")
-        self.assertEqual(balance["holdings"][0]["qty"], 2.0)
-        self.assertEqual(balance["holdings"][0]["source"], "local_shadow")
+        self.assertEqual(order["status"], "accepted")
+        self.assertEqual(balance["balance_source"], "demo_config_fallback")
+        self.assertEqual(balance["cash"], 1000.0)
+        self.assertEqual(balance["stock_eval"], 0.0)
+        self.assertEqual(balance["total_eval"], 1000.0)
+        self.assertEqual(balance["holdings"], [])
+        self.assertEqual(mistock_db.rows("SELECT * FROM trades"), [])
 
     def test_demo_local_shadow_balance_refreshes_current_quote(self):
         class FakeClient:
@@ -966,6 +966,7 @@ class MistockDashboardTests(unittest.TestCase):
         place_order.assert_called_once_with(
             "AAPL", "buy", 1.0, 100.0,
             reason="before market", strategy_id="mistock_nasdaq_rule_v1",
+            approval_id=approval_id,
         )
 
     def test_scheduler_position_slots_include_pending_buys(self):

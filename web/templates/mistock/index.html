@@ -96,6 +96,25 @@
         .spinner {
             border-top-color: var(--electric-blue) !important;
         }
+
+        .operations-source-note {
+            margin: 0;
+            padding: 0.85rem 1rem;
+            border: 1px solid rgba(139, 92, 246, 0.3);
+            border-radius: 8px;
+            background: rgba(139, 92, 246, 0.1);
+            color: var(--text-muted);
+        }
+
+        .operations-source-note strong { color: #d8b4fe; }
+        .operations-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
+        .operations-list { display: grid; gap: 0.65rem; }
+        .operations-list-item { display: flex; justify-content: space-between; gap: 1rem; padding: 0.7rem; border-radius: 7px; background: rgba(255,255,255,0.035); }
+        .operations-list-item span { color: var(--text-muted); }
+        .insights-unavailable { color: var(--text-muted); font-size: 0.82rem; }
+        .insights-source-list { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.8rem; }
+        .insights-source-chip { padding: 0.45rem 0.65rem; border: 1px solid rgba(139,92,246,.25); border-radius: 999px; color: var(--text-muted); }
+        @media (max-width: 900px) { .operations-grid { grid-template-columns: 1fr; } }
     </style>
 </head>
 
@@ -131,6 +150,8 @@
                 <button type="button" class="dashboard-tab" data-dashboard-tab="schedule">스케쥴</button>
                 <button type="button" class="dashboard-tab" data-dashboard-tab="orders">주문승인</button>
                 <button type="button" class="dashboard-tab" data-dashboard-tab="ai">AI/최적화</button>
+                <button type="button" class="dashboard-tab" data-dashboard-tab="operations" aria-controls="dashboard-tab-operations" aria-selected="false">공통 운영실</button>
+                <button type="button" class="dashboard-tab" data-dashboard-tab="insights" aria-controls="dashboard-tab-insights" aria-selected="false">계좌·시장 진단</button>
                 <button type="button" class="dashboard-tab" data-dashboard-tab="performance">성과</button>
             </nav>
 
@@ -776,6 +797,11 @@
                         </div>
                     </div>
                 </section>
+                <section class="card glass" style="margin-top:1.5rem">
+                    <div class="panel-header split-header"><div><h2>전략별 스케줄</h2><p class="section-help">전략별 실행 시간과 승인 정책을 편집합니다.</p></div><button type="button" id="btn-refresh-schedules" class="button-ghost compact-button">새로고침</button></div>
+                    <div id="schedules-status" class="time-muted" role="status" aria-live="polite"></div>
+                    <div class="table-responsive"><table id="table-mistock-schedules"><thead><tr><th>전략</th><th>간격</th><th>시간</th><th>요일</th><th>모드</th><th>자동승인</th><th>활성</th><th>작업</th></tr></thead><tbody><tr><td colspan="8">조회 전입니다.</td></tr></tbody></table></div>
+                </section>
             </section>
 
             <section class="dashboard-section" id="dashboard-tab-orders">
@@ -785,12 +811,13 @@
                             <h2>주문 승인 대기열</h2>
                             <p class="section-help">자동매매 신호를 즉시 전송하지 않고 승인 후 처리합니다.</p>
                         </div>
-                        <button type="button" id="btn-approvals">새로고침</button>
+                        <div class="button-row"><button type="button" id="btn-approve-selected">선택 승인</button><button type="button" id="btn-reject-selected" class="button-danger">선택 거절</button><button type="button" id="btn-approvals">새로고침</button></div>
                     </div>
                     <div class="table-responsive">
                         <table id="table-approvals">
                             <thead>
                                 <tr>
+                                    <th><input type="checkbox" id="select-all-approvals" aria-label="승인 대기 전체 선택"></th>
                                     <th>등록일</th>
                                     <th>구분</th>
                                     <th>종목</th>
@@ -804,6 +831,14 @@
                             <tbody></tbody>
                         </table>
                     </div>
+                    <div id="approval-batch-result" class="time-muted" role="status" aria-live="polite"></div>
+                </section>
+                <section class="card glass" style="margin-top:1.5rem">
+                    <div class="panel-header split-header"><div><h2>미스톡 관리주문</h2><p class="section-help"><strong>미스톡 주문 원장</strong> 기준입니다. 공통 AI 운영실의 관리주문과 별도 데이터입니다.</p></div><div class="button-row"><label>상태 <select id="managed-order-status-filter"><option value="">전체</option><option value="accepted">접수</option><option value="partial">부분체결</option><option value="filled">체결</option><option value="cancelled">취소</option><option value="rejected">거부</option><option value="failed">실패</option><option value="demo_local_filled">데모 로컬 체결</option></select></label><button type="button" id="btn-refresh-managed-orders" class="button-ghost compact-button">새로고침</button></div></div>
+                    <div class="operations-source-note"><strong id="managed-orders-source">미스톡 주문 원장</strong> · <span id="managed-orders-as-of">-</span> · 동기화 <span id="managed-orders-sync">-</span></div>
+                    <div id="managed-orders-status" class="time-muted" role="status" aria-live="polite"></div>
+                    <div id="managed-orders-summary" class="summary-grid" aria-label="관리주문 상태 요약"></div>
+                    <div class="table-responsive"><table id="table-managed-orders"><thead><tr><th>종목/전략</th><th>구분</th><th>요청/체결수량</th><th>지정/평균체결가</th><th>상태</th><th>증권사 주문번호</th><th>갱신</th><th>작업</th></tr></thead><tbody><tr><td colspan="8">조회 전입니다.</td></tr></tbody></table></div>
                 </section>
             </section>
 
@@ -1134,6 +1169,31 @@
                             </tbody>
                         </table>
                     </div>
+                    <aside class="panel-sub" id="mistock-strategy-detail-panel" hidden style="margin-top:1.5rem">
+                        <div class="panel-header split-header"><div><h3>전략 상세 편집</h3><p class="section-help">버전 충돌 시 새로고침 후 다시 저장하세요.</p></div><span id="mistock-strategy-detail-version" class="status-badge">-</span></div>
+                        <form id="form-edit-mistock-strategy" class="strategy-settings-form">
+                            <input type="hidden" name="strategy_id"><input type="hidden" name="expected_version">
+                            <label>전략명<input name="name" required></label><label>가중치<input name="weight" type="number" min="0" max="1" step="0.01" required></label>
+                            <label style="grid-column:1/-1">설명<textarea name="description"></textarea></label>
+                            <label>거래당 최대 위험(%)<input name="max_risk_per_trade_pct" type="number" min="0" step="0.1"></label><label>전체 오픈 위험(%)<input name="max_total_open_risk_pct" type="number" min="0" step="0.1"></label>
+                            <label>전략 최대 노출(%)<input name="max_strategy_exposure_pct" type="number" min="0" step="0.1"></label><label>최소 현금보유(%)<input name="min_cash_reserve_pct" type="number" min="0" step="0.1"></label>
+                            <label style="grid-column:1/-1">시장 국면 필터(쉼표 구분)<input name="market_regime_filter"></label>
+                            <div class="button-row" style="grid-column:1/-1"><button type="submit">변경사항 저장</button><button type="button" id="btn-close-strategy-detail" class="button-ghost">닫기</button></div><div id="strategy-detail-status" class="time-muted" role="status" aria-live="polite" style="grid-column:1/-1"></div>
+                        </form>
+                    </aside>
+                    <section class="panel-sub" id="mistock-strategy-workbench" hidden style="margin-top:1.5rem" aria-labelledby="strategy-workbench-title">
+                        <div class="panel-header split-header">
+                            <div><h3 id="strategy-workbench-title">전략 운영 워크벤치</h3><p class="section-help">선택 전략의 후보부터 승인·주문·체결·성과까지 한 흐름으로 확인합니다.</p></div>
+                            <div class="button-row"><button type="button" id="btn-workbench-analysis" class="button-ghost compact-button">분석 실행</button><button type="button" id="btn-workbench-execute" class="compact-button">주문 사이클</button><button type="button" id="btn-refresh-workbench" class="button-ghost compact-button">새로고침</button></div>
+                        </div>
+                        <div id="strategy-workbench-status" class="time-muted" role="status" aria-live="polite">전략을 선택하세요.</div>
+                        <div id="strategy-workbench-summary" class="ai-strategy-summary"></div>
+                        <div class="operations-grid" style="margin-top:1rem">
+                            <section class="card glass"><h3>최근 후보·승인</h3><div id="strategy-workbench-decisions" class="operations-list"></div></section>
+                            <section class="card glass"><h3>관리 주문·거래</h3><div id="strategy-workbench-orders" class="operations-list"></div></section>
+                        </div>
+                        <div class="table-responsive" style="margin-top:1rem"><table id="table-strategy-workbench-events"><thead><tr><th>시각</th><th>구분</th><th>상태</th><th>요약</th></tr></thead><tbody><tr><td colspan="4">전략을 선택하세요.</td></tr></tbody></table></div>
+                    </section>
                     <div class="panel-sub" id="strategy-audit-panel" style="margin-top: 1.5rem;">
                         <div class="panel-header split-header">
                             <div>
@@ -1227,6 +1287,17 @@
             </section>
 
             <section class="dashboard-section" id="dashboard-tab-watchlist">
+                <section class="card glass" style="margin-bottom:1.5rem">
+                    <div class="panel-header split-header"><div><h2>관심종목 등록 정책</h2><p class="section-help">수동·자동 등록 제약과 현재 상태를 관리합니다.</p></div><span id="watchlist-policy-version" class="status-badge">-</span></div>
+                    <div id="watchlist-policy-stats" class="ai-strategy-summary"></div>
+                    <form id="form-watchlist-policy" class="strategy-settings-form">
+                        <label><input name="enabled" type="checkbox"> 정책 활성</label><label>최대 종목수<input name="max_symbols" type="number" min="1"></label>
+                        <label><input name="allow_auto_add" type="checkbox"> 자동 추가 허용</label><label>최소 점수<input name="min_score" type="number" step="0.1"></label>
+                        <label><input name="block_held" type="checkbox"> 보유종목 차단</label><label><input name="block_pending" type="checkbox"> 주문대기 종목 차단</label>
+                        <label>재매수 대기(시간)<input name="rebuy_cooldown_hours" type="number" min="0"></label><button type="submit">정책 저장·적용</button>
+                        <div id="watchlist-policy-status" class="time-muted" role="status" aria-live="polite"></div>
+                    </form>
+                </section>
                 <!-- 관심종목 컨트롤 바 (관심종목 위로 이동) -->
                 <div class="card glass panel-watchlist-control" style="display: flex; flex-wrap: wrap; gap: 1.5rem; align-items: center; justify-content: space-between; margin-bottom: 1.5rem; padding: 1.25rem;">
                     
@@ -1303,6 +1374,101 @@
                 </div>
             </section>
             </section>
+
+            <section class="dashboard-section" id="dashboard-tab-operations" aria-labelledby="operations-title" tabindex="-1">
+                <section class="card glass">
+                    <div class="panel-header split-header">
+                        <div>
+                            <h2 id="operations-title">한스톡 AI 공통 운영실 · 미국시장</h2>
+                            <p class="section-help">의사결정부터 관리주문과 위험 보호 상태까지 조회합니다.</p>
+                        </div>
+                        <div class="button-row">
+                            <span id="operations-updated-at" class="time-muted">-</span>
+                            <button type="button" id="btn-refresh-operations" class="button-ghost compact-button">새로고침</button>
+                        </div>
+                    </div>
+                    <p class="operations-source-note"><strong>조회 전용 · 공통 AI 저장소</strong> — 이 화면은 미스톡 거래 DB가 아니라 한스톡 공통 AI 파이프라인의 <strong>US 시장 데이터</strong>를 표시합니다. 미스톡 계좌·체결 화면과 수치가 다를 수 있습니다.</p>
+                    <div id="operations-status" class="time-muted" role="status" aria-live="polite" style="margin-top: 0.8rem;">탭을 열면 데이터를 조회합니다.</div>
+                </section>
+
+                <section class="summary-grid" id="operations-summary-grid" aria-label="공통 AI 의사결정 요약">
+                    <div class="card glass"><h3>후보/결정</h3><div class="value" id="operations-decision-count">-</div></div>
+                    <div class="card glass"><h3>관리주문</h3><div class="value" id="operations-order-count">-</div></div>
+                    <div class="card glass"><h3>위험예약</h3><div class="value" id="operations-reservation-count">-</div></div>
+                    <div class="card glass"><h3>미보호 포지션</h3><div class="value" id="operations-unprotected-count">-</div></div>
+                </section>
+
+                <div class="operations-grid">
+                    <section class="card glass">
+                        <h2>의사결정 요약</h2>
+                        <div id="operations-decisions" class="operations-list"><span class="time-muted">조회 전입니다.</span></div>
+                    </section>
+                    <section class="card glass">
+                        <h2>자동화 진단</h2>
+                        <div id="operations-diagnostics" class="operations-list"><span class="time-muted">조회 전입니다.</span></div>
+                    </section>
+                </div>
+
+                <section class="card glass">
+                    <div class="panel-header split-header"><div><h2>미스톡 자동매매 진단</h2><p class="section-help"><strong>미스톡 런타임·주문 원장</strong> 기준이며 위 공통 AI 진단과 별도입니다.</p></div><button type="button" id="btn-refresh-mistock-diagnostics" class="button-ghost compact-button">새로고침</button></div>
+                    <div class="operations-source-note"><strong id="mistock-diagnostics-source">미스톡 자동매매 진단</strong> · <span id="mistock-diagnostics-as-of">-</span></div>
+                    <div id="mistock-diagnostics-status" class="time-muted" role="status" aria-live="polite"></div>
+                    <div class="operations-grid"><div><h3>런타임·스케줄러</h3><div id="mistock-diagnostics-runtime" class="operations-list"></div></div><div><h3>안전 Gate·차단 사유</h3><div id="mistock-diagnostics-gates" class="operations-list"></div></div></div>
+                    <div class="operations-grid" style="margin-top:1rem"><div><h3>관리주문</h3><div id="mistock-diagnostics-orders" class="operations-list"></div></div><div><h3>증권사 캐시</h3><div id="mistock-diagnostics-broker" class="operations-list"></div></div></div>
+                </section>
+
+                <section class="card glass">
+                    <h2>관리주문</h2>
+                    <div class="table-responsive">
+                        <table id="table-operations-orders"><thead><tr><th>ID</th><th>종목</th><th>구분</th><th>상태</th><th>요청/체결</th><th>최근 오류</th><th>갱신시각</th></tr></thead><tbody><tr><td colspan="7">조회 전입니다.</td></tr></tbody></table>
+                    </div>
+                </section>
+
+                <div class="operations-grid">
+                    <section class="card glass">
+                        <h2>위험예약 요약</h2>
+                        <div id="operations-reservations" class="operations-list"><span class="time-muted">조회 전입니다.</span></div>
+                    </section>
+                    <section class="card glass">
+                        <h2>포지션 보호 요약</h2>
+                        <div id="operations-protections" class="operations-list"><span class="time-muted">조회 전입니다.</span></div>
+                    </section>
+                </div>
+            </section>
+
+            <section class="dashboard-section" id="dashboard-tab-insights" aria-labelledby="insights-title" tabindex="-1">
+                <section class="card glass">
+                    <div class="panel-header split-header">
+                        <div><h2 id="insights-title">계좌·시장 진단</h2><p class="section-help">미국주식 계좌 정합성, 시장 환경, 스캔과 포지션 보호를 한 화면에서 조회합니다.</p></div>
+                        <div class="button-row"><span id="insights-updated-at" class="time-muted">-</span><button type="button" id="btn-refresh-insights" class="button-ghost compact-button">새로고침</button></div>
+                    </div>
+                    <p class="operations-source-note"><strong>조회 전용</strong> — 각 영역의 출처와 기준시각을 확인하세요. 조회할 수 없는 값은 0으로 간주하지 않고 <strong>제공 안 됨</strong>으로 표시합니다.</p>
+                    <div id="insights-status" class="time-muted" role="status" aria-live="polite" style="margin-top:.8rem">탭을 열면 데이터를 조회합니다.</div>
+                    <div id="insights-sources" class="insights-source-list" aria-label="진단 데이터 출처"></div>
+                </section>
+
+                <section class="card glass"><h2>총손익 상세</h2><div class="summary-grid" id="insights-pnl-breakdown" aria-label="총손익 상세 항목"></div></section>
+
+                <section class="card glass">
+                    <h2>계좌 정합성</h2>
+                    <div class="table-responsive"><table id="table-insights-reconciliation"><thead><tr><th>종목</th><th>증권사</th><th>로컬</th><th>전략합계</th><th>차이</th><th>상태</th><th>기준시각</th></tr></thead><tbody><tr><td colspan="7">조회 전입니다.</td></tr></tbody></table></div>
+                </section>
+
+                <div class="operations-grid">
+                    <section class="card glass"><h2>미국시장 컨텍스트</h2><div id="market-regime-summary" class="ai-strategy-summary"></div><div id="insights-market-context" class="operations-list"><span class="time-muted">조회 전입니다.</span></div><div class="table-responsive" style="margin-top:1rem"><table id="table-market-regime"><thead><tr><th>지표</th><th>최신값</th><th>등락</th><th>SMA20</th><th>SMA60</th><th>추세</th><th>품질/기준시각</th></tr></thead><tbody><tr><td colspan="7">조회 전입니다.</td></tr></tbody></table></div></section>
+                    <section class="card glass"><h2>스캔 Funnel</h2><div id="insights-scan-funnel" class="operations-list"><span class="time-muted">조회 전입니다.</span></div></section>
+                </div>
+
+                <section class="card glass">
+                    <h2>스캔 후보·오류 사유</h2>
+                    <div class="table-responsive"><table id="table-insights-scan"><thead><tr><th>종목</th><th>결과</th><th>점수</th><th>사유</th><th>출처</th><th>기준시각</th></tr></thead><tbody><tr><td colspan="6">조회 전입니다.</td></tr></tbody></table></div>
+                </section>
+
+                <section class="card glass">
+                    <h2>포지션 보호 상세</h2>
+                    <div class="table-responsive"><table id="table-insights-protection"><thead><tr><th>종목</th><th>상태</th><th>손절</th><th>목표</th><th>트레일링</th><th>보호주문</th><th>최근 감시</th></tr></thead><tbody><tr><td colspan="7">조회 전입니다.</td></tr></tbody></table></div>
+                </section>
+            </section>
         </main>
     </div>
 
@@ -1333,6 +1499,7 @@
                 button.addEventListener('click', () => {
                     const target = button.dataset.dashboardTab;
                     buttons.forEach((item) => item.classList.toggle('active', item === button));
+                    buttons.forEach((item) => item.setAttribute('aria-selected', item === button ? 'true' : 'false'));
                     sections.forEach((section) => {
                         section.classList.toggle('active', section.id === `dashboard-tab-${target}`);
                     });
@@ -1340,12 +1507,24 @@
                     // 관심종목 탭을 누를 때마다 실시간 렌더링 강제 웜업
                     if (target === 'watchlist' && typeof renderWatchlist === 'function') {
                         renderWatchlist();
+                        if (typeof renderWatchlistPolicy === 'function') renderWatchlistPolicy();
                     }
                     if (target === 'schedule' && typeof renderScheduleInfo === 'function') {
                         renderScheduleInfo();
+                        if (typeof renderMistockSchedules === 'function') renderMistockSchedules();
+                    }
+                    if (target === 'orders' && typeof renderManagedOrders === 'function') {
+                        renderManagedOrders();
                     }
                     if (target === 'indicator-strategy' && typeof renderIndicatorStrategy === 'function') {
                         renderIndicatorStrategy();
+                    }
+                    if (target === 'operations' && typeof renderMistockOperations === 'function') {
+                        renderMistockOperations();
+                        if (typeof renderMistockDiagnostics === 'function') renderMistockDiagnostics();
+                    }
+                    if (target === 'insights' && typeof renderMistockInsights === 'function') {
+                        renderMistockInsights();
                     }
                 });
             });
