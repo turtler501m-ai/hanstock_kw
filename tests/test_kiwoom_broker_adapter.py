@@ -26,6 +26,7 @@ class FakeKiwoomClient:
             "acnt_evlt_remn_indv_tot": [{
                 "stk_cd": "A005930", "stk_nm": "삼성전자", "rmnd_qty": "10",
                 "trde_able_qty": "8", "pur_pric": "+75,000", "cur_prc": "-71,000",
+                "pred_close_pric": "70,000",
                 "evlt_amt": "710,000", "evlt_pl": "-40,000", "prft_rt": "-5.33",
             }],
             })
@@ -82,6 +83,7 @@ class KiwoomBrokerAdapterTests(unittest.TestCase):
         self.assertEqual(holding.quantity, 10)
         self.assertEqual(holding.sellable_quantity, 8)
         self.assertEqual(holding.current_price, 71000)
+        self.assertAlmostEqual(holding.daily_change_rate, 1.428571, places=5)
         self.assertEqual(holding.profit_loss_rate, -5.33)
         self.assertIn("kt00018", result.raw)
         self.assertIn("kt00001", result.raw)

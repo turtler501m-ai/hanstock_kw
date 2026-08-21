@@ -139,17 +139,22 @@ class KiwoomBrokerAdapter:
     @staticmethod
     def _holding(row: Mapping[str, Any]) -> Holding:
         quantity = _integer(_first(row, "rmnd_qty", "hold_qty", "hldg_qty", "quantity"))
+        current_price = _price(_first(row, "cur_prc", "cur_price", "prpr", "current_price"))
+        previous_close = _price(_first(row, "pred_close_pric", "stck_sdpr", "previous_close"))
+        daily_change_rate = _number(_first(row, "flu_rt", "daily_change_rate"))
+        if not daily_change_rate and current_price > 0 and previous_close > 0:
+            daily_change_rate = (current_price / previous_close - 1.0) * 100.0
         return Holding(
             symbol=_strip_market_prefix(_first(row, "stk_cd", "stk_code", "pdno", "symbol")),
             name=str(_first(row, "stk_nm", "stk_name", "prdt_name", "name")),
             quantity=quantity,
             sellable_quantity=_integer(_first(row, "trde_able_qty", "ord_psbl_qty", "sellable_quantity")),
             average_price=_price(_first(row, "pur_pric", "avg_pric", "pchs_avg_pric", "average_price")),
-            current_price=_price(_first(row, "cur_prc", "cur_price", "prpr", "current_price")),
+            current_price=current_price,
             market_value=_number(_first(row, "evlt_amt", "evltv_prft", "market_value")),
             profit_loss=_number(_first(row, "evlt_pl", "evltv_prft", "profit_loss")),
             profit_loss_rate=_number(_first(row, "prft_rt", "evlu_pfls_rt", "profit_loss_rate")),
-            daily_change_rate=_number(_first(row, "pred_pre", "flu_rt", "daily_change_rate")),
+            daily_change_rate=daily_change_rate,
             raw=row,
         )
 
