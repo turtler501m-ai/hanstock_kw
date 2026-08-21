@@ -29,6 +29,7 @@ def _history_fill_price(row: dict) -> int:
         "avg_pric",
         "avg_ccld_pric",
         "avg_prc",
+        "cntr_uv",
         "cntr_pric",
         "ccld_unpr",
         "ord_unpr",
@@ -49,7 +50,7 @@ def _history_requested_qty(row: dict) -> int:
 
 def _history_remaining_qty(row: dict) -> int:
     explicit = _history_int(
-        row, "rmn_qty", "RMN_QTY", "ord_psbl_qty", "oso_qty", "remaining_qty"
+        row, "ord_remnq", "rmn_qty", "RMN_QTY", "ord_psbl_qty", "oso_qty", "remaining_qty"
     )
     if explicit:
         return explicit
