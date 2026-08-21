@@ -14,6 +14,7 @@ class FakeKiwoomClient:
     def __init__(self):
         self.daily_call = None
         self.rank_call = None
+        self.page_calls = []
 
     def post(self, path, *, api_id, body=None, continuation=None, request_kind="query"):
         self.last_post = (path, api_id, body, request_kind)
@@ -37,6 +38,7 @@ class FakeKiwoomClient:
 
     def post_all_pages(self, path, *, api_id, body=None, request_kind="query", max_pages=100):
         self.last_pages = (path, api_id, body, request_kind)
+        self.page_calls.append(self.last_pages)
         if api_id == "ka10081":
             return [FakePage({"stk_dt_pole_chart_qry": [{"dt": "20260814", "open_pric": "+70,000", "high_pric": "72,000", "low_pric": "-69,500", "cur_prc": "+71,000", "trde_qty": "12,345"}]})]
         if api_id == "ka10030":
@@ -52,6 +54,12 @@ class FakeKiwoomClient:
                     "low_pric": "660009", "cur_prc": "685258", "trde_qty": "304,468",
                 },
             ]})]
+        if api_id == "kt00007":
+            return [FakePage({"acnt_ord_cntr_prps_dtl": [{
+                "ord_no": body["ord_dt"], "stk_cd": "A005930", "io_tp": "2",
+                "ord_qty": "1", "cntr_qty": "1", "oso_qty": "0",
+                "avg_prc": "71000", "ord_dt": body["ord_dt"],
+            }]})]
         raise AssertionError(api_id)
 
 
@@ -129,6 +137,13 @@ class KiwoomBrokerAdapterTests(unittest.TestCase):
         self.assertEqual(result[0]["close"], 6784.99)
         self.assertEqual(result[0]["low"], 6742.44)
         self.assertEqual(result[0]["volume"], 83860)
+
+    def test_trade_history_queries_each_weekday_in_requested_range(self):
+        result = self.adapter.fetch_trade_history("2026-08-14", "2026-08-18")
+
+        calls = [call for call in self.client.page_calls if call[1] == "kt00007"]
+        self.assertEqual([call[2]["ord_dt"] for call in calls], ["20260814", "20260817", "20260818"])
+        self.assertEqual([row.order_id for row in result], ["20260814", "20260817", "20260818"])
 
     def test_malformed_numbers_are_zero(self):
         self.client.post = lambda *args, **kwargs: FakePage({"cur_prc": "--", "sel_fpr_bid": None})

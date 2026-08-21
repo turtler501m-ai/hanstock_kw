@@ -1,6 +1,6 @@
 """Normalize Kiwoom REST domestic-stock responses into broker models."""
 
-from datetime import date
+from datetime import date, datetime, timedelta
 from typing import Any, Mapping
 
 from src.broker.models import (
@@ -260,19 +260,29 @@ class KiwoomBrokerAdapter:
         )
 
     def fetch_trade_history(self, start_date: str, end_date: str) -> list[TradeExecution]:
-        pages = self.client.post_all_pages(
-            "/api/dostk/acnt",
-            api_id="kt00007",
-            body={
-                "ord_dt": end_date.replace("-", ""),
-                "qry_tp": "1",
-                "stk_bond_tp": "1",
-                "sell_tp": "0",
-                "stk_cd": "",
-                "fr_ord_no": "",
-                "dmst_stex_tp": "%",
-            },
-        )
+        start = datetime.strptime(start_date.replace("-", ""), "%Y%m%d").date()
+        end = datetime.strptime(end_date.replace("-", ""), "%Y%m%d").date()
+        if start > end:
+            start, end = end, start
+        pages = []
+        current = start
+        while current <= end:
+            # kt00007 accepts one order date per request, not a date range.
+            if current.weekday() < 5:
+                pages.extend(self.client.post_all_pages(
+                    "/api/dostk/acnt",
+                    api_id="kt00007",
+                    body={
+                        "ord_dt": current.strftime("%Y%m%d"),
+                        "qry_tp": "1",
+                        "stk_bond_tp": "1",
+                        "sell_tp": "0",
+                        "stk_cd": "",
+                        "fr_ord_no": "",
+                        "dmst_stex_tp": "%",
+                    },
+                ))
+            current += timedelta(days=1)
         rows = [
             row
             for page in pages
