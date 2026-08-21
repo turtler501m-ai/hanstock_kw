@@ -18,7 +18,12 @@ from src.strategy.technical_signals import (
     trade_value_surge,
     trailing_stop_signal,
 )
-from src.strategy.position_tracker import update_position_peak
+from src.strategy.position_tracker import (
+    require_new_oversold_episode,
+    strategy_open_risk,
+    update_position_peak,
+    update_strategy_position_risk,
+)
 
 WATCHLIST = []
 
@@ -243,8 +248,11 @@ def get_yfinance_ticker(code: str) -> str:
     return f"{code}.KS"
 
 def calc_strategy_profile(prices: list[float], highs: list[float] | None = None,
-                          volumes: list[float] | None = None, strategy_model: str = "", symbol: str = "") -> dict:
+                          volumes: list[float] | None = None, strategy_model: str = "", symbol: str = "",
+                          opens: list[float] | None = None, lows: list[float] | None = None) -> dict:
     highs = highs or prices
+    opens = opens or []
+    lows = lows or []
     volumes = volumes or []
     current = prices[-1] if prices else 0
     prev = prices[-2] if len(prices) >= 2 else current
@@ -282,6 +290,8 @@ def calc_strategy_profile(prices: list[float], highs: list[float] | None = None,
 
     # Dynamic Custom Strategy loading
     custom_inst = None
+    custom_metadata = {}
+    rsi_rebound_metadata = {}
     if strategy_model and strategy_model not in ("none", "gpt-5-mini", "ranker_lgbm_v3", "allocator_v2", "ppo_policy_v1", "rule_based"):
         try:
             from src.db.repository import get_custom_strategy_instance
@@ -305,11 +315,15 @@ def calc_strategy_profile(prices: list[float], highs: list[float] | None = None,
             "macd_bull_cross": macd["bull_cross"],
             "macd_bear_cross": macd["bear_cross"],
             "volumes": volumes,
+            "opens": opens,
             "highs": highs,
+            "lows": lows,
             "symbol": symbol,
         }
         try:
             score = float(custom_inst.calculate_score(prices, indicators))
+            custom_metadata = indicators.get("heikin_ashi_scalping", {})
+            rsi_rebound_metadata = indicators.get("rsi_oversold_rebound", {})
             if "custom_reasons" in indicators:
                 reasons.extend(indicators["custom_reasons"])
             elif "pb_reasons" in indicators:
@@ -405,6 +419,8 @@ def calc_strategy_profile(prices: list[float], highs: list[float] | None = None,
         "sma_dead_cross": ma_cross["dead_cross"],
         "trade_value_surge": value_surge,
         "first_wave_pullback": wave_pullback,
+        "heikin_ashi_scalping": custom_metadata,
+        "rsi_oversold_rebound": rsi_rebound_metadata,
         "features": feature_payload,
     }
 
@@ -788,7 +804,9 @@ def find_candidates(
         try:
             batch = yf.download(
                 symbols,
-                period="9mo",
+                period="3y" if strategy_model in {
+                    "rsi_limit_strategy", "heikin_ashi_scalping_strategy"
+                } else "9mo",
                 progress=False,
                 auto_adjust=True,
                 group_by="ticker",
@@ -821,8 +839,15 @@ def find_candidates(
         
         for code in scan_list:
             try:
+                strategy_history_limit = 750 if strategy_model in {
+                    "rsi_limit_strategy",
+                    "heikin_ashi_scalping_strategy",
+                } else 120
+                minimum_history = 500 if strategy_model == "rsi_limit_strategy" else (
+                    500 if strategy_model == "heikin_ashi_scalping_strategy" else 60
+                )
                 # 1. DB에서 캐시 로드
-                db_charts = load_daily_charts(code, limit=120)
+                db_charts = load_daily_charts(code, limit=strategy_history_limit)
                 
                 # 2. 캐시 유효성 검사 (오늘 날짜 데이터가 있는지 또는 개수가 부족한지)
                 today_str = datetime.now(KST).strftime("%Y-%m-%d")
@@ -832,7 +857,7 @@ def find_candidates(
                 # 대형 스캔에서는 충분한 캐시가 있으면 추가 API 호출을 생략해 타임아웃을 방지합니다.
                 is_large_scan = len(scan_list) > 50
                 needs_sync = False
-                if len(db_charts) < 60:
+                if len(db_charts) < minimum_history:
                     needs_sync = True
                 elif not has_today and not is_large_scan:
                     needs_sync = True
@@ -847,24 +872,39 @@ def find_candidates(
                             "stck_lwpr": row.low_price,
                             "stck_clpr": row.close_price,
                             "acml_vol": row.volume,
-                        } for row in api.fetch_daily_bars(code, count=120)]
+                        } for row in api.fetch_daily_bars(code, count=strategy_history_limit)]
                         if broker_data:
                             save_daily_charts(code, broker_data)
-                            db_charts = load_daily_charts(code, limit=120)
+                            db_charts = load_daily_charts(code, limit=strategy_history_limit)
                     except Exception as broker_err:
                         logger.warning(f"[SCAN] {code} 키움 API 조회 실패: {broker_err}")
                 
-                if len(db_charts) < 60:
+                if len(db_charts) < minimum_history:
                     logger.warning(f"[SCAN] {code} 시세 데이터 부족으로 분석 생략 (보유 개수: {len(db_charts)}개)")
+                    continue
+                # Daily strategies are evaluated only on completed candles.
+                if db_charts and str(db_charts[-1].get("date") or "")[:10] == today_str:
+                    db_charts = db_charts[:-1]
+                if len(db_charts) < minimum_history:
                     continue
                 
                 # 3. 데이터 로딩 및 시리즈 구성
                 price_series = [float(c["close"]) for c in db_charts]
+                open_series = [float(c["open"]) for c in db_charts]
                 high_series = [float(c["high"]) for c in db_charts]
+                low_series = [float(c["low"]) for c in db_charts]
                 volume_series = [float(c["volume"]) for c in db_charts]
                 current = price_series[-1]
                 
-                profile = calc_strategy_profile(price_series, high_series, volume_series, strategy_model=strategy_model, symbol=code)
+                profile = calc_strategy_profile(
+                    price_series,
+                    high_series,
+                    volume_series,
+                    strategy_model=strategy_model,
+                    symbol=code,
+                    opens=open_series,
+                    lows=low_series,
+                )
                 feature_payload = build_strategy_features(
                     price_series,
                     high_series,
@@ -902,6 +942,8 @@ def find_candidates(
                     "sma60": profile["sma60"],
                     "bb_lo": profile["bb_lo"],
                     "bb_hi": profile["bb_hi"],
+                    "strategy_id": strategy_model,
+                    "strategy_risk": profile.get("rsi_oversold_rebound") or profile.get("heikin_ashi_scalping") or {},
                 }
                 scan_summary.append(entry)
                 
@@ -982,20 +1024,37 @@ def find_candidates(
             else:
                 df = batch
 
-            if df.empty or len(df) < 60:
+            minimum_history = 500 if strategy_model in {
+                "rsi_limit_strategy", "heikin_ashi_scalping_strategy"
+            } else 60
+            if df.empty or len(df) < minimum_history:
                 continue
 
             closes = df["Close"].dropna().squeeze()
             highs = df["High"].dropna().squeeze()
+            opens = df["Open"].dropna().squeeze() if "Open" in df else closes
+            lows = df["Low"].dropna().squeeze() if "Low" in df else closes
             volumes = df["Volume"].dropna().squeeze()
-            if len(closes) < 60 or len(highs) < 60 or len(volumes) < 60:
+            if getattr(df.index, "size", 0) and str(df.index[-1])[:10] == datetime.now().strftime("%Y-%m-%d"):
+                opens, closes, highs, lows, volumes = (
+                    series.iloc[:-1] for series in (opens, closes, highs, lows, volumes)
+                )
+            if min(len(opens), len(closes), len(highs), len(lows), len(volumes)) < minimum_history:
                 continue
 
             current = float(closes.iloc[-1])
             price_series = closes.tolist()
             high_series = highs.tolist()
             volume_series = volumes.tolist()
-            profile = calc_strategy_profile(price_series, high_series, volume_series, strategy_model=strategy_model, symbol=code)
+            profile = calc_strategy_profile(
+                price_series,
+                high_series,
+                volume_series,
+                strategy_model=strategy_model,
+                symbol=code,
+                opens=opens.tolist(),
+                lows=lows.tolist(),
+            )
             feature_payload = build_strategy_features(
                 price_series,
                 high_series,
@@ -1033,6 +1092,8 @@ def find_candidates(
                 "sma60": profile["sma60"],
                 "bb_lo": profile["bb_lo"],
                 "bb_hi": profile["bb_hi"],
+                "strategy_id": strategy_model,
+                "strategy_risk": profile.get("rsi_oversold_rebound") or profile.get("heikin_ashi_scalping") or {},
             }
             scan_summary.append(entry)
 
@@ -1149,7 +1210,7 @@ def build_orders(
     if optimizer == "score_proportional":
         allocator = PortfolioAllocator()
         orders = allocator.allocate(candidates[:available_slots], cash, config.total_capital)
-        return orders
+        return _apply_strategy_risk_sizing(orders, candidates, cash)
 
     # 2. LLM 확신도 기반 가중 배분 (llm_confidence_weight)
     elif optimizer == "llm_confidence_weight":
@@ -1189,7 +1250,7 @@ def build_orders(
             for o in orders:
                 o["quantity"] = math.floor(o["quantity"] * scale)
                 o["estimated_cost"] = o["quantity"] * o["limit_price"] * cost_mult
-        return [o for o in orders if o["quantity"] > 0]
+        return _apply_strategy_risk_sizing(orders, candidates, cash)
 
     # 3. 변동성 역수 & 점수 틸트 MPT 배분 (score_tilted_inverse_vol)
     else:
@@ -1232,16 +1293,83 @@ def build_orders(
             for o in orders:
                 o["quantity"] = math.floor(o["quantity"] * scale)
                 o["estimated_cost"] = o["quantity"] * o["limit_price"] * cost_mult
-        return [o for o in orders if o["quantity"] > 0]
+        return _apply_strategy_risk_sizing(orders, candidates, cash)
+
+
+def _apply_strategy_risk_sizing(orders: list[dict], candidates: list[dict], cash: float) -> list[dict]:
+    """Cap strategy orders by initial-stop risk and exposure.
+
+    The initial stop and R are copied into the order so downstream ownership
+    records can preserve them instead of recalculating risk after entry.
+    """
+    candidate_map = {str(item.get("ticker")): item for item in candidates}
+    total_risk_remaining = {
+        "rsi_limit_strategy": max(
+            0.0, float(config.total_capital) * 0.02 - strategy_open_risk("rsi_limit_strategy")
+        ),
+        "heikin_ashi_scalping_strategy": max(
+            0.0, float(config.total_capital) * 0.01 - strategy_open_risk("heikin_ashi_scalping_strategy")
+        ),
+    }
+    result = []
+    for order in orders:
+        candidate = candidate_map.get(str(order.get("ticker")), {})
+        strategy_id = str(candidate.get("strategy_id") or "")
+        if strategy_id not in {"rsi_limit_strategy", "heikin_ashi_scalping_strategy"}:
+            result.append(order)
+            continue
+        risk = candidate.get("strategy_risk") or {}
+        entry = float(order.get("limit_price") or candidate.get("current_price") or 0)
+        stop = float(risk.get("stop") or 0)
+        risk_per_share = entry - stop
+        if entry <= 0 or stop <= 0 or risk_per_share <= 0:
+            continue
+        max_stop_pct = 5.0 if strategy_id == "rsi_limit_strategy" else 8.0
+        if risk_per_share / entry * 100 > max_stop_pct:
+            continue
+        risk_pct = 1.0 if strategy_id == "rsi_limit_strategy" else 0.5
+        risk_budget = min(
+            float(config.total_capital) * risk_pct / 100,
+            total_risk_remaining[strategy_id],
+        )
+        risk_qty = math.floor(risk_budget / risk_per_share)
+        exposure_qty = math.floor(float(config.total_capital) * 0.30 / entry)
+        cash_qty = math.floor(float(cash) / (entry * 1.001))
+        quantity = min(int(order.get("quantity") or 0), risk_qty, exposure_qty, cash_qty)
+        if quantity <= 0:
+            continue
+        allocated_risk = quantity * risk_per_share
+        total_risk_remaining[strategy_id] = max(
+            0.0, total_risk_remaining[strategy_id] - allocated_risk
+        )
+        result.append({
+            **order,
+            "quantity": quantity,
+            "estimated_cost": quantity * entry * 1.001,
+            "strategy_id": strategy_id,
+            "initial_stop": round(stop, 4),
+            "initial_r": round(risk_per_share, 4),
+            "risk_budget": round(allocated_risk, 4),
+            "risk_pct": risk_pct,
+        })
+    return result
 
 
 def generate_signal(stock: dict, daily_data: list, strategy_model: str = "") -> dict:
     prices = [float(d["stck_clpr"]) for d in daily_data if d.get("stck_clpr")]
+    opens = [float(d["stck_oprc"]) for d in daily_data if d.get("stck_oprc")]
     highs = [float(d["stck_hgpr"]) for d in daily_data if d.get("stck_hgpr")]
+    lows = [float(d["stck_lwpr"]) for d in daily_data if d.get("stck_lwpr")]
     volumes = [float(d["acml_vol"]) for d in daily_data if d.get("acml_vol")]
     prices.reverse()
+    opens.reverse()
     highs.reverse()
+    lows.reverse()
     volumes.reverse()
+    evaluation_key = max(
+        (str(item.get("stck_bsop_date") or "") for item in daily_data),
+        default="",
+    )
 
     current = float(stock.get("prpr", 0))
     qty = int(stock.get("hldg_qty", 0))
@@ -1255,6 +1383,8 @@ def generate_signal(stock: dict, daily_data: list, strategy_model: str = "") -> 
             volumes,
             strategy_model=strategy_model,
             symbol=stock.get("pdno", ""),
+            opens=opens,
+            lows=lows,
         )
         if prices
         else calc_strategy_profile(
@@ -1281,10 +1411,12 @@ def generate_signal(stock: dict, daily_data: list, strategy_model: str = "") -> 
         "macd_hist": profile["macd_hist"],
         "macd_bull_cross": profile["macd_bull_cross"],
         "macd_bear_cross": profile["macd_bear_cross"],
+        "heikin_ashi_scalping": profile.get("heikin_ashi_scalping", {}),
+        "rsi_oversold_rebound": profile.get("rsi_oversold_rebound", {}),
     }
 
     rounded_rt = round(rt, 1)
-    if rounded_rt <= config.stop_loss_pct:
+    if strategy_model not in {"rsi_limit_strategy", "heikin_ashi_scalping_strategy"} and rounded_rt <= config.stop_loss_pct:
         return {"action": "sell", "qty": qty, "price": 0, "reason": f"stop loss {rounded_rt:.1f}%", "indicators": indicators}
     avg_price = float(stock.get("pchs_avg_pric") or stock.get("avg_price") or 0)
     if avg_price <= 0 and current > 0 and rt > -99.9:
@@ -1305,7 +1437,7 @@ def generate_signal(stock: dict, daily_data: list, strategy_model: str = "") -> 
         lookback=config.trailing_stop_lookback,
     )
     indicators["trailing_stop"] = trailing
-    if trailing["triggered"]:
+    if trailing["triggered"] and strategy_model != "heikin_ashi_scalping_strategy":
         return {
             "action": "sell",
             "qty": qty,
@@ -1314,6 +1446,118 @@ def generate_signal(stock: dict, daily_data: list, strategy_model: str = "") -> 
                 f"trailing stop peak={trailing['peak_price']:.0f} "
                 f"drawdown={trailing['drawdown_pct']:.1f}%"
             ),
+            "indicators": indicators,
+        }
+    rsi_rebound = profile.get("rsi_oversold_rebound", {})
+    if strategy_model == "rsi_limit_strategy" and qty > 0 and rsi_rebound:
+        atr = float(rsi_rebound.get("atr") or 0)
+        swing_low = float(rsi_rebound.get("recent_swing_low") or current)
+        strategy_stop = min(swing_low, avg_price - atr * 1.5)
+        risk_state = update_strategy_position_risk(
+            "KR", stock.get("pdno", ""), strategy_model,
+            entry_price=avg_price, quantity=qty, proposed_stop=strategy_stop,
+            evaluation_key=evaluation_key,
+        )
+        strategy_stop = float(risk_state.get("current_stop") or strategy_stop)
+        risk_per_share = float(risk_state.get("initial_r") or max(avg_price - strategy_stop, avg_price * 0.001))
+        target_1r = avg_price + risk_per_share
+        target_2r = avg_price + risk_per_share * 2
+        indicators["rsi_oversold_rebound_position"] = {
+            "stop": round(strategy_stop, 4),
+            "target_1r": round(target_1r, 4),
+            "target_2r": round(target_2r, 4),
+        }
+        if current <= strategy_stop:
+            require_new_oversold_episode(
+                "KR", stock.get("pdno", ""), strategy_model,
+            )
+            return {
+                "action": "sell", "qty": qty, "price": 0,
+                "reason": f"RSI rebound structural stop {strategy_stop:.2f}",
+                "indicators": indicators,
+            }
+        if int(risk_state.get("holding_bars") or 0) >= 20:
+            return {
+                "action": "sell", "qty": qty, "price": 0,
+                "reason": "RSI rebound maximum 20-bar holding exit",
+                "indicators": indicators,
+            }
+        if rsi_rebound.get("runner_exit"):
+            return {
+                "action": "sell", "qty": qty, "price": 0,
+                "reason": "RSI 70 runner reversal exit",
+                "indicators": indicators,
+            }
+        if current >= target_2r:
+            initial_qty = max(qty, int(math.ceil(float(peak_state.get("initial_quantity") or qty))))
+            runner_qty = max(1, int(math.floor(initial_qty * 0.25)))
+            sell_qty = max(1, qty - runner_qty) if qty > runner_qty else 0
+            if sell_qty <= 0:
+                return {
+                    "action": "hold", "qty": 0, "price": 0,
+                    "reason": "RSI rebound runner holding after TP2",
+                    "indicators": indicators,
+                }
+            return {
+                "action": "sell", "qty": sell_qty, "price": int(current),
+                "reason": f"RSI rebound TP2 +2R {target_2r:.2f}",
+                "indicators": indicators,
+            }
+        if current >= target_1r:
+            initial_qty = max(qty, int(math.ceil(float(peak_state.get("initial_quantity") or qty))))
+            half_qty = max(1, int(math.ceil(initial_qty * 0.5)))
+            sell_qty = max(1, qty - half_qty) if qty > half_qty else 0
+            if sell_qty <= 0:
+                return {
+                    "action": "hold", "qty": 0, "price": 0,
+                    "reason": "RSI rebound holding after TP1",
+                    "indicators": indicators,
+                }
+            return {
+                "action": "sell", "qty": sell_qty, "price": int(current),
+                "reason": f"RSI rebound TP1 +1R {target_1r:.2f}",
+                "indicators": indicators,
+            }
+        return {
+            "action": "hold", "qty": 0, "price": 0,
+            "reason": "RSI rebound position hold",
+            "indicators": indicators,
+        }
+    alpha_ha = profile.get("heikin_ashi_scalping", {})
+    if strategy_model == "heikin_ashi_scalping_strategy" and qty > 0 and alpha_ha:
+        proposed_stop = float(alpha_ha.get("stop") or avg_price * 0.95)
+        risk_state = update_strategy_position_risk(
+            "KR", stock.get("pdno", ""), strategy_model,
+            entry_price=avg_price, quantity=qty, proposed_stop=proposed_stop,
+            evaluation_key=evaluation_key,
+        )
+        strategy_stop = float(risk_state.get("current_stop") or proposed_stop)
+        indicators["heikin_ashi_position"] = risk_state
+        if current <= strategy_stop:
+            return {
+                "action": "sell", "qty": qty, "price": 0,
+                "reason": f"Alpha HA real-OHLC structural stop {strategy_stop:.2f}",
+                "indicators": indicators,
+            }
+        if alpha_ha.get("exit_long_confirmed"):
+            return {
+                "action": "sell", "qty": qty, "price": 0,
+                "reason": "Alpha HA second bearish candle exit",
+                "indicators": indicators,
+            }
+        if alpha_ha.get("exit_long"):
+            initial_qty = int(math.ceil(float(peak_state.get("initial_quantity") or qty)))
+            remaining_target = max(1, int(math.floor(initial_qty * 0.5)))
+            sell_qty = max(0, qty - remaining_target)
+            if sell_qty > 0:
+                return {
+                    "action": "sell", "qty": sell_qty, "price": 0,
+                    "reason": "Alpha HA first bearish candle 50% exit",
+                    "indicators": indicators,
+                }
+        return {
+            "action": "hold", "qty": 0, "price": 0,
+            "reason": "Alpha HA trend position hold",
             "indicators": indicators,
         }
     if profile["sma_dead_cross"] and rt > 0:
@@ -1330,6 +1574,8 @@ def generate_signal(stock: dict, daily_data: list, strategy_model: str = "") -> 
         return {"action": "sell", "qty": split_qty, "price": int(current), "reason": f"take profit {rt:.1f}% RSI={rsi}", "indicators": indicators}
     if rt >= config.take_profit * 0.5 and profile["macd_bear_cross"] and rsi >= 60:
         return {"action": "sell", "qty": split_qty, "price": int(current), "reason": f"MACD bearish take profit {rt:.1f}% RSI={rsi}", "indicators": indicators}
+    if strategy_model == "rsi_limit_strategy":
+        return {"action": "hold", "qty": 0, "price": 0, "reason": "RSI strategy position: common buy fallback disabled", "indicators": indicators}
     if rt <= -10 and rsi <= config.rsi_buy and prices and current <= bb_lo:
         return {"action": "buy", "qty": split_qty, "price": int(current), "reason": f"split buy {rt:.1f}% RSI={rsi} lower band", "indicators": indicators}
     if rt < 0 and profile["score"] >= 5:

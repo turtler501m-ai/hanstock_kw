@@ -495,17 +495,23 @@ def fetch_history(symbol: str, period: str = "6mo") -> dict[str, list[float]]:
         timeout=config.yfinance_timeout_seconds,
     )
     if data is None or data.empty:
-        return {"close": [], "high": [], "volume": []}
+        return {"open": [], "high": [], "low": [], "close": [], "volume": []}
+    open_ = data["Open"]
     close = data["Close"]
     high = data["High"]
+    low = data["Low"]
     volume = data["Volume"]
     if hasattr(close, "iloc") and len(getattr(close, "shape", [])) > 1:
+        open_ = open_.iloc[:, 0]
         close = close.iloc[:, 0]
         high = high.iloc[:, 0]
+        low = low.iloc[:, 0]
         volume = volume.iloc[:, 0]
     return {
+        "open": [float(v) for v in open_.dropna().tolist() if math.isfinite(float(v))],
         "close": [float(v) for v in close.dropna().tolist() if math.isfinite(float(v))],
         "high": [float(v) for v in high.dropna().tolist() if math.isfinite(float(v))],
+        "low": [float(v) for v in low.dropna().tolist() if math.isfinite(float(v))],
         "volume": [float(v) for v in volume.dropna().tolist() if math.isfinite(float(v))],
     }
 

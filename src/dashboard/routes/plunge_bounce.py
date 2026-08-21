@@ -719,14 +719,16 @@ def get_heikin_ashi_schedule_history(limit: int = 50):
 def get_heikin_ashi_settings():
     try:
         from src.db.repository import get_watchlist_setting
+        from src.strategy.custom_rules.heikin_ashi_scalping_strategy import AlphaHeikinAshiScalpingStrategy
         return {
             "ok": True,
             "settings": {
-                "HEIKIN_FAST_EMA": int(float(get_watchlist_setting("HEIKIN_FAST_EMA", "10"))),
-                "HEIKIN_SLOW_EMA": int(float(get_watchlist_setting("HEIKIN_SLOW_EMA", "20"))),
-                "HEIKIN_RSI_PERIOD": int(float(get_watchlist_setting("HEIKIN_RSI_PERIOD", "14"))),
-                "HEIKIN_MIN_SCORE": float(get_watchlist_setting("HEIKIN_MIN_SCORE", "3.5")),
-                "HEIKIN_VOLUME_RATIO": float(get_watchlist_setting("HEIKIN_VOLUME_RATIO", "1.2")),
+                "ALPHA_HA_EMA_PERIOD": int(float(get_watchlist_setting("ALPHA_HA_EMA_PERIOD", "200"))),
+                "ALPHA_HA_EMA_SLOPE_BARS": int(float(get_watchlist_setting("ALPHA_HA_EMA_SLOPE_BARS", "20"))),
+                "ALPHA_HA_ADX_MIN": float(get_watchlist_setting("ALPHA_HA_ADX_MIN", "20")),
+                "ALPHA_HA_ATR_PCT_MIN": float(get_watchlist_setting("ALPHA_HA_ATR_PCT_MIN", "0.5")),
+                "ALPHA_HA_ATR_PCT_MAX": float(get_watchlist_setting("ALPHA_HA_ATR_PCT_MAX", "5.0")),
+                "effective_config": AlphaHeikinAshiScalpingStrategy().effective_config(),
             },
         }
     except Exception as e:
@@ -739,12 +741,17 @@ def save_heikin_ashi_settings(payload: dict = Body(...)):
     try:
         from src.db.repository import save_watchlist_setting
 
+        atr_min = float(payload.get("ALPHA_HA_ATR_PCT_MIN", 0.5))
+        atr_max = float(payload.get("ALPHA_HA_ATR_PCT_MAX", 5.0))
+        if atr_min >= atr_max:
+            raise ValueError("ATR% minimum must be lower than maximum")
+
         numeric_keys = {
-            "HEIKIN_FAST_EMA": int,
-            "HEIKIN_SLOW_EMA": int,
-            "HEIKIN_RSI_PERIOD": int,
-            "HEIKIN_MIN_SCORE": float,
-            "HEIKIN_VOLUME_RATIO": float,
+            "ALPHA_HA_EMA_PERIOD": int,
+            "ALPHA_HA_EMA_SLOPE_BARS": int,
+            "ALPHA_HA_ADX_MIN": float,
+            "ALPHA_HA_ATR_PCT_MIN": float,
+            "ALPHA_HA_ATR_PCT_MAX": float,
         }
         for key, caster in numeric_keys.items():
             if key in payload and payload[key] is not None:

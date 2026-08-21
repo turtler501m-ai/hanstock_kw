@@ -1,55 +1,106 @@
 import unittest
+from unittest.mock import patch
 
 from src.strategy.heikin_ashi_scalping import HeikinAshiScalpingStrategy
-from src.strategy.seven_split import calc_strategy_profile
+from src.strategy.heikin_ashi_scalping.strategy import Candle
+from src.strategy.seven_split import calc_strategy_profile, generate_signal
 
 
 class HeikinAshiScalpingStrategyTests(unittest.TestCase):
-    def _bullish_reversal_data(self):
-        prices = [
-            120, 118, 116, 114, 112, 110, 108, 106,
-            104, 102, 100, 99, 98, 97, 96, 95,
-            94, 93, 92, 91, 90, 90.5, 90.2, 90.1,
-            90.3, 91, 92, 93.5, 95, 97, 99, 101,
-        ]
-        highs = [price + 1 for price in prices]
-        lows = [price - 1 for price in prices]
-        opens = [prices[idx - 1] if idx else prices[idx] for idx in range(len(prices))]
-        volumes = [100] * 25 + [150] * 7
-        return prices, opens, highs, lows, volumes
+    def _calculate(self, colors, *, breakout=True):
+        strategy = HeikinAshiScalpingStrategy()
+        prices = [100.0 + index * 0.1 for index in range(500)]
+        candles = [Candle(price - 0.2, price + 0.3, price - 0.3, price) for price in prices]
+        alpha = [Candle(100, 101, 99, 100.8) for _ in prices]
+        for index, color in enumerate(colors, start=len(alpha) - len(colors)):
+            alpha[index] = Candle(100, 101, 99, 100.8) if color == "bull" else Candle(100.8, 101, 99, 100)
+        signal_high = prices[-1] - 0.1 if breakout else prices[-1] + 1
+        candles[-2] = Candle(prices[-2], signal_high, prices[-2] - 0.3, prices[-2])
+        ema = [90.0] * len(prices)
+        ema[-4:] = [95.0, 96.0, 97.0, 98.0]
+        indicators = {"highs": [c.high for c in candles], "lows": [c.low for c in candles]}
+        with (
+            patch.object(strategy, "_heikin_ashi", side_effect=[candles, alpha]),
+            patch.object(strategy, "_ema_series", return_value=ema),
+            patch.object(strategy, "_directional_indicators", return_value=(25.0, 30.0, 10.0)),
+            patch.object(strategy, "_atr", return_value=1.5),
+        ):
+            score = strategy.calculate_score(prices, indicators)
+        return score, indicators
 
-    def test_calculate_score_adds_alpha_heikin_ashi_metadata(self):
-        prices, opens, highs, lows, volumes = self._bullish_reversal_data()
-        indicators = {
-            "opens": opens,
-            "highs": highs,
-            "lows": lows,
-            "volumes": volumes,
+    def test_long_requires_transition_confirmation_and_breakout(self):
+        score, indicators = self._calculate(["bear", "bull", "bull"])
+        metadata = indicators["heikin_ashi_scalping"]
+        self.assertEqual(score, 5.0)
+        self.assertTrue(metadata["long_setup"])
+        self.assertEqual(metadata["direction"], "long")
+        self.assertGreater(metadata["target_1r"], metadata["entry"])
+
+    def test_single_color_change_does_not_enter(self):
+        score, indicators = self._calculate(["bear", "bear", "bull"])
+        self.assertEqual(score, 0.0)
+        self.assertFalse(indicators["heikin_ashi_scalping"]["long_setup"])
+
+    def test_breakout_is_required(self):
+        score, _indicators = self._calculate(["bear", "bull", "bull"], breakout=False)
+        self.assertEqual(score, 0.0)
+
+    def test_short_is_metadata_only_for_spot_order_safety(self):
+        strategy = HeikinAshiScalpingStrategy()
+        prices = [140.0 - index * 0.1 for index in range(500)]
+        candles = [Candle(price + 0.2, price + 0.3, price - 0.3, price) for price in prices]
+        candles[-2] = Candle(prices[-2], prices[-2] + 0.3, prices[-1] + 0.1, prices[-2])
+        alpha = [Candle(100.8, 101, 99, 100) for _ in prices]
+        alpha[-3] = Candle(100, 101, 99, 100.8)
+        ema = [130.0] * len(prices)
+        ema[-4:] = [125.0, 124.0, 123.0, 122.0]
+        indicators = {}
+        with (
+            patch.object(strategy, "_heikin_ashi", side_effect=[candles, alpha]),
+            patch.object(strategy, "_ema_series", return_value=ema),
+            patch.object(strategy, "_directional_indicators", return_value=(25.0, 10.0, 30.0)),
+            patch.object(strategy, "_atr", return_value=1.5),
+        ):
+            score = strategy.calculate_score(prices, indicators)
+        self.assertEqual(score, 0.0)
+        self.assertTrue(indicators["heikin_ashi_scalping"]["short_setup"])
+        self.assertEqual(indicators["heikin_ashi_scalping"]["direction"], "short")
+
+    def test_custom_metadata_flows_into_strategy_profile(self):
+        class FakeStrategy:
+            def calculate_score(self, _prices, indicators):
+                indicators["heikin_ashi_scalping"] = {"direction": "long"}
+                indicators["custom_reasons"] = ["confirmed"]
+                return 5.0
+
+        with patch("src.db.repository.get_custom_strategy_instance", return_value=FakeStrategy()):
+            profile = calc_strategy_profile(
+                [float(index) for index in range(1, 206)],
+                strategy_model="heikin_ashi_scalping_strategy",
+            )
+        self.assertEqual(profile["score"], 5.0)
+        self.assertEqual(profile["heikin_ashi_scalping"]["direction"], "long")
+
+    def test_first_bearish_alpha_candle_exits_full_position(self):
+        profile = {
+            "rsi": 50.0, "rsi2": 50.0, "sma20": 100.0, "sma60": 90.0,
+            "bb_lo": 80.0, "bb_hi": 120.0, "score": 0.0, "macd_hist": 0.0,
+            "macd_bull_cross": False, "macd_bear_cross": False,
+            "sma_dead_cross": False, "reasons": [],
+            "heikin_ashi_scalping": {"exit_long": True, "exit_long_confirmed": False},
         }
-
-        score = HeikinAshiScalpingStrategy().calculate_score(prices, indicators)
-
-        self.assertGreater(score, 0)
-        self.assertIn("custom_reasons", indicators)
-        self.assertIn("heikin_ashi_scalping", indicators)
-        self.assertEqual(indicators["heikin_ashi_scalping"]["alpha_color"], "bull")
-        self.assertGreater(indicators["heikin_ashi_scalping"]["target_2r"], prices[-1])
-
-    def test_custom_strategy_reasons_flow_into_strategy_profile(self):
-        prices, _opens, highs, _lows, volumes = self._bullish_reversal_data()
-
-        profile = calc_strategy_profile(
-            prices,
-            highs,
-            volumes,
-            strategy_model="heikin_ashi_scalping_strategy",
-            symbol="AAPL",
-        )
-
-        self.assertGreater(profile["score"], 0)
-        self.assertTrue(
-            any("하이킨아시" in reason for reason in profile["reasons"])
-        )
+        stock = {"pdno": "005930", "prpr": 100, "hldg_qty": 7, "evlu_pfls_rt": 1.0, "pchs_avg_pric": 99}
+        daily_data = [{"stck_clpr": "100", "stck_hgpr": "101", "acml_vol": "1000"}]
+        with (
+            patch("src.strategy.seven_split.calc_strategy_profile", return_value=profile),
+            patch("src.strategy.seven_split.update_position_peak", return_value={"peak_price": 100}),
+            patch("src.strategy.seven_split.trailing_stop_signal", return_value={"triggered": False}),
+            patch("src.strategy.seven_split.update_strategy_position_risk", return_value={"current_stop": 90, "initial_r": 10}),
+        ):
+            signal = generate_signal(stock, daily_data, "heikin_ashi_scalping_strategy")
+        self.assertEqual(signal["action"], "sell")
+        self.assertEqual(signal["qty"], 4)
+        self.assertEqual(signal["price"], 0)
 
 
 if __name__ == "__main__":

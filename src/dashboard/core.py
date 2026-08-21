@@ -1969,7 +1969,7 @@ def _strategy_label(strategy_id: str) -> str:
         "ai_rebalance": "AI 자산배분 리밸런싱",
         "seven_split": "7분할 매매",
         "volatility_breakout": "변동성 돌파",
-        "rsi_limit_strategy": "RSI 지정가",
+        "rsi_limit_strategy": "RSI 과매도 반등",
         "plunge_bounce_strategy": "급락 반등",
         "issue_sector_rotation_strategy": "이슈 섹터 순환",
         "heikin_ashi_scalping_strategy": "하이킨아시 스캘핑",

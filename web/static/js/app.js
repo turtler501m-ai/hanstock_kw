@@ -260,6 +260,24 @@ function buildCandidateStrategyMarkup(row) {
     const fallback = row.ai_fallback_reason
         ? `<div class="candidate-ai-note">${escapeHtml(row.ai_fallback_reason)}</div>`
         : '';
+    const strategyRisk = row.strategy_risk || row.indicators?.strategy_risk || {};
+    const conditionItems = [
+        ['추세', strategyRisk.trend_ok],
+        ['회복', strategyRisk.recovery_confirmed ?? strategyRisk.rsi_recovered ?? strategyRisk.ha_confirmed],
+        ['돌파', strategyRisk.price_confirmed ?? strategyRisk.breakout_confirmed],
+        ['이벤트', strategyRisk.event_risk === false],
+        ['재진입', strategyRisk.reentry_reset_ok],
+    ].filter(([, value]) => value !== undefined)
+        .map(([label, passed]) => `<span>${escapeHtml(label)} ${passed ? '통과' : '대기'}</span>`)
+        .join('');
+    const riskItems = [];
+    if (strategyRisk.phase) riskItems.push(`단계 ${strategyRisk.phase}`);
+    if (strategyRisk.grade) riskItems.push(`등급 ${strategyRisk.grade}`);
+    if (strategyRisk.stop) riskItems.push(`손절 ${formatNumber(strategyRisk.stop, 0)}`);
+    if (strategyRisk.stop_distance_pct) riskItems.push(`손절폭 ${formatNumber(strategyRisk.stop_distance_pct, 2)}%`);
+    const strategyDetails = conditionItems || riskItems.length
+        ? `<div class="candidate-feature-list">${conditionItems}${riskItems.map((item) => `<span>${escapeHtml(item)}</span>`).join('')}</div>`
+        : '';
 
     return `
         <div class="candidate-ai-cell">
@@ -274,6 +292,7 @@ function buildCandidateStrategyMarkup(row) {
                 <span>가중 ${formatNumber(weight * 100, 0)}%</span>
             </div>
             ${topFeatures ? `<div class="candidate-feature-list">${topFeatures}</div>` : ''}
+            ${strategyDetails}
             ${fallback}
         </div>
     `;

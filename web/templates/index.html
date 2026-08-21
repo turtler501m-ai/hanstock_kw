@@ -1872,7 +1872,7 @@
                     <div class="pb-grid">
                         <section class="card glass">
                             <h2>알파 하이킨아시 전략 실행</h2>
-                            <p class="section-help">두 번 평균 처리한 하이킨아시 색상 전환을 EMA와 RSI로 확인해 매수 후보를 찾습니다.</p>
+                            <p class="section-help">상승 EMA200 안의 눌림목에서 Double HA 반전과 실제 신호봉 고점 돌파를 확인합니다.</p>
                             <div style="display: flex; gap: 12px; margin-top: 1.5rem; margin-bottom: 1rem;">
                                 <button type="button" class="button-primary" id="btn-ha-run-execute" style="flex: 1;">
                                     <span class="loading-spinner" id="spin-ha-run-execute" style="display:none;"></span>실전 자동매매 실행
@@ -1892,27 +1892,27 @@
                                 <h2 style="margin: 0;">전략 파라미터</h2>
                                 <button type="button" class="button-ghost compact-button" id="btn-save-ha-settings">설정 저장</button>
                             </div>
-                            <p class="section-help">영상의 EMA10/EMA20, RSI 50선, 거래량 확인 조건을 조정합니다.</p>
+                            <p class="section-help">실제 주문에 적용되는 EMA 기울기, ADX 추세 강도와 ATR 변동성 범위를 조정합니다.</p>
                             <div class="settings-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 1.25rem;">
                                 <div>
-                                    <span style="font-size:0.75rem; color:rgba(255,255,255,0.4); display:block; margin-bottom:4px;">빠른 EMA</span>
-                                    <input type="number" id="ha-input-fast-ema" value="10" min="1" style="width:100%; padding: 6px; border-radius: 4px; border:1px solid rgba(255,255,255,0.1); background:rgba(0,0,0,0.3); color:white; font-family:'JetBrains Mono';">
+                                    <span style="font-size:0.75rem; color:rgba(255,255,255,0.4); display:block; margin-bottom:4px;">EMA 기간</span>
+                                    <input type="number" id="ha-input-ema-period" value="200" min="50" style="width:100%; padding: 6px; border-radius: 4px; border:1px solid rgba(255,255,255,0.1); background:rgba(0,0,0,0.3); color:white; font-family:'JetBrains Mono';">
                                 </div>
                                 <div>
-                                    <span style="font-size:0.75rem; color:rgba(255,255,255,0.4); display:block; margin-bottom:4px;">느린 EMA</span>
-                                    <input type="number" id="ha-input-slow-ema" value="20" min="2" style="width:100%; padding: 6px; border-radius: 4px; border:1px solid rgba(255,255,255,0.1); background:rgba(0,0,0,0.3); color:white; font-family:'JetBrains Mono';">
+                                    <span style="font-size:0.75rem; color:rgba(255,255,255,0.4); display:block; margin-bottom:4px;">EMA 기울기 비교 봉</span>
+                                    <input type="number" id="ha-input-slope-bars" value="20" min="1" style="width:100%; padding: 6px; border-radius: 4px; border:1px solid rgba(255,255,255,0.1); background:rgba(0,0,0,0.3); color:white; font-family:'JetBrains Mono';">
                                 </div>
                                 <div>
-                                    <span style="font-size:0.75rem; color:rgba(255,255,255,0.4); display:block; margin-bottom:4px;">RSI 기간</span>
-                                    <input type="number" id="ha-input-rsi-period" value="14" min="2" style="width:100%; padding: 6px; border-radius: 4px; border:1px solid rgba(255,255,255,0.1); background:rgba(0,0,0,0.3); color:white; font-family:'JetBrains Mono';">
+                                    <span style="font-size:0.75rem; color:rgba(255,255,255,0.4); display:block; margin-bottom:4px;">ADX 최소값</span>
+                                    <input type="number" id="ha-input-adx-min" value="20" min="0" style="width:100%; padding: 6px; border-radius: 4px; border:1px solid rgba(255,255,255,0.1); background:rgba(0,0,0,0.3); color:white; font-family:'JetBrains Mono';">
                                 </div>
                                 <div>
-                                    <span style="font-size:0.75rem; color:rgba(255,255,255,0.4); display:block; margin-bottom:4px;">최소 후보 점수</span>
-                                    <input type="number" step="0.1" id="ha-input-min-score" value="3.5" min="0" max="5" style="width:100%; padding: 6px; border-radius: 4px; border:1px solid rgba(255,255,255,0.1); background:rgba(0,0,0,0.3); color:white; font-family:'JetBrains Mono';">
+                                    <span style="font-size:0.75rem; color:rgba(255,255,255,0.4); display:block; margin-bottom:4px;">ATR% 최소값</span>
+                                    <input type="number" step="0.1" id="ha-input-atr-min" value="0.5" min="0" max="20" style="width:100%; padding: 6px; border-radius: 4px; border:1px solid rgba(255,255,255,0.1); background:rgba(0,0,0,0.3); color:white; font-family:'JetBrains Mono';">
                                 </div>
                                 <div style="grid-column: span 2;">
-                                    <span style="font-size:0.75rem; color:rgba(255,255,255,0.4); display:block; margin-bottom:4px;">거래량 확인 배수</span>
-                                    <input type="number" step="0.1" id="ha-input-volume-ratio" value="1.2" min="0.1" style="width:100%; padding: 6px; border-radius: 4px; border:1px solid rgba(255,255,255,0.1); background:rgba(0,0,0,0.3); color:white; font-family:'JetBrains Mono';">
+                                    <span style="font-size:0.75rem; color:rgba(255,255,255,0.4); display:block; margin-bottom:4px;">ATR% 최대값</span>
+                                    <input type="number" step="0.1" id="ha-input-atr-max" value="5.0" min="0.1" style="width:100%; padding: 6px; border-radius: 4px; border:1px solid rgba(255,255,255,0.1); background:rgba(0,0,0,0.3); color:white; font-family:'JetBrains Mono';">
                                 </div>
                             </div>
                         </section>
@@ -2782,11 +2782,11 @@
                 const res = await fetchJson('/api/strategy/heikin_ashi_scalping/settings');
                 if (res && res.ok && res.settings) {
                     const s = res.settings;
-                    document.getElementById('ha-input-fast-ema').value = s.HEIKIN_FAST_EMA;
-                    document.getElementById('ha-input-slow-ema').value = s.HEIKIN_SLOW_EMA;
-                    document.getElementById('ha-input-rsi-period').value = s.HEIKIN_RSI_PERIOD;
-                    document.getElementById('ha-input-min-score').value = s.HEIKIN_MIN_SCORE;
-                    document.getElementById('ha-input-volume-ratio').value = s.HEIKIN_VOLUME_RATIO;
+                    document.getElementById('ha-input-ema-period').value = s.ALPHA_HA_EMA_PERIOD;
+                    document.getElementById('ha-input-slope-bars').value = s.ALPHA_HA_EMA_SLOPE_BARS;
+                    document.getElementById('ha-input-adx-min').value = s.ALPHA_HA_ADX_MIN;
+                    document.getElementById('ha-input-atr-min').value = s.ALPHA_HA_ATR_PCT_MIN;
+                    document.getElementById('ha-input-atr-max').value = s.ALPHA_HA_ATR_PCT_MAX;
                 }
                 await loadHeikinAshiScheduleHistory();
                 await loadHeikinAshiScanHistory();
@@ -2797,11 +2797,11 @@
 
         async function saveHeikinAshiSettings() {
             const payload = {
-                HEIKIN_FAST_EMA: Number(document.getElementById('ha-input-fast-ema').value),
-                HEIKIN_SLOW_EMA: Number(document.getElementById('ha-input-slow-ema').value),
-                HEIKIN_RSI_PERIOD: Number(document.getElementById('ha-input-rsi-period').value),
-                HEIKIN_MIN_SCORE: Number(document.getElementById('ha-input-min-score').value),
-                HEIKIN_VOLUME_RATIO: Number(document.getElementById('ha-input-volume-ratio').value),
+                ALPHA_HA_EMA_PERIOD: Number(document.getElementById('ha-input-ema-period').value),
+                ALPHA_HA_EMA_SLOPE_BARS: Number(document.getElementById('ha-input-slope-bars').value),
+                ALPHA_HA_ADX_MIN: Number(document.getElementById('ha-input-adx-min').value),
+                ALPHA_HA_ATR_PCT_MIN: Number(document.getElementById('ha-input-atr-min').value),
+                ALPHA_HA_ATR_PCT_MAX: Number(document.getElementById('ha-input-atr-max').value),
             };
             const res = await postJson('/api/strategy/heikin_ashi_scalping/settings', payload);
             if (!res.ok) {

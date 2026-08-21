@@ -67,7 +67,7 @@ class MistockIndicatorStrategyTests(unittest.TestCase):
                 patch("src.mistock.strategy.yf.download", return_value=empty) as download:
             result = strategy.fetch_history("BRK.B")
 
-        self.assertEqual(result, {"close": [], "high": [], "volume": []})
+        self.assertEqual(result, {"open": [], "high": [], "low": [], "close": [], "volume": []})
         self.assertEqual(download.call_args.args[0], "BRK-B")
 
     def test_fetch_history_preserves_yahoo_index_prefix(self):
@@ -77,7 +77,7 @@ class MistockIndicatorStrategyTests(unittest.TestCase):
                 patch("src.mistock.strategy.yf.download", return_value=empty) as download:
             result = strategy.fetch_history("^KS11")
 
-        self.assertEqual(result, {"close": [], "high": [], "volume": []})
+        self.assertEqual(result, {"open": [], "high": [], "low": [], "close": [], "volume": []})
         self.assertEqual(download.call_args.args[0], "^KS11")
 
     def test_kiwoom_exchange_lookup_converts_share_class_symbol(self):

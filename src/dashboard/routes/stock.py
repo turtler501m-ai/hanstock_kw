@@ -85,6 +85,7 @@ STRATEGY_DISPLAY_NAMES = {
     "ai_stock_default_v1": "AI 기본 종목발굴",
     "narrative_momentum_strategy": "내러티브 모멘텀",
     "plunge_bounce_strategy": "급락 반등",
+    "rsi_limit_strategy": "RSI 과매도 반등",
     "heikin_ashi_scalping_strategy": "알파 하이킨아시",
     "issue_sector_rotation_strategy": "이슈 섹터 순환 모멘텀",
     "ai_rebalance": "AI 리밸런싱",

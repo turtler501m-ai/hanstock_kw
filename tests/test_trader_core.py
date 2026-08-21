@@ -65,6 +65,23 @@ class TraderCoreTests(unittest.TestCase):
 
         self.assertEqual(orders, [])
 
+    def test_rsi_order_quantity_is_capped_by_one_percent_initial_risk(self):
+        candidate = {
+            "ticker": "005930", "score": 5, "volatility": 0.02, "reasons": [],
+            "strategy_id": "rsi_limit_strategy",
+            "strategy_risk": {"stop": 95.0},
+        }
+        with patch("src.strategy.seven_split.config.total_capital", 1_000_000), \
+                patch("src.strategy.seven_split.config.max_single_weight", 1.0), \
+                patch("src.strategy.seven_split.config.cash_buffer", 0.0):
+            orders = build_orders(
+                [candidate], lambda _symbol: {"ask1": 100, "current": 100},
+                held_count=0, cash=1_000_000,
+            )
+        self.assertEqual(orders[0]["quantity"], 2000)
+        self.assertEqual(orders[0]["risk_budget"], 10_000)
+        self.assertEqual(orders[0]["initial_r"], 5)
+
     def test_build_orders_excludes_configured_symbols(self):
         with patch("src.strategy.seven_split.config.hanstock_excluded_symbols", "252670"):
             orders = build_orders(

@@ -9,7 +9,14 @@ from src.strategy.condition_monitor import (
     run_condition_monitor_cycle,
     save_condition_symbols,
 )
-from src.strategy.position_tracker import update_position_peak
+from src.strategy.position_tracker import (
+    allow_reentry_after_rsi_reset,
+    clear_missing_strategy_positions,
+    require_new_oversold_episode,
+    strategy_open_risk,
+    update_position_peak,
+    update_strategy_position_risk,
+)
 from src.strategy.technical_backtest import run_technical_walk_forward
 from src.strategy.technical_readiness import build_technical_strategy_readiness
 from src.strategy.technical_signals import (
@@ -128,6 +135,75 @@ class TechnicalSignalsTests(unittest.TestCase):
         self.assertEqual(second["peak_price"], 120)
         self.assertEqual(restarted["peak_price"], 120)
         self.assertEqual(increased["peak_price"], 105)
+
+    def test_long_strategy_stop_never_moves_down(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = RuntimeStateStore(Path(tmp) / "runtime.sqlite")
+            with patch("src.strategy.position_tracker.runtime_state_store", store):
+                first = update_strategy_position_risk(
+                    "KR", "005930", "rsi_limit_strategy",
+                    entry_price=100, quantity=10, proposed_stop=97,
+                )
+                lower = update_strategy_position_risk(
+                    "KR", "005930", "rsi_limit_strategy",
+                    entry_price=100, quantity=10, proposed_stop=94,
+                )
+                tighter = update_strategy_position_risk(
+                    "KR", "005930", "rsi_limit_strategy",
+                    entry_price=100, quantity=10, proposed_stop=98,
+                )
+        self.assertEqual(first["initial_r"], 3)
+        self.assertEqual(lower["current_stop"], 97)
+        self.assertEqual(tighter["current_stop"], 98)
+
+    def test_strategy_holding_bars_increment_once_per_completed_bar(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = RuntimeStateStore(Path(tmp) / "runtime.sqlite")
+            with patch("src.strategy.position_tracker.runtime_state_store", store):
+                update_strategy_position_risk(
+                    "KR", "005930", "rsi_limit_strategy",
+                    entry_price=100, quantity=10, proposed_stop=97,
+                    evaluation_key="20260820",
+                )
+                same_bar = update_strategy_position_risk(
+                    "KR", "005930", "rsi_limit_strategy",
+                    entry_price=100, quantity=10, proposed_stop=96,
+                    evaluation_key="20260820",
+                )
+                next_bar = update_strategy_position_risk(
+                    "KR", "005930", "rsi_limit_strategy",
+                    entry_price=100, quantity=8, proposed_stop=98,
+                    evaluation_key="20260821",
+                )
+        self.assertEqual(same_bar["holding_bars"], 0)
+        self.assertEqual(next_bar["holding_bars"], 1)
+
+    def test_rsi_stop_requires_a_full_momentum_reset_before_reentry(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = RuntimeStateStore(Path(tmp) / "runtime.sqlite")
+            with patch("src.strategy.position_tracker.runtime_state_store", store):
+                require_new_oversold_episode("KR", "005930", "rsi_limit_strategy")
+                self.assertFalse(allow_reentry_after_rsi_reset(
+                    "KR", "005930", "rsi_limit_strategy", current_rsi=49.9,
+                ))
+                self.assertTrue(allow_reentry_after_rsi_reset(
+                    "KR", "005930", "rsi_limit_strategy", current_rsi=50,
+                ))
+                self.assertTrue(allow_reentry_after_rsi_reset(
+                    "KR", "005930", "rsi_limit_strategy", current_rsi=28,
+                ))
+
+    def test_closed_strategy_position_is_removed_from_open_risk(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = RuntimeStateStore(Path(tmp) / "runtime.sqlite")
+            with patch("src.strategy.position_tracker.runtime_state_store", store):
+                update_strategy_position_risk(
+                    "KR", "005930", "rsi_limit_strategy",
+                    entry_price=100, quantity=10, proposed_stop=97,
+                )
+                self.assertEqual(strategy_open_risk("rsi_limit_strategy"), 30)
+                clear_missing_strategy_positions("KR", "rsi_limit_strategy", set())
+                self.assertEqual(strategy_open_risk("rsi_limit_strategy"), 0)
 
     def test_condition_monitor_cache_expires(self):
         with tempfile.TemporaryDirectory() as tmp:

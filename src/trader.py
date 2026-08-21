@@ -191,7 +191,10 @@ def build_market_data_api(
 
 
 
-_CANDIDATE_INDICATOR_KEYS = {"rsi", "rsi2", "sma20", "sma60", "bb_lo", "bb_hi", "macd_hist"}
+_CANDIDATE_INDICATOR_KEYS = {
+    "rsi", "rsi2", "sma20", "sma60", "bb_lo", "bb_hi", "macd_hist",
+    "strategy_id", "strategy_risk",
+}
 
 _VALID_RUN_MODES = {"analysis_only", "live", None}
 _ISOLATED_STRATEGY_IDS = ISOLATED_STOCK_STRATEGY_IDS
@@ -580,15 +583,44 @@ def build_runtime_plan(
     buying_cash = int(buying_cash_info["buying_cash"])
     pnl = int(summary.get("evlu_pfls_smtl_amt", 0) or 0)
     isolated_strategy_run = active_strategy_id in _ISOLATED_STRATEGY_IDS
+    owned_symbols = set()
+    owned_position_qty = {}
+    if active_strategy_id:
+        try:
+            from src.db.repository import reconstruct_strategy_positions
+            reconstructed = reconstruct_strategy_positions(
+                active_strategy_id, runtime.flags.trading_env
+            )
+            owned_position_qty = {
+                str(item.get("symbol") or ""): int(item.get("qty") or 0)
+                for item in reconstructed
+                if int(item.get("qty") or 0) > 0
+            }
+            owned_symbols = set(owned_position_qty)
+            if active_strategy_id in _ISOLATED_STRATEGY_IDS:
+                from src.strategy.position_tracker import clear_missing_strategy_positions
+                clear_missing_strategy_positions("KR", active_strategy_id, owned_symbols)
+        except Exception as ownership_error:
+            logger.warning(f"[OWNERSHIP] strategy position lookup failed: {ownership_error}")
 
     position_rows = []
-    if not isolated_strategy_run:
+    if stocks and (
+        not isolated_strategy_run
+        or active_strategy_id == "heikin_ashi_scalping_strategy"
+    ):
         for stock in stocks:
             sym = stock.get("pdno", "")
             if is_excluded_symbol(sym):
                 logger.info(f"[EXCLUDE] Skipping holding signal for excluded symbol {sym}")
                 continue
             name = stock.get("prdt_name", sym)
+            if active_strategy_id in {
+                "rsi_limit_strategy", "heikin_ashi_scalping_strategy"
+            } and sym not in owned_symbols:
+                logger.info(
+                    f"[OWNERSHIP] {sym} skipped: not owned by {active_strategy_id}"
+                )
+                continue
             if sym in locked_holding_symbols:
                 row = signal_to_plan_row(
                     sym,
@@ -635,13 +667,24 @@ def build_runtime_plan(
                     ).to_dict())
                     continue
             rt = float(stock.get("evlu_pfls_rt", 0) or 0)
-            daily = api.get_daily(sym, n=60)
             strategy_model = ""
             if active_strategy:
                 strategy_model = str(active_strategy.get("model") or "")
                 if strategy_model == "none":
                     strategy_model = ""
-            signal = generate_signal(stock, daily, strategy_model=strategy_model)
+            daily_count = 750 if strategy_model in {
+                "rsi_limit_strategy", "heikin_ashi_scalping_strategy"
+            } else 60
+            daily = api.get_daily(sym, n=daily_count)
+            signal_stock = stock
+            if active_strategy_id in _ISOLATED_STRATEGY_IDS:
+                broker_qty = _holding_qty(stock, "hldg_qty")
+                orderable_qty = _holding_qty(stock, "ord_psbl_qty")
+                owned_qty = min(broker_qty, owned_position_qty.get(str(sym), 0))
+                signal_stock = dict(stock)
+                signal_stock["hldg_qty"] = owned_qty
+                signal_stock["ord_psbl_qty"] = min(orderable_qty, owned_qty)
+            signal = generate_signal(signal_stock, daily, strategy_model=strategy_model)
             row = signal_to_plan_row(
                 sym,
                 name,

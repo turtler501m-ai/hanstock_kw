@@ -663,7 +663,7 @@ def scan_candidates(
     scan_error = ""
     for symbol in universe:
         try:
-            history_period = "1y" if strategy_id in {
+            history_period = "3y" if strategy_id in {
                 "rsi_limit_strategy",
                 "heikin_ashi_scalping_strategy",
             } else "6mo"
@@ -682,6 +682,7 @@ def scan_candidates(
                 }
                 profile["score"] = float(custom_strategy.calculate_score(hist["close"], indicators))
                 profile["reasons"] = indicators.get("custom_reasons") or indicators.get("pb_reasons") or [strategy_id]
+                strategy_risk = indicators.get("rsi_oversold_rebound") or indicators.get("heikin_ashi_scalping") or {}
             scanned += 1
             score = float(profile["score"])
             row = {
@@ -697,6 +698,7 @@ def scan_candidates(
                 "sma20": profile["sma20"],
                 "sma60": profile["sma60"],
                 "strategy_id": strategy_id or "mistock_nasdaq_rule_v1",
+                "strategy_risk": strategy_risk,
             }
             db.execute(
                 """
@@ -775,6 +777,18 @@ def build_orders(
         if price <= 0:
             continue
         qty = int(per_order // price)
+        strategy_id = str(candidate.get("strategy_id") or "")
+        strategy_risk = candidate.get("strategy_risk") or {}
+        if strategy_id in {"rsi_limit_strategy", "heikin_ashi_scalping_strategy"}:
+            stop = float(strategy_risk.get("stop") or 0)
+            per_share_risk = price - stop
+            max_stop_pct = 5.0 if strategy_id == "rsi_limit_strategy" else 8.0
+            if stop <= 0 or per_share_risk <= 0 or per_share_risk / price * 100 > max_stop_pct:
+                continue
+            risk_pct = 1.0 if strategy_id == "rsi_limit_strategy" else 0.5
+            risk_qty = int((cap * risk_pct / 100) // per_share_risk) if cap > 0 else 0
+            exposure_qty = int((cap * 0.30) // price) if cap > 0 else 0
+            qty = min(qty, risk_qty, exposure_qty)
         if qty <= 0:
             continue
         orders.append({
@@ -788,6 +802,9 @@ def build_orders(
             "estimated_cost": qty * price,
             "reason": ", ".join(candidate.get("reasons") or []),
             "strategy_score": candidate.get("score", 0),
+            "strategy_id": strategy_id or candidate.get("strategy_id"),
+            "initial_stop": strategy_risk.get("stop"),
+            "initial_r": round(price - float(strategy_risk.get("stop") or price), 4),
         })
     return orders
 
