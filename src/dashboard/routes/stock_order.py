@@ -49,14 +49,12 @@ _ATTRIBUTED_BALANCE_SYNC_REASON = "증권사 잔고 전략귀속 동기화"
 
 
 def _balance_sync_strategy_id(trade: dict) -> str:
-    strategy_id = str(trade.get("strategy_id") or "").strip()
-    if strategy_id:
-        return strategy_id
-    if str(trade.get("reason") or "").strip() == _ATTRIBUTED_BALANCE_SYNC_REASON:
-        from src.strategy_ids import BROKER_BASELINE_STRATEGY_ID
+    from src.strategy_ids import resolve_order_strategy_id
 
-        return BROKER_BASELINE_STRATEGY_ID
-    return ""
+    return resolve_order_strategy_id(
+        trade.get("strategy_id"),
+        reason=str(trade.get("reason") or ""),
+    )
 
 
 def _strategy_position_quantities(trades: list[dict]) -> dict[str, dict[str, int]]:
@@ -624,7 +622,14 @@ def _create_approval_row(payload: dict) -> int:
     name = str(payload.get("name") or symbol)
     reason = str(payload.get("reason") or "")
     source = str(payload.get("source") or "dashboard")
-    strategy_id = str(payload.get("strategy_id") or "").strip() or None
+    from src.strategy_ids import resolve_order_strategy_id
+
+    strategy_id = resolve_order_strategy_id(
+        payload.get("strategy_id"),
+        source=source,
+        reason=reason,
+        category=str(payload.get("category") or ""),
+    ) or None
     strategy_version = _to_int(payload.get("strategy_version")) or None
     profile_hash = str(payload.get("profile_hash") or "").strip() or None
     source_candidate_id = _to_int(payload.get("source_candidate_id")) or None

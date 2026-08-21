@@ -184,9 +184,10 @@ def _attach_holding_strategies(parsed: dict) -> dict:
         if item.get("id")
     }
     names.setdefault("ai_rebalance", "AI 리밸런싱")
-    from src.strategy_ids import BROKER_BASELINE_STRATEGY_ID
+    from src.strategy_ids import BROKER_BASELINE_STRATEGY_ID, MANUAL_STRATEGY_ID
 
     names.setdefault(BROKER_BASELINE_STRATEGY_ID, "증권사 동기화 기존 보유")
+    names.setdefault(MANUAL_STRATEGY_ID, "수동 매매")
     ownership: dict[str, list[dict]] = {}
     with trader.connect_db() as conn:
         conn.row_factory = sqlite3.Row
@@ -195,7 +196,8 @@ def _attach_holding_strategies(parsed: dict) -> dict:
             SELECT symbol,
                    CASE
                      WHEN COALESCE(strategy_id, '') <> '' THEN strategy_id
-                     WHEN reason = '증권사 잔고 전략귀속 동기화' THEN ?
+                     WHEN reason IN ('증권사 잔고 전략귀속 동기화', 'broker history import') THEN ?
+                     WHEN LOWER(COALESCE(reason, '')) LIKE 'dashboard %' THEN ?
                      ELSE ''
                    END AS resolved_strategy_id,
                    SUM(CASE WHEN action = 'buy' THEN qty WHEN action = 'sell' THEN -qty ELSE 0 END) AS net_qty
@@ -203,7 +205,8 @@ def _attach_holding_strategies(parsed: dict) -> dict:
             WHERE ok = 1
               AND (
                     COALESCE(strategy_id, '') <> ''
-                    OR reason = '증권사 잔고 전략귀속 동기화'
+                    OR reason IN ('증권사 잔고 전략귀속 동기화', 'broker history import')
+                    OR LOWER(COALESCE(reason, '')) LIKE 'dashboard %'
                   )
               AND (? = '' OR env = ?)
             GROUP BY symbol, resolved_strategy_id
@@ -212,6 +215,7 @@ def _attach_holding_strategies(parsed: dict) -> dict:
             """,
             (
                 BROKER_BASELINE_STRATEGY_ID,
+                MANUAL_STRATEGY_ID,
                 str(trader.runtime_flags().trading_env or ""),
                 str(trader.runtime_flags().trading_env or ""),
             ),

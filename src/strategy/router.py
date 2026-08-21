@@ -124,6 +124,13 @@ class OrderRouter:
         indicators: dict,
         strategy_id: str = None,
     ) -> dict:
+        from src.strategy_ids import resolve_order_strategy_id
+
+        strategy_id = resolve_order_strategy_id(
+            strategy_id,
+            reason=reason,
+            default="seven_split",
+        )
         save_decision_log(symbol, name, action, qty, price, reason, indicators, True)
 
         decision = resolve_execution_decision(self._execution_context())

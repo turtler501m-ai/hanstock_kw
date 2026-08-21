@@ -273,6 +273,14 @@ def queue_approval(
     profile_hash: str | None = None,
     source_candidate_id: int | None = None,
 ) -> int:
+    from src.strategy_ids import resolve_order_strategy_id
+
+    strategy_id = resolve_order_strategy_id(
+        strategy_id,
+        source=source,
+        reason=reason,
+        default="seven_split" if source == "auto_trader" else "",
+    ) or None
     init_approval_db()
     now = datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S")
     with connect_db() as conn:
@@ -344,6 +352,12 @@ def execute_plan_row(api, context: dict, row: dict) -> dict:
     if router is None:
         return {**row, "decision": "skip", "ok": False}
 
+    strategy_id = (
+        row.get("strategy_id")
+        or (AI_REBALANCE_STRATEGY_ID if row.get("category") == "ai_rebalance" else None)
+        or context.get("strategy_id")
+        or "seven_split"
+    )
     result = router.route(
         row["symbol"],
         row["name"],
@@ -352,7 +366,7 @@ def execute_plan_row(api, context: dict, row: dict) -> dict:
         row["price"],
         row.get("reason", ""),
         row.get("indicators", {}),
-        strategy_id=row.get("strategy_id") or row.get("source"),
+        strategy_id=strategy_id,
     )
     ok = result.get("ok", False)
     if result.get("status") == "pending" or "approval_id" in result:

@@ -10,6 +10,31 @@ INDEPENDENT_STOCK_SCHEDULE_IDS = ISOLATED_STOCK_STRATEGY_IDS
 AI_STOCK_SCHEDULE_ID = "ai_stock_default_v1"
 AI_REBALANCE_STRATEGY_ID = "ai_rebalance"
 BROKER_BASELINE_STRATEGY_ID = "broker_account_baseline"
+MANUAL_STRATEGY_ID = "manual_strategy"
+
+
+def resolve_order_strategy_id(
+    strategy_id=None,
+    *,
+    source: str = "",
+    reason: str = "",
+    category: str = "",
+    default: str = "",
+) -> str:
+    """Return a stable attribution for every internally-created stock order."""
+    explicit = str(strategy_id or "").strip()
+    if explicit:
+        return explicit
+    source_text = str(source or "").strip().lower()
+    reason_text = str(reason or "").strip().lower()
+    category_text = str(category or "").strip().lower()
+    if category_text == "ai_rebalance" or source_text in {"ai-allocation", "ai_rebalance"}:
+        return AI_REBALANCE_STRATEGY_ID
+    if source_text.startswith("dashboard") or reason_text.startswith("dashboard "):
+        return MANUAL_STRATEGY_ID
+    if reason_text in {"증권사 잔고 전략귀속 동기화", "broker history import"}:
+        return BROKER_BASELINE_STRATEGY_ID
+    return str(default or "").strip()
 
 
 def resolve_ai_schedule_strategy_ids(

@@ -8,9 +8,28 @@ from src.dashboard.routes.stock_order import (
     _allocate_strategy_reconciliation,
     _balance_sync_strategy_id,
 )
+from src.strategy_ids import resolve_order_strategy_id
 
 
 class HoldingStrategySummaryTests(unittest.TestCase):
+    def test_order_strategy_defaults_cover_manual_rebalance_and_auto(self):
+        self.assertEqual(
+            resolve_order_strategy_id(source="dashboard_holding_sell"),
+            "manual_strategy",
+        )
+        self.assertEqual(
+            resolve_order_strategy_id(category="ai_rebalance"),
+            "ai_rebalance",
+        )
+        self.assertEqual(
+            resolve_order_strategy_id(source="auto_trader", default="seven_split"),
+            "seven_split",
+        )
+        self.assertEqual(
+            resolve_order_strategy_id("custom_strategy", source="dashboard"),
+            "custom_strategy",
+        )
+
     def test_balance_sync_without_owner_uses_broker_baseline(self):
         self.assertEqual(
             _allocate_strategy_reconciliation(7, {}, action="buy"),
@@ -18,6 +37,10 @@ class HoldingStrategySummaryTests(unittest.TestCase):
         )
         self.assertEqual(
             _balance_sync_strategy_id({"reason": "증권사 잔고 전략귀속 동기화"}),
+            "broker_account_baseline",
+        )
+        self.assertEqual(
+            _balance_sync_strategy_id({"reason": "broker history import"}),
             "broker_account_baseline",
         )
         self.assertEqual(_balance_sync_strategy_id({"reason": "manual buy"}), "")

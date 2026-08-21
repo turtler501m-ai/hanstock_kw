@@ -1847,7 +1847,14 @@ def _load_merged_trades() -> list[dict]:
 
 def _resolved_trade_strategy_id(trade: dict) -> str:
     """Recover attribution only when the recorded execution source is unambiguous."""
-    strategy_id = str(trade.get("strategy_id") or "").strip()
+    from src.strategy_ids import resolve_order_strategy_id
+
+    strategy_id = resolve_order_strategy_id(
+        trade.get("strategy_id"),
+        source=str(trade.get("source") or ""),
+        reason=str(trade.get("reason") or ""),
+        category=str(trade.get("category") or ""),
+    )
     if strategy_id:
         return strategy_id
     if str(trade.get("reason") or "").strip().startswith("AI rebalance "):
@@ -1960,6 +1967,7 @@ def _strategy_label(strategy_id: str) -> str:
         "issue_sector_rotation_strategy": "이슈 섹터 순환",
         "heikin_ashi_scalping_strategy": "하이킨아시 스캘핑",
         "broker_account_baseline": "증권사 동기화 기존 보유",
+        "manual_strategy": "수동 매매",
     }
     return defaults.get(strategy_id, strategy_id)
 
