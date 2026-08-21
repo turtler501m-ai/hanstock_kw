@@ -10,6 +10,42 @@ from src.utils.logger import logger
 
 
 class DashboardStockService:
+    @staticmethod
+    def load_daily_history(api, symbol: str, *, n: int = 120) -> list[dict]:
+        """Load dashboard chart data from the shared DB cache before the broker."""
+        from src.db.repository import load_daily_charts, save_daily_charts
+
+        cached = load_daily_charts(symbol, limit=n)
+        if len(cached) >= min(20, n):
+            return [
+                {
+                    "stck_bsop_date": row.get("date", ""),
+                    "stck_oprc": row.get("open", 0),
+                    "stck_hgpr": row.get("high", 0),
+                    "stck_lwpr": row.get("low", 0),
+                    "stck_clpr": row.get("close", 0),
+                    "acml_vol": row.get("volume", 0),
+                }
+                for row in reversed(cached)
+            ]
+
+        daily = api.get_daily(symbol, n=n)
+        if daily:
+            save_daily_charts(symbol, daily)
+        return daily
+
+    def cached_market_api(self, api):
+        service = self
+
+        class CachedMarketApi:
+            def __getattr__(self, name):
+                return getattr(api, name)
+
+            def get_daily(self, symbol: str, n: int = 60):
+                return service.load_daily_history(api, symbol, n=n)
+
+        return CachedMarketApi()
+
     def resolve_dashboard_strategy(self, strategy_id: str | None = None) -> dict | None:
         strategies = load_ai_strategies()
         if strategy_id:
@@ -30,7 +66,7 @@ class DashboardStockService:
             strategy_model = ""
         signals = []
         for holding in parsed["holdings"]:
-            daily = api.get_daily(holding["symbol"], n=60)
+            daily = self.load_daily_history(api, holding["symbol"], n=60)
             signal = trader.generate_signal(
                 holding["_raw"],
                 daily,
@@ -195,7 +231,7 @@ class DashboardStockService:
         strategy_id: str | None = None,
         candidate_scan: dict | None = None,
     ) -> dict:
-        market_data_api = trader.build_market_data_api(api)
+        market_data_api = trader.build_market_data_api(self.cached_market_api(api))
         runtime_bundle = trader.build_runtime_plan(
             market_data_api,
             balance_data,

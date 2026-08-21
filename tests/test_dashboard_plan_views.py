@@ -118,6 +118,8 @@ class DashboardPlanViewRegressionTests(unittest.TestCase):
             stack.enter_context(patch.object(dashboard, "_get_balance_data", return_value={"output1": [], "output2": [{}]}))
             stack.enter_context(patch.object(dashboard, "_parse_balance", return_value=parsed_balance))
             stack.enter_context(patch("src.dashboard.core._resolve_dashboard_strategy", return_value={"id": "seven_split"}))
+            stack.enter_context(patch("src.db.repository.load_daily_charts", return_value=[]))
+            stack.enter_context(patch("src.db.repository.save_daily_charts"))
             stack.enter_context(
                 patch.object(
                     dashboard.trader,

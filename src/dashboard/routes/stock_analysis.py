@@ -1210,7 +1210,7 @@ def get_ai_allocation():
         active_strategy = next((strategy for strategy in strategies if strategy.get("selected")), None)
         holdings = []
         for holding in parsed["holdings"]:
-            daily = api.get_daily(holding["symbol"], n=120)
+            daily = stock_service.load_daily_history(api, holding["symbol"], n=120)
             prices = [float(row["stck_clpr"]) for row in daily if row.get("stck_clpr")]
             highs = [float(row["stck_hgpr"]) for row in daily if row.get("stck_hgpr")]
             volumes = [float(row["acml_vol"]) for row in daily if row.get("acml_vol")]

@@ -6,6 +6,40 @@ import src.dashboard as dashboard
 
 
 class DashboardHelperTests(unittest.TestCase):
+    def test_daily_history_uses_shared_chart_cache_without_broker_call(self):
+        api = MagicMock()
+        cached = [
+            {
+                "date": f"2026-07-{day:02d}",
+                "open": day,
+                "high": day + 1,
+                "low": day - 1,
+                "close": day,
+                "volume": day * 100,
+            }
+            for day in range(1, 21)
+        ]
+
+        with patch("src.db.repository.load_daily_charts", return_value=cached):
+            rows = dashboard.stock_service.load_daily_history(api, "005930", n=60)
+
+        api.get_daily.assert_not_called()
+        self.assertEqual(rows[0]["stck_bsop_date"], "2026-07-20")
+        self.assertEqual(rows[-1]["stck_clpr"], 1)
+
+    def test_daily_history_fills_empty_cache_from_broker(self):
+        api = MagicMock()
+        api.get_daily.return_value = [{"stck_bsop_date": "20260821", "stck_clpr": "80000"}]
+
+        with patch("src.db.repository.load_daily_charts", return_value=[]), patch(
+            "src.db.repository.save_daily_charts"
+        ) as save:
+            rows = dashboard.stock_service.load_daily_history(api, "005930", n=60)
+
+        self.assertEqual(rows, api.get_daily.return_value)
+        api.get_daily.assert_called_once_with("005930", n=60)
+        save.assert_called_once_with("005930", rows)
+
     def test_build_dashboard_signals_preserves_holding_order_and_defaults(self):
         api = MagicMock()
         api.get_daily.side_effect = [
@@ -33,7 +67,12 @@ class DashboardHelperTests(unittest.TestCase):
             ]
         }
 
-        with patch.object(
+        with patch(
+            "src.db.repository.load_daily_charts",
+            return_value=[],
+        ), patch(
+            "src.db.repository.save_daily_charts",
+        ), patch.object(
             dashboard.trader,
             "generate_signal",
             side_effect=[
