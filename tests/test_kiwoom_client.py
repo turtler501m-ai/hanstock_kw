@@ -2,6 +2,8 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from unittest.mock import Mock
 
+import requests
+
 from src.broker.kiwoom_client import KiwoomApiError, KiwoomRestClient, RequestThrottle
 
 
@@ -13,6 +15,13 @@ def response(payload, headers=None):
     return item
 
 
+def http_error_response(status_code):
+    item = response({"return_code": status_code, "return_msg": "temporary"})
+    item.status_code = status_code
+    item.raise_for_status.side_effect = requests.HTTPError("HTTP error")
+    return item
+
+
 class KiwoomRestClientTests(unittest.TestCase):
     def setUp(self):
         KiwoomRestClient.clear_shared_token_cache()
@@ -20,6 +29,7 @@ class KiwoomRestClientTests(unittest.TestCase):
         self.session = Mock()
 
     def client(self, **kwargs):
+        kwargs.setdefault("throttle", RequestThrottle(clock=lambda: 0.0, sleep=lambda _: None))
         return KiwoomRestClient("app", "very-secret", session=self.session, now=lambda: self.now, **kwargs)
 
     def test_mock_and_live_base_urls(self):
@@ -112,6 +122,36 @@ class KiwoomRestClientTests(unittest.TestCase):
 
         self.assertEqual(self.session.post.call_count, 2)
 
+    def test_query_retries_rate_limit_but_order_does_not(self):
+        query_session = Mock()
+        query_session.post.side_effect = [
+            response({"token": "TOKEN", "expires_in": 3600}),
+            http_error_response(429),
+            response({"return_code": 0, "value": "ok"}),
+        ]
+        query_client = KiwoomRestClient(
+            "app", "secret-query", environment="mock", session=query_session,
+            throttle=RequestThrottle(clock=lambda: 0.0, sleep=lambda _: None),
+        )
+        self.assertEqual(
+            query_client.post("api/query", api_id="kt00018").data["value"],
+            "ok",
+        )
+        self.assertEqual(query_session.post.call_count, 3)
+
+        order_session = Mock()
+        order_session.post.side_effect = [
+            response({"token": "TOKEN", "expires_in": 3600}),
+            http_error_response(429),
+        ]
+        order_client = KiwoomRestClient(
+            "app", "secret-order", environment="mock", session=order_session,
+            throttle=RequestThrottle(clock=lambda: 0.0, sleep=lambda _: None),
+        )
+        with self.assertRaises(KiwoomApiError):
+            order_client.post("api/order", api_id="kt10001", request_kind="order")
+        self.assertEqual(order_session.post.call_count, 2)
+
 
 class RequestThrottleTests(unittest.TestCase):
     def test_waits_per_lane(self):
@@ -140,6 +180,32 @@ class RequestThrottleTests(unittest.TestCase):
         limiter.wait("live:query", 0.2)
         limiter.wait("live:query", 0.2)
         self.assertEqual(sleeps, [0.2])
+
+    def test_mock_client_uses_one_lane_for_queries_and_orders(self):
+        calls = []
+
+        class RecordingThrottle:
+            def wait(self, key, interval_seconds):
+                calls.append((key, interval_seconds))
+
+        session = Mock()
+        session.post.side_effect = [
+            response({"token": "TOKEN", "expires_in": 3600}),
+            response({"return_code": 0}),
+            response({"return_code": 0}),
+        ]
+        client = KiwoomRestClient(
+            "app", "secret", environment="mock", session=session,
+            throttle=RecordingThrottle(),
+        )
+
+        client.post("api/query", api_id="kt00018", request_kind="query")
+        client.post("api/order", api_id="kt10001", request_kind="order")
+
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(calls[0][0], calls[1][0])
+        self.assertEqual(calls[0][1], 1.2)
+        self.assertEqual(calls[1][1], 1.2)
 
 
 if __name__ == "__main__":

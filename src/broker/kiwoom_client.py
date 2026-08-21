@@ -57,6 +57,11 @@ class KiwoomRestClient:
 
     _shared_tokens: dict[tuple[str, str, str], tuple[str, datetime]] = {}
     _shared_token_lock = threading.Lock()
+    # Dashboard routes construct short-lived broker adapters.  Keeping the
+    # limiter on each client made every new adapter start with an empty clock,
+    # so a sell-all batch could hit Kiwoom with back-to-back balance and order
+    # requests.  Share one limiter across clients in this process instead.
+    _shared_throttle = RequestThrottle()
 
     def __init__(
         self,
@@ -76,7 +81,7 @@ class KiwoomRestClient:
         self.environment = environment
         self.base_url = MOCK_BASE_URL if environment == "mock" else LIVE_BASE_URL
         self._session = session or requests.Session()
-        self._throttle = throttle or RequestThrottle()
+        self._throttle = throttle or self._shared_throttle
         self._now = now or (lambda: datetime.now(timezone.utc))
         self.timeout = timeout
         self._access_token = ""
@@ -141,6 +146,11 @@ class KiwoomRestClient:
         message = str(payload.get("return_msg") or "").lower()
         return "8005" in message or ("token" in message and "유효하지" in message)
 
+    @staticmethod
+    def _is_retryable_query_response(response: Any) -> bool:
+        status_code = getattr(response, "status_code", None)
+        return isinstance(status_code, int) and status_code in {429, 500, 502, 503, 504}
+
     def post(
         self,
         path: str,
@@ -152,14 +162,24 @@ class KiwoomRestClient:
     ) -> KiwoomPage:
         if request_kind not in {"query", "order"}:
             raise ValueError("request_kind must be 'query' or 'order'")
-        lane = f"mock:{api_id}" if self.environment == "mock" else f"live:{request_kind}"
-        self._throttle.wait(lane, 1.0 if self.environment == "mock" else 0.2)
+        credential_lane = hashlib.sha256(
+            f"{self.environment}:{self.app_key}".encode("utf-8")
+        ).hexdigest()[:16]
+        # The mock API applies its limit across API IDs.  Balance, history and
+        # order calls therefore have to share one lane.  Live keeps the
+        # documented query/order lanes while still coordinating all clients.
+        lane = (
+            f"mock:{credential_lane}"
+            if self.environment == "mock"
+            else f"live:{credential_lane}:{request_kind}"
+        )
+        self._throttle.wait(lane, 1.2 if self.environment == "mock" else 0.2)
         response = None
         # Query requests are safe to repeat. If Kiwoom invalidates a token
         # before its documented expiry, discard both local and shared caches,
         # obtain a fresh token, and retry once. Orders are never retried here
         # because an ambiguous response could otherwise duplicate an order.
-        attempts = 2 if request_kind == "query" else 1
+        attempts = 3 if request_kind == "query" else 1
         for attempt in range(attempts):
             headers = {
                 "authorization": f"Bearer {self.get_access_token()}",
@@ -173,6 +193,18 @@ class KiwoomRestClient:
             )
             if attempt == 0 and self._is_invalid_token_response(response):
                 self._invalidate_access_token()
+                continue
+            if (
+                request_kind == "query"
+                and attempt < attempts - 1
+                and self._is_retryable_query_response(response)
+            ):
+                # Queries are idempotent. Re-enter the shared lane after a
+                # temporary broker limit or outage. Orders intentionally never
+                # retry because their outcome can be ambiguous.
+                self._throttle.wait(
+                    lane, 1.2 if self.environment == "mock" else 0.2
+                )
                 continue
             break
         assert response is not None
