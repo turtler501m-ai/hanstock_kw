@@ -8,6 +8,7 @@ from fastapi.responses import RedirectResponse
 
 from src.dashboard.core import (
     WEB_DIR,
+    _get_api,
     _scheduler_running_lock,
     _scheduler_run_state,
     _bg_run_scheduled_cycle,
