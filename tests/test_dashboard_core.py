@@ -61,6 +61,21 @@ class MemoryTextPath:
 
 
 class DashboardCoreTests(unittest.TestCase):
+    def test_candidate_dependency_refresh_preserves_low_level_snapshot_reader(self):
+        from src.dashboard.services import cache_service
+
+        low_level_reader = cache_service.snapshot_read_through
+
+        cache_service._refresh_candidate_dependencies()
+
+        self.assertIs(cache_service.snapshot_read_through, low_level_reader)
+
+    def test_blocking_analysis_routes_use_fastapi_worker_pool(self):
+        import inspect
+
+        self.assertFalse(inspect.iscoroutinefunction(dashboard.get_signals))
+        self.assertFalse(inspect.iscoroutinefunction(dashboard.get_execution_plan))
+
     def test_open_sell_approval_is_eligible_for_cancel_retry(self):
         import src.dashboard.routes.stock_order as stock_order
 
@@ -2254,6 +2269,73 @@ class DashboardCoreTests(unittest.TestCase):
             dashboard._auto_approval_enabled = original_auto_approval
             dashboard._clear_balance_cache = original_clear_balance_cache
             dashboard._required_env_missing = original_required_env_missing
+
+    def test_cancel_open_buys_ignores_kiwoom_missing_original_order(self):
+        import src.dashboard.routes.stock_order as stock_routes
+
+        original_db_path = dashboard.trader.config.trade_db_path
+
+        class MissingOriginalOrderApi:
+            def cancel_order(self, *args, **kwargs):
+                raise RuntimeError(
+                    "Kiwoom kt10003 failed: [2000](RC4032:모의투자 원주문번호가 존재하지 않습니다.)"
+                )
+
+        try:
+            with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+                dashboard.trader.config.trade_db_path = f"{tmpdir}/trades.sqlite"
+                dashboard.trader.init_db()
+                dashboard.trader.save_trade(
+                    symbol="005930",
+                    name="Samsung",
+                    action="buy",
+                    qty=2,
+                    price=70000,
+                    reason="test open buy",
+                    ok=True,
+                    order_submission_enabled=False,
+                    broker_order_id="0168328",
+                    order_status="open",
+                    filled_qty=0,
+                )
+
+                result = stock_routes._cancel_open_buy_orders_before_liquidation(
+                    MissingOriginalOrderApi()
+                )
+
+                self.assertEqual(result[0]["status"], "already_terminal")
+                self.assertEqual(result[0]["broker_order_id"], "0168328")
+        finally:
+            dashboard.trader.config.trade_db_path = original_db_path
+
+    def test_cancel_open_buys_records_transient_failure_without_blocking_liquidation(self):
+        import src.dashboard.routes.stock_order as stock_routes
+
+        original_db_path = dashboard.trader.config.trade_db_path
+
+        class FailingCancelApi:
+            def cancel_order(self, *args, **kwargs):
+                raise RuntimeError("Kiwoom kt10003 request failed")
+
+        try:
+            with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+                dashboard.trader.config.trade_db_path = f"{tmpdir}/trades.sqlite"
+                dashboard.trader.init_db()
+                dashboard.trader.save_trade(
+                    symbol="005930", name="Samsung", action="buy", qty=2,
+                    price=70000, reason="test open buy", ok=True,
+                    order_submission_enabled=False, broker_order_id="0168339",
+                    order_status="open", filled_qty=0,
+                )
+
+                result = stock_routes._cancel_open_buy_orders_before_liquidation(
+                    FailingCancelApi()
+                )
+
+                self.assertEqual(result[0]["status"], "cancel_failed")
+                self.assertEqual(result[0]["broker_order_id"], "0168339")
+        finally:
+            dashboard.trader.config.trade_db_path = original_db_path
 
     def test_sell_all_holdings_registers_pending_rows_before_auto_approval(self):
         import src.dashboard.routes.stock as stock_routes

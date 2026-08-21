@@ -179,6 +179,7 @@ class DashboardCacheService:
 def _refresh_candidate_dependencies() -> None:
     from src.dashboard import core
     protected = {
+        "snapshot_read_through",
         "_refresh_candidate_dependencies", "_candidate_public_override",
         "_candidate_strategy_cache_signature", "_get_candidate_cache_path",
         "_load_candidate_cache", "_candidate_snapshot_kind",

@@ -1320,7 +1320,13 @@ def _cycle_balance_data(api, cycle: dict | None) -> dict:
 
 
 @app.get("/api/signals")
-async def get_signals(strategy_id: str | None = None, cycle_id: str | None = None):
+def get_signals(strategy_id: str | None = None, cycle_id: str | None = None):
+    """Build broker-backed signals in FastAPI's worker pool.
+
+    This handler performs synchronous Kiwoom and chart-cache I/O.  Declaring it
+    async runs that blocking work on the event loop and can freeze every
+    dashboard endpoint until a slow broker request finishes.
+    """
     missing = _required_env_missing()
     if missing:
         raise HTTPException(status_code=503, detail=f"Missing environment variables: {', '.join(missing)}")
@@ -1634,7 +1640,8 @@ async def delete_candidate_history(candidate_id: int):
 
 
 @app.get("/api/execution-plan")
-async def get_execution_plan(strategy_id: str | None = None, cycle_id: str | None = None):
+def get_execution_plan(strategy_id: str | None = None, cycle_id: str | None = None):
+    """Build the broker-backed plan outside the async event loop."""
     missing = _required_env_missing()
     if missing:
         raise HTTPException(status_code=503, detail=f"Missing environment variables: {', '.join(missing)}")

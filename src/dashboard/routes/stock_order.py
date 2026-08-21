@@ -770,11 +770,29 @@ def _cancel_open_buy_orders_before_liquidation(api) -> list[dict]:
                 cancel_all=True,
             )
         except Exception as exc:
-
-            raise HTTPException(
-                status_code=502,
-                detail=f"open buy cancellation failed for {order_no}: {exc}",
-            ) from exc
+            message = str(exc)
+            # Kiwoom demo can return RC4032 when a locally-open order already
+            # became terminal at the broker.  That stale local state must not
+            # prevent emergency liquidation of the current holdings.
+            if "RC4032" in message or "원주문번호가 존재하지 않습니다" in message:
+                results.append({
+                    "broker_order_id": order_no,
+                    "remaining_qty": remaining_qty,
+                    "status": "already_terminal",
+                    "message": message,
+                })
+                continue
+            # Liquidation must continue for the currently sellable balance even
+            # if one stale/open buy cannot be canceled because of a transient
+            # broker error.  The kill switch remains active and the failure is
+            # returned to operators for a later retry.
+            results.append({
+                "broker_order_id": order_no,
+                "remaining_qty": remaining_qty,
+                "status": "cancel_failed",
+                "message": message,
+            })
+            continue
         ok = str(result.get("rt_cd") or "") == "0"
         message = str(result.get("msg1") or "")
         no_cancelable_qty = "취소할 수량이 없습니다" in message
