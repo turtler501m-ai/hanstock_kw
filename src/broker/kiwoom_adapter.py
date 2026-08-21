@@ -294,7 +294,10 @@ class KiwoomBrokerAdapter:
     @staticmethod
     def _execution(row: Mapping[str, Any]) -> TradeExecution:
         requested = _integer(_first(row, "ord_qty", "requested_qty"))
-        filled = _integer(_first(row, "cntr_qty", "cnfm_qty", "tot_cntr_qty", "filled_qty"))
+        # kt00007's cnfm_qty is the acknowledged order quantity, not the
+        # executed quantity. Treating it as a fill turns open orders into
+        # zero-price executions. cntr_qty is the actual executed quantity.
+        filled = _integer(_first(row, "cntr_qty", "tot_cntr_qty", "filled_qty"))
         remaining = _integer(_first(row, "ord_remnq", "oso_qty", "rmn_qty", "remaining_qty"))
         if not remaining:
             remaining = max(0, requested - filled)

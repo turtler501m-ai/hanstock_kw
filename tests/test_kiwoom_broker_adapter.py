@@ -57,7 +57,7 @@ class FakeKiwoomClient:
         if api_id == "kt00007":
             return [FakePage({"acnt_ord_cntr_prps_dtl": [{
                 "ord_no": body["ord_dt"], "stk_cd": "A005930", "io_tp": "2",
-                "ord_qty": "1", "cnfm_qty": "1", "ord_remnq": "0",
+                "ord_qty": "1", "cnfm_qty": "9", "cntr_qty": "1", "ord_remnq": "0",
                 "cntr_uv": "71000",
             }]})]
         raise AssertionError(api_id)
