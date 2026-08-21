@@ -264,12 +264,12 @@ class KiwoomBrokerAdapter:
         end = datetime.strptime(end_date.replace("-", ""), "%Y%m%d").date()
         if start > end:
             start, end = end, start
-        pages = []
+        rows: list[Mapping[str, Any]] = []
         current = start
         while current <= end:
             # kt00007 accepts one order date per request, not a date range.
             if current.weekday() < 5:
-                pages.extend(self.client.post_all_pages(
+                pages = self.client.post_all_pages(
                     "/api/dostk/acnt",
                     api_id="kt00007",
                     body={
@@ -281,20 +281,21 @@ class KiwoomBrokerAdapter:
                         "fr_ord_no": "",
                         "dmst_stex_tp": "%",
                     },
-                ))
+                )
+                order_date = current.strftime("%Y%m%d")
+                for page in pages:
+                    for row in _rows(
+                        _data(page), "acnt_ord_cntr_prps_dtl", "ord_cntr_dtl", "output", "output1"
+                    ):
+                        rows.append({**row, "ord_dt": str(row.get("ord_dt") or order_date)})
             current += timedelta(days=1)
-        rows = [
-            row
-            for page in pages
-            for row in _rows(_data(page), "acnt_ord_cntr_prps_dtl", "ord_cntr_dtl", "output", "output1")
-        ]
         return [self._execution(row) for row in rows]
 
     @staticmethod
     def _execution(row: Mapping[str, Any]) -> TradeExecution:
         requested = _integer(_first(row, "ord_qty", "requested_qty"))
-        filled = _integer(_first(row, "cntr_qty", "tot_cntr_qty", "filled_qty"))
-        remaining = _integer(_first(row, "oso_qty", "rmn_qty", "remaining_qty"))
+        filled = _integer(_first(row, "cntr_qty", "cnfm_qty", "tot_cntr_qty", "filled_qty"))
+        remaining = _integer(_first(row, "ord_remnq", "oso_qty", "rmn_qty", "remaining_qty"))
         if not remaining:
             remaining = max(0, requested - filled)
         side_text = str(_first(row, "io_tp_nm", "io_tp", "sell_tp", "side")).lower()
@@ -307,7 +308,7 @@ class KiwoomBrokerAdapter:
             requested_quantity=requested,
             filled_quantity=filled,
             remaining_quantity=remaining,
-            average_fill_price=_price(_first(row, "avg_prc", "cntr_pric", "average_fill_price")),
+            average_fill_price=_price(_first(row, "cntr_uv", "avg_prc", "cntr_pric", "average_fill_price")),
             status=status,
             ordered_at=str(_first(row, "ord_dt", "ord_tm", "ordered_at")),
             raw=row,

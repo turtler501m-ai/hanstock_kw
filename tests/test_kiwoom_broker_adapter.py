@@ -57,8 +57,8 @@ class FakeKiwoomClient:
         if api_id == "kt00007":
             return [FakePage({"acnt_ord_cntr_prps_dtl": [{
                 "ord_no": body["ord_dt"], "stk_cd": "A005930", "io_tp": "2",
-                "ord_qty": "1", "cntr_qty": "1", "oso_qty": "0",
-                "avg_prc": "71000", "ord_dt": body["ord_dt"],
+                "ord_qty": "1", "cnfm_qty": "1", "ord_remnq": "0",
+                "cntr_uv": "71000",
             }]})]
         raise AssertionError(api_id)
 
@@ -144,6 +144,9 @@ class KiwoomBrokerAdapterTests(unittest.TestCase):
         calls = [call for call in self.client.page_calls if call[1] == "kt00007"]
         self.assertEqual([call[2]["ord_dt"] for call in calls], ["20260814", "20260817", "20260818"])
         self.assertEqual([row.order_id for row in result], ["20260814", "20260817", "20260818"])
+        self.assertTrue(all(row.filled_quantity == 1 for row in result))
+        self.assertTrue(all(row.average_fill_price == 71000 for row in result))
+        self.assertEqual(result[0].ordered_at, "20260814")
 
     def test_malformed_numbers_are_zero(self):
         self.client.post = lambda *args, **kwargs: FakePage({"cur_prc": "--", "sel_fpr_bid": None})
