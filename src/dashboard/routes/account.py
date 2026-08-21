@@ -87,11 +87,20 @@ def _summarize_holding_strategies(parsed: dict) -> dict:
         # (for example, 29 - 28.999999999999996).  It is not a real share and
         # must not create a visible "귀속 미확인 0주" allocation.
         if unattributed_qty > 1e-6:
-            allocations.append({
-                "strategy_id": "unattributed",
-                "strategy_name": "귀속 미확인",
-                "allocated_qty": unattributed_qty,
-            })
+            from src.strategy_ids import BROKER_BASELINE_STRATEGY_ID
+
+            baseline = next(
+                (item for item in allocations if item["strategy_id"] == BROKER_BASELINE_STRATEGY_ID),
+                None,
+            )
+            if baseline:
+                baseline["allocated_qty"] += unattributed_qty
+            else:
+                allocations.append({
+                    "strategy_id": BROKER_BASELINE_STRATEGY_ID,
+                    "strategy_name": "증권사 동기화 기존 보유",
+                    "allocated_qty": unattributed_qty,
+                })
 
         if broker_qty > 0:
             weights = [item["allocated_qty"] / broker_qty for item in allocations]

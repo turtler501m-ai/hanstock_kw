@@ -90,7 +90,7 @@ class HoldingStrategySummaryTests(unittest.TestCase):
         self.assertEqual(result["holding_summary"]["attribution_coverage"], 100.0)
         self.assertTrue(result["strategy_summary"][0]["is_loss"])
 
-    def test_unattributed_quantity_is_reported_separately(self):
+    def test_unrecorded_broker_quantity_is_reported_as_broker_baseline(self):
         parsed = {
             "holdings": [{
                 "symbol": "000660",
@@ -110,8 +110,8 @@ class HoldingStrategySummaryTests(unittest.TestCase):
             for item in result["strategy_summary"]
         }
         self.assertEqual(summaries["strategy_a"]["evaluation_amount"], 1_200_000)
-        self.assertEqual(summaries["unattributed"]["evaluation_amount"], 800_000)
-        self.assertEqual(result["holding_summary"]["attribution_coverage"], 60.0)
+        self.assertEqual(summaries["broker_account_baseline"]["evaluation_amount"], 800_000)
+        self.assertEqual(result["holding_summary"]["attribution_coverage"], 100.0)
 
     def test_scaled_allocations_use_whole_shares_without_unattributed_row(self):
         parsed = {
