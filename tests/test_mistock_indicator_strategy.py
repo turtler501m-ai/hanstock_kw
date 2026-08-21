@@ -80,6 +80,35 @@ class MistockIndicatorStrategyTests(unittest.TestCase):
         self.assertEqual(result, {"close": [], "high": [], "volume": []})
         self.assertEqual(download.call_args.args[0], "^KS11")
 
+    def test_kiwoom_exchange_lookup_converts_share_class_symbol(self):
+        ticker = MagicMock()
+        ticker.fast_info = {"exchange": "NYQ"}
+        trader._kiwoom_us_exchange.cache_clear()
+        with patch("yfinance.Ticker", return_value=ticker) as ticker_type:
+            exchange = trader._kiwoom_us_exchange("BF.B")
+
+        self.assertEqual(exchange, "NY")
+        ticker_type.assert_called_once_with("BF-B")
+
+    def test_build_orders_skips_unsupported_exchange_and_uses_next_candidate(self):
+        candidates = [
+            {"symbol": "CBOE", "name": "Cboe", "price": 100, "score": 5, "reasons": []},
+            {"symbol": "AAPL", "name": "Apple", "price": 100, "score": 4, "reasons": []},
+        ]
+        original_max_positions = config.max_positions
+        try:
+            config.max_positions = 1
+            with patch(
+                "src.mistock.trader._kiwoom_us_exchange",
+                side_effect=lambda symbol: (_ for _ in ()).throw(RuntimeError("unsupported"))
+                if symbol == "CBOE" else "ND",
+            ):
+                orders = trader.build_orders(candidates, 1000, validate_broker_exchange=True)
+        finally:
+            config.max_positions = original_max_positions
+
+        self.assertEqual([item["symbol"] for item in orders], ["AAPL"])
+
     def test_overseas_balance_cache_coalesces_successive_dashboard_requests(self):
         client = MagicMock()
         client.get_overseas_balance.return_value = {

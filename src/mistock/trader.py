@@ -33,7 +33,9 @@ def _kiwoom_us_exchange(symbol: str) -> str:
             pass
     import yfinance as yf
 
-    exchange = str(yf.Ticker(symbol).fast_info.get("exchange") or "").upper()
+    # Yahoo uses a dash for US share classes while Kiwoom keeps the dot.
+    yahoo_symbol = str(symbol or "").upper().replace(".", "-")
+    exchange = str(yf.Ticker(yahoo_symbol).fast_info.get("exchange") or "").upper()
     if exchange in {"NMS", "NGM", "NCM", "NAS", "NASDAQ"}:
         return "ND"
     if exchange in {"NYQ", "NYSE"}:
@@ -736,7 +738,12 @@ def scan_candidates(
     }
 
 
-def build_orders(candidates: list[dict[str, Any]], cash: float) -> list[dict[str, Any]]:
+def build_orders(
+    candidates: list[dict[str, Any]],
+    cash: float,
+    *,
+    validate_broker_exchange: bool = False,
+) -> list[dict[str, Any]]:
     orders = []
     # 사이징은 설정된 운용자금(total_capital)을 상한으로 한다. demo 모의투자 계좌의
     # 통합증거금은 수억 달러로 잡혀 그대로 쓰면 주문이 비정상적으로 커지므로 상한을 건다.
@@ -745,7 +752,21 @@ def build_orders(candidates: list[dict[str, Any]], cash: float) -> list[dict[str
     budget = max(0.0, sizing_cash * (1.0 - config.cash_buffer))
     slots = max(1, min(config.max_positions, len(candidates)))
     per_order = budget / slots if slots else 0.0
-    for candidate in candidates[:slots]:
+    for candidate in candidates:
+        if len(orders) >= slots:
+            break
+        if (
+            validate_broker_exchange
+            and config.stock_broker == "kiwoom"
+            and config.trading_env in {"demo", "real"}
+        ):
+            try:
+                _kiwoom_us_exchange(candidate["symbol"])
+            except (RuntimeError, ValueError) as exc:
+                logger.warning(
+                    f"[MISTOCK ORDER SKIP] {candidate['symbol']}: unsupported Kiwoom exchange ({exc})"
+                )
+                continue
         price = float(candidate.get("price") or quote(candidate["symbol"])["current"] or 0.0)
         if price <= 0:
             continue

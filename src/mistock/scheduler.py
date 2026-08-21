@@ -378,7 +378,11 @@ def run_mistock_scheduled_cycle(mode: str = "execute", strategy_id: str | None =
     managed_cash = min(cash, max(0.0, managed_total - stock_eval))
     available_cash = max(0.0, managed_cash - managed_total * max(0.0, mistock_config.cash_buffer))
     buffer_factor = max(0.01, 1.0 - max(0.0, mistock_config.cash_buffer))
-    orders = mistock_trader.build_orders(buy_candidates, available_cash / buffer_factor)
+    orders = mistock_trader.build_orders(
+        buy_candidates,
+        available_cash / buffer_factor,
+        validate_broker_exchange=(mode == "execute"),
+    )
     bought_items = []
     
     if mode == "execute":
