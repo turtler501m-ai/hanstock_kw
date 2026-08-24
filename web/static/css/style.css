@@ -3854,6 +3854,15 @@ th,
 .strategy-lookup-detail-summary span { color: var(--text-muted); font-size: .78rem; }
 .strategy-lookup-detail-summary strong { font-size: 1rem; }
 
+.strategy-trade-diagnostics { margin: .8rem 0; padding: 1rem; border: 1px solid rgba(245, 158, 11, .35); border-radius: 12px; background: rgba(245, 158, 11, .06); }
+.strategy-trade-diagnostics-title { display: grid; gap: .25rem; margin-bottom: .75rem; }
+.strategy-trade-diagnostics-title span { color: var(--text-muted); }
+.strategy-trade-diagnostic-flow { display: grid; grid-template-columns: repeat(5, minmax(100px, 1fr)); gap: .55rem; }
+.strategy-trade-diagnostic-flow > div { display: grid; gap: .2rem; padding: .65rem; border-radius: 8px; background: rgba(0,0,0,.16); }
+.strategy-trade-diagnostic-flow span, .strategy-trade-diagnostic-context { color: var(--text-muted); font-size: .78rem; }
+.strategy-trade-diagnostic-flow strong { color: var(--text-color); font-size: 1rem; }
+.strategy-trade-diagnostic-context { display: flex; flex-wrap: wrap; gap: .5rem 1rem; margin-top: .75rem; }
+
 .strategy-analysis-table-wrap {
     max-height: 620px;
     overflow: auto;

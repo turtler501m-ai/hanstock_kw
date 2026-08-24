@@ -827,6 +827,35 @@ class DashboardCoreTests(unittest.TestCase):
         self.assertEqual(save_cache.call_args.args[4], strategy["id"])
         self.assertEqual(save_cache.call_args.args[5], "score_tilted_inverse_vol")
 
+    def test_strategy_lookup_history_includes_trade_diagnostics(self):
+        strategy = {"id": "heikin_ashi_scalping_strategy"}
+        result = {
+            "candidate_scan": {
+                "candidates": [{"ticker": "005930", "score": 3}],
+                "scan_summary": [
+                    {"ticker": "005930", "passed": True},
+                    {"ticker": "000660", "passed": False},
+                ],
+                "scanned": 2,
+                "min_score": 2,
+            },
+            "candidate_plan_rows": [{"symbol": "005930", "action": "buy", "qty": 2}],
+            "buying_cash": 1_000_000,
+            "held_symbols": {"035420"},
+        }
+        with patch.object(dashboard_core, "_save_candidate_cache", return_value="2026-08-24T15:00:00+09:00"), patch(
+            "src.db.strategy_lookup_repository.save_strategy_lookup_result"
+        ) as save_history:
+            dashboard_core._persist_strategy_lookup_candidate_snapshot(
+                strategy["id"], result, [strategy], lookup_run_id="run-1"
+            )
+
+        payload = save_history.call_args.args[2]
+        self.assertEqual(payload["diagnostics"]["strategy_passed_count"], 1)
+        self.assertEqual(payload["diagnostics"]["strategy_excluded_count"], 1)
+        self.assertEqual(payload["diagnostics"]["order_ready_count"], 1)
+        self.assertIn("매수 계획 생성 가능", payload["diagnostics"]["primary_cause"])
+
     def test_enabling_auto_approval_processes_pending_orders(self):
         original_state = dashboard.AUTO_APPROVAL_STATE
         original_db_path = dashboard.trader.config.trade_db_path

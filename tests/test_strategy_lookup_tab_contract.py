@@ -139,6 +139,9 @@ class StrategyLookupTabContractTests(unittest.TestCase):
         self.assertIn("100점이면서 기존 전략 점수 기준까지 통과", script)
         self.assertIn('class="strategy-analysis-sort"', script)
         self.assertIn("매매 가능 우선", script)
+        self.assertIn("매매 생성·미생성 원인 진단", script)
+        self.assertIn("④ 매수계획 가능", script)
+        self.assertIn("후보 선정", script)
 
     def test_approved_independent_strategy_can_be_selected(self):
         script = (ROOT / "web/static/js/app.js").read_text(encoding="utf-8")

@@ -2618,27 +2618,80 @@ def _persist_strategy_lookup_candidate_snapshot(
     if not isinstance(result, dict):
         return None
     scan = result.get("candidate_scan")
-    if not isinstance(scan, dict) or int(scan.get("scanned") or 0) <= 0:
+    if not isinstance(scan, dict):
+        return None
+    if int(scan.get("scanned") or 0) <= 0 and not lookup_run_id:
         return None
 
     strategy = next(
         (item for item in registered_strategies if str(item.get("id")) == str(strategy_id)),
         None,
     )
+    candidate_plan_rows = list(result.get("candidate_plan_rows") or [])
+    plan_by_symbol = {
+        str(item.get("symbol") or item.get("ticker") or ""): item
+        for item in candidate_plan_rows
+    }
     rows = []
     for candidate in scan.get("candidates") or []:
         row = dict(candidate)
         row["strategy_id"] = str(strategy_id)
+        plan_row = plan_by_symbol.get(str(row.get("ticker") or row.get("symbol") or ""), {})
+        row["planned_qty"] = int(plan_row.get("qty") or 0)
+        row["limit_price"] = int(plan_row.get("price") or row.get("current_price") or 0)
+        row["estimated_cost"] = int(plan_row.get("estimated_cost") or 0)
+        row["order_plan_status"] = "매수계획 가능" if row["planned_qty"] > 0 else "매수계획 미생성"
         if strategy:
             row["strategy_version"] = strategy.get("strategy_version")
             row["profile_hash"] = strategy.get("profile_hash")
         rows.append(row)
 
     min_score = int(scan.get("min_score") or 2)
+    scan_summary = list(scan.get("scan_summary") or [])
+    execution_rows = [
+        row for row in (result.get("results") or [])
+        if str(row.get("category") or "") == "candidate"
+    ]
+    passed_count = sum(1 for row in scan_summary if row.get("passed"))
+    order_ready_count = sum(
+        1 for row in candidate_plan_rows
+        if str(row.get("action") or "") == "buy" and int(row.get("qty") or 0) > 0
+    )
+    skip_reasons: dict[str, int] = {}
+    for row in execution_rows:
+        reason = str(row.get("skip_reason") or "").strip()
+        if reason:
+            skip_reasons[reason] = skip_reasons.get(reason, 0) + 1
+    scan_error = str(scan.get("scan_error") or "").strip()
+    if scan_error:
+        primary_cause = f"시세/분석 오류: {scan_error}"
+    elif int(scan.get("scanned") or 0) <= 0:
+        primary_cause = "분석된 종목이 없습니다. 전략 전용 종목과 시세 수신 상태를 확인해야 합니다."
+    elif not rows:
+        primary_cause = "전략 진입 조건을 모두 충족한 후보가 없습니다."
+    elif order_ready_count <= 0:
+        primary_cause = "후보는 있으나 수량·가격·예산 또는 보유 한도로 매수 계획이 생성되지 않았습니다."
+    else:
+        primary_cause = f"매수 계획 생성 가능 {order_ready_count}건입니다. 전략조회는 진단 실행이므로 실주문은 제출하지 않습니다."
+    diagnostics = {
+        "primary_cause": primary_cause,
+        "scan_error": scan_error or None,
+        "scanned_count": int(scan.get("scanned") or 0),
+        "strategy_passed_count": passed_count,
+        "strategy_excluded_count": max(0, len(scan_summary) - passed_count),
+        "candidate_count": len(rows),
+        "order_ready_count": order_ready_count,
+        "order_blocked_count": max(0, len(rows) - order_ready_count),
+        "skip_reasons": skip_reasons,
+        "daily_loss_halt": bool(result.get("daily_loss_halt")),
+        "buying_cash": int(result.get("buying_cash") or 0),
+        "held_count": len(result.get("held_symbols") or []),
+        "locked_holding_count": len(result.get("locked_holding_symbols") or []),
+    }
     cached_at = _save_candidate_cache(
         min_score,
         rows,
-        list(scan.get("scan_summary") or []),
+        scan_summary,
         int(scan.get("scanned") or 0),
         str(strategy_id),
         optimizer,
@@ -2653,7 +2706,9 @@ def _persist_strategy_lookup_candidate_snapshot(
                 "strategy_id": str(strategy_id),
                 "status": "completed",
                 "candidates": rows,
-                "scan_summary": list(scan.get("scan_summary") or []),
+                "scan_summary": scan_summary,
+                "candidate_plan_rows": candidate_plan_rows,
+                "diagnostics": diagnostics,
                 "scanned": int(scan.get("scanned") or 0),
                 "min_score": min_score,
                 "optimizer": optimizer,
@@ -2662,6 +2717,42 @@ def _persist_strategy_lookup_candidate_snapshot(
             captured_at=cached_at,
         )
     return cached_at
+
+
+def _persist_strategy_lookup_failure(
+    lookup_run_id: str | None,
+    strategy_id: str,
+    exc: Exception,
+) -> None:
+    if not lookup_run_id:
+        return
+    from src.db.strategy_lookup_repository import save_strategy_lookup_result
+
+    message = str(exc)
+    save_strategy_lookup_result(
+        lookup_run_id,
+        strategy_id,
+        {
+            "strategy_id": str(strategy_id),
+            "status": "failed",
+            "candidates": [],
+            "scan_summary": [],
+            "scanned": 0,
+            "min_score": 2,
+            "scan_error": message,
+            "diagnostics": {
+                "primary_cause": f"분석 실행 오류: {message}",
+                "scan_error": message,
+                "scanned_count": 0,
+                "strategy_passed_count": 0,
+                "strategy_excluded_count": 0,
+                "candidate_count": 0,
+                "order_ready_count": 0,
+                "order_blocked_count": 0,
+                "skip_reasons": {},
+            },
+        },
+    )
 
 
 def _run_scheduled_cycles_for_strategies(
@@ -2718,6 +2809,7 @@ def _run_scheduled_cycles_for_strategies(
                     "result": result,
                 })
             except Exception as exc:
+                _persist_strategy_lookup_failure(lookup_run_id, strategy_id, exc)
                 errors.append({
                     "strategy_id": strategy_id,
                     "message": str(exc),
@@ -2770,6 +2862,7 @@ def _run_scheduled_cycles_for_strategies(
             set_analysis_cycle_status(cycle["id"], "completed")
             runs.append({"strategy_id": strategy_id, "cycle_id": cycle["id"], "result": result})
         except Exception as exc:
+            _persist_strategy_lookup_failure(lookup_run_id, strategy_id, exc)
             mark_common_analysis_stage(
                 cycle["id"],
                 "scheduled_run",

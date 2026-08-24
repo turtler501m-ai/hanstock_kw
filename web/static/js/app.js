@@ -2919,6 +2919,7 @@ function renderStrategyPreviewCards(results, strategies = []) {
         const sortedAnalysisRows = sortStrategyAnalysisRows(analyzedRows, sortKey);
         const error = result.error || data.scan_error;
         const cache = data._cache || {};
+        const diagnostics = data.diagnostics || {};
         const isUpdating = Boolean(result.updating);
         const cachedAt = cache.cached_at ? String(cache.cached_at).replace('T', ' ').slice(0, 19) : '';
         const rows = candidates.length
@@ -2930,10 +2931,11 @@ function renderStrategyPreviewCards(results, strategies = []) {
                     <td>${formatCurrency(row.current_price)}</td>
                     <td>${Number(row.planned_qty || 0).toLocaleString()}</td>
                     <td>${formatCurrency(row.estimated_cost)}</td>
+                    <td>${pill(row.order_plan_status || (Number(row.planned_qty || 0) > 0 ? '매수계획 가능' : '매수계획 미생성'), Number(row.planned_qty || 0) > 0 ? 'buy' : 'warn')}</td>
                     <td><div class="reason-detail">${escapeHtml(reasons)}</div></td>
                 </tr>`;
             }).join('')
-            : `<tr><td colspan="6" class="table-message">${
+            : `<tr><td colspan="7" class="table-message">${
                 isUpdating && cache.missing
                     ? '이전 결과가 없어 분석하고 있습니다...'
                     : error
@@ -2956,10 +2958,31 @@ function renderStrategyPreviewCards(results, strategies = []) {
             </header>
             <div class="table-responsive">
                 <table>
-                    <thead><tr><th>종목</th><th>점수</th><th>현재가</th><th>예상수량</th><th>예상금액</th><th>선정 근거</th></tr></thead>
+                    <thead><tr><th>종목</th><th>점수</th><th>현재가</th><th>예상수량</th><th>예상금액</th><th>매수계획</th><th>선정 근거</th></tr></thead>
                     <tbody>${rows}</tbody>
                 </table>
             </div>
+            <section class="strategy-trade-diagnostics">
+                <div class="strategy-trade-diagnostics-title">
+                    <strong>매매 생성·미생성 원인 진단</strong>
+                    <span>${escapeHtml(diagnostics.primary_cause || (isUpdating ? '분석이 진행 중입니다.' : '저장된 진단 정보가 없습니다. 다시 조회하면 진단이 생성됩니다.'))}</span>
+                </div>
+                <div class="strategy-trade-diagnostic-flow">
+                    <div><span>① 전체 분석</span><strong>${Number(diagnostics.scanned_count ?? data.scanned ?? 0).toLocaleString()}</strong></div>
+                    <div><span>② 전략 통과</span><strong>${Number(diagnostics.strategy_passed_count ?? passedRows.length).toLocaleString()}</strong></div>
+                    <div><span>③ 후보 선정</span><strong>${Number(diagnostics.candidate_count ?? candidates.length).toLocaleString()}</strong></div>
+                    <div><span>④ 매수계획 가능</span><strong>${Number(diagnostics.order_ready_count || 0).toLocaleString()}</strong></div>
+                    <div><span>⑤ 계획 차단</span><strong>${Number(diagnostics.order_blocked_count || 0).toLocaleString()}</strong></div>
+                </div>
+                <div class="strategy-trade-diagnostic-context">
+                    <span>주문가능금액 <strong>${formatCurrency(diagnostics.buying_cash)}</strong></span>
+                    <span>보유 <strong>${Number(diagnostics.held_count || 0).toLocaleString()}종목</strong></span>
+                    <span>매도 잠금 <strong>${Number(diagnostics.locked_holding_count || 0).toLocaleString()}종목</strong></span>
+                    <span>일손실 중단 <strong>${diagnostics.daily_loss_halt ? '작동' : '아님'}</strong></span>
+                    ${diagnostics.scan_error ? `<span class="is-error">데이터 오류: ${escapeHtml(diagnostics.scan_error)}</span>` : ''}
+                    ${Object.entries(diagnostics.skip_reasons || {}).map(([reason, count]) => `<span>차단: ${escapeHtml(strategyReasonLabel(reason))} <strong>${Number(count).toLocaleString()}건</strong></span>`).join('')}
+                </div>
+            </section>
             <details class="strategy-analysis-details">
                 <summary>분석 세부내역 · 통과 ${passedRows.length.toLocaleString()}종목 · 제외 ${excludedRows.length.toLocaleString()}종목</summary>
                 <div class="strategy-analysis-toolbar">
