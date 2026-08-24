@@ -2952,9 +2952,7 @@ async function renderCachedStrategyPreviews(strategyIds, strategies = [], option
 function finishStrategyPreviewUpdatingState() {
     document.querySelectorAll('.strategy-preview-card .strategy-preview-metrics .is-complete')
         .forEach((status) => {
-            if (status.textContent.includes('업데이트 중')) {
-                status.textContent = '업데이트 종료';
-            }
+            status.textContent = '업데이트 완료';
         });
 }
 
@@ -3202,6 +3200,9 @@ async function previewSelectedStrategies() {
         setTableMessage('#table-candidates tbody', 9, error.message);
         setStatus(`전략 조회 실패: ${error.message}`);
     } finally {
+        if (strategyIds.length) {
+            await renderCachedStrategyPreviews(strategyIds, selected, { updating: false });
+        }
         finishStrategyPreviewUpdatingState();
         setButtonBusy(button, false);
     }
@@ -3235,6 +3236,9 @@ async function refreshStrategyLookup() {
     } catch (error) {
         setStatus(`전략 새로고침 실패: ${error.message}`);
     } finally {
+        if (strategyIds.length) {
+            await renderCachedStrategyPreviews(strategyIds, selected, { updating: false });
+        }
         if (button) button.textContent = '새로고침';
         finishStrategyPreviewUpdatingState();
         setButtonBusy(button, false);

@@ -45,6 +45,10 @@ class StrategyLookupTabContractTests(unittest.TestCase):
         self.assertIn("await waitForStrategyPreviewCompletion(started.run_id);", script)
         self.assertIn("requested_run_matches", script)
         self.assertIn("finishStrategyPreviewUpdatingState();", script)
+        self.assertIn(
+            "await renderCachedStrategyPreviews(strategyIds, selected, { updating: false });",
+            script,
+        )
         self.assertIn("await renderCandidates({ strategyIds, strategies: selected });", script)
         self.assertNotIn(
             "await renderCandidates({ strategyIds, strategies: selected, refresh: true });",
@@ -88,6 +92,15 @@ class StrategyLookupTabContractTests(unittest.TestCase):
         self.assertIn("손절 위험 허용", script)
         self.assertIn(".strategy-analysis-checklist", stylesheet)
         self.assertIn("max-height: 620px", stylesheet)
+
+    def test_completion_badge_does_not_depend_on_previous_text(self):
+        script = (ROOT / "web/static/js/app.js").read_text(encoding="utf-8")
+        body = script.split("function finishStrategyPreviewUpdatingState() {", 1)[1].split(
+            "\n}", 1
+        )[0]
+
+        self.assertIn("status.textContent = '업데이트 완료';", body)
+        self.assertNotIn("status.textContent.includes", body)
 
     def test_approved_independent_strategy_can_be_selected(self):
         script = (ROOT / "web/static/js/app.js").read_text(encoding="utf-8")
