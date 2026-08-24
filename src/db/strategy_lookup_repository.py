@@ -69,6 +69,15 @@ def list_strategy_lookup_runs(limit: int = 30) -> list[dict]:
     return [dict(row) for row in rows]
 
 
+def count_strategy_lookup_runs() -> int:
+    _root.init_db()
+    with _root.connect_db() as conn:
+        row = conn.execute(
+            "SELECT COUNT(DISTINCT run_id) AS total FROM strategy_lookup_runs"
+        ).fetchone()
+    return int(row[0] if row else 0)
+
+
 def load_strategy_lookup_run(run_id: str) -> list[dict]:
     _root.init_db()
     with _root.connect_db() as conn:

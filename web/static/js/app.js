@@ -2892,7 +2892,21 @@ function renderStrategyPreviewCards(results, strategies = []) {
     const strategyMap = new Map(strategies.map((strategy) => [String(strategy.id), strategy]));
     container.hidden = false;
     if (legacyTable) legacyTable.hidden = true;
-    container.innerHTML = results.map((result) => {
+    const allAnalyzedRows = results.flatMap((result) => result.data?.scan_summary || []);
+    const totalTradePossible = allAnalyzedRows.filter((row) => strategyAnalysisEvaluation(row).tradePossible).length;
+    const totalPassed = allAnalyzedRows.filter((row) => row.passed).length;
+    const totalExcluded = allAnalyzedRows.length - totalPassed;
+    const totalScanned = results.reduce((sum, result) => sum + Number(result.data?.scanned || 0), 0);
+    const totalCandidates = results.reduce((sum, result) => sum + Number(result.data?.candidates?.length || 0), 0);
+    const detailSummary = results.length ? `<section class="strategy-lookup-detail-summary">
+        <div><span>선택 실행 전략</span><strong>${results.length.toLocaleString()}개</strong></div>
+        <div><span>전체 분석</span><strong>${totalScanned.toLocaleString()}종목</strong></div>
+        <div><span>전략 통과</span><strong>${totalPassed.toLocaleString()}종목</strong></div>
+        <div><span>제외</span><strong>${totalExcluded.toLocaleString()}종목</strong></div>
+        <div><span>매매 가능</span><strong>${totalTradePossible.toLocaleString()}종목</strong></div>
+        <div><span>후보 목록</span><strong>${totalCandidates.toLocaleString()}종목</strong></div>
+    </section>` : '';
+    container.innerHTML = detailSummary + results.map((result) => {
         const strategy = strategyMap.get(String(result.strategyId)) ||
             aiStrategyCatalog.find((item) => String(item.id) === String(result.strategyId)) ||
             { id: result.strategyId, name: result.strategyId };
@@ -2997,19 +3011,31 @@ async function renderStrategyLookupHistory() {
     try {
         const envelope = await fetchJson('/api/strategy-lookup/runs?limit=50', 30000);
         const runs = envelope.runs || [];
-        container.innerHTML = `<div class="strategy-lookup-history-header"><strong>분석 실행 목록</strong><small>조회할 때마다 결과가 누적됩니다.</small></div>${
-            runs.length ? `<div class="strategy-lookup-run-list">${runs.map((run) => `
-                <button type="button" class="strategy-lookup-run" data-run-id="${escapeHtml(run.run_id)}">
-                    <strong>${escapeHtml(strategyLookupRunTime(run.captured_at))}</strong>
-                    <span>전략 ${Number(run.strategy_count || 0).toLocaleString()}개 · 분석 ${Number(run.scanned || 0).toLocaleString()}종목 · 매매후보 ${Number(run.candidate_count || 0).toLocaleString()}종목</span>
-                    <small>세부내역 보기</small>
-                </button>`).join('')}</div>` : '<p class="section-help">아직 저장된 분석 실행이 없습니다.</p>'
+        container.innerHTML = `<div class="strategy-lookup-history-header">
+            <div><strong>분석 실행 이력</strong><small>조회할 때마다 한 줄씩 누적되며, 행을 누르면 아래에 세부목록이 표시됩니다.</small></div>
+            <span class="strategy-lookup-total">전체 <strong>${Number(envelope.total_count || 0).toLocaleString()}</strong>건</span>
+        </div>${
+            runs.length ? `<div class="table-responsive strategy-lookup-run-list"><table>
+                <thead><tr><th>번호</th><th>실행 시각</th><th>전략</th><th>전체 분석</th><th>매매 후보</th><th>세부목록</th></tr></thead>
+                <tbody>${runs.map((run, index) => `<tr class="strategy-lookup-run" data-run-id="${escapeHtml(run.run_id)}" tabindex="0">
+                    <td>${Number(envelope.total_count || runs.length) - index}</td>
+                    <td><strong>${escapeHtml(strategyLookupRunTime(run.captured_at))}</strong></td>
+                    <td>${Number(run.strategy_count || 0).toLocaleString()}개</td>
+                    <td>${Number(run.scanned || 0).toLocaleString()}종목</td>
+                    <td>${Number(run.candidate_count || 0).toLocaleString()}종목</td>
+                    <td><button type="button" class="button-ghost">보기</button></td>
+                </tr>`).join('')}</tbody>
+            </table></div>` : '<p class="section-help">아직 저장된 분석 실행이 없습니다.</p>'
         }`;
-        container.querySelectorAll('.strategy-lookup-run').forEach((button) => {
-            button.addEventListener('click', async () => {
+        container.querySelectorAll('.strategy-lookup-run').forEach((row) => {
+            const open = async () => {
                 container.querySelectorAll('.strategy-lookup-run').forEach((item) => item.classList.remove('is-active'));
-                button.classList.add('is-active');
-                await openStrategyLookupRun(button.dataset.runId);
+                row.classList.add('is-active');
+                await openStrategyLookupRun(row.dataset.runId);
+            };
+            row.addEventListener('click', open);
+            row.addEventListener('keydown', (event) => {
+                if (event.key === 'Enter' || event.key === ' ') open();
             });
         });
     } catch (error) {

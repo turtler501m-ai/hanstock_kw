@@ -35,9 +35,15 @@ def get_ai_strategies():
 
 @router.get("/api/strategy-lookup/runs")
 def get_strategy_lookup_runs(limit: int = 30):
-    from src.db.strategy_lookup_repository import list_strategy_lookup_runs
+    from src.db.strategy_lookup_repository import (
+        count_strategy_lookup_runs,
+        list_strategy_lookup_runs,
+    )
 
-    return {"runs": list_strategy_lookup_runs(limit)}
+    return {
+        "runs": list_strategy_lookup_runs(limit),
+        "total_count": count_strategy_lookup_runs(),
+    }
 
 
 @router.get("/api/strategy-lookup/runs/{run_id}")

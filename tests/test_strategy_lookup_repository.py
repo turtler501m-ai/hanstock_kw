@@ -4,6 +4,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from src.db.strategy_lookup_repository import (
+    count_strategy_lookup_runs,
     list_strategy_lookup_runs,
     load_strategy_lookup_run,
     save_strategy_lookup_result,
@@ -36,12 +37,14 @@ class StrategyLookupRepositoryTests(unittest.TestCase):
 
                 runs = list_strategy_lookup_runs()
                 details = load_strategy_lookup_run("run-1")
+                total_count = count_strategy_lookup_runs()
 
         self.assertEqual([item["run_id"] for item in runs], ["run-2", "run-1"])
         self.assertEqual(runs[1]["strategy_count"], 2)
         self.assertEqual(runs[1]["scanned"], 30)
         self.assertEqual(runs[1]["candidate_count"], 1)
         self.assertEqual(len(details), 2)
+        self.assertEqual(total_count, 2)
         self.assertEqual(details[0]["data"]["scan_summary"][0]["ticker"], "A")
 
 
