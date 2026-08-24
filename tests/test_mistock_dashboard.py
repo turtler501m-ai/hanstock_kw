@@ -16,6 +16,28 @@ from src.mistock import trader as mistock_trader
 
 
 class MistockDashboardTests(unittest.TestCase):
+    def test_mistock_periodic_performance_keeps_market_day_without_trades(self):
+        market_rows = {
+            "sp500": [
+                {"date": "2026-08-21", "close": 6400},
+                {"date": "2026-08-24", "close": 6464},
+            ],
+            "nasdaq": [
+                {"date": "2026-08-21", "close": 22000},
+                {"date": "2026-08-24", "close": 22220},
+            ],
+        }
+        with patch.object(mistock, "_load_mistock_index_rows", return_value=market_rows), patch.object(
+            mistock, "_mistock_strategy_forward", return_value=[]
+        ):
+            performance = mistock._build_mistock_periodic_performance([])
+
+        latest = next(row for row in performance["daily"] if row["period"] == "2026-08-24")
+        self.assertEqual(latest["order_count"], 0)
+        self.assertEqual(latest["realized_pnl"], 0.0)
+        self.assertEqual(latest["sp500_change_pct"], 1.0)
+        self.assertEqual(latest["nasdaq_change_pct"], 1.0)
+
     def test_holding_daily_change_translates_broker_share_class_for_yahoo(self):
         frame = {"Close": pd.DataFrame({"BF-B": [400.0, 404.0]})}
         holdings = {"BF.B": {"qty": 2}}

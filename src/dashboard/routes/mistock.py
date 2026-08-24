@@ -2665,6 +2665,15 @@ def _build_mistock_periodic_performance(
     daily_market = _mistock_market_context(index_rows)
     weekly_market = _mistock_market_context(index_rows, weekly=True)
     monthly_market = _mistock_market_context(index_rows, monthly=True)
+    # A performance day must remain visible even when the strategy generated no
+    # orders.  Previously daily buckets were created only from trades/cashflows,
+    # so a quiet US session disappeared from the dashboard entirely.
+    recent_market_days = sorted(daily_market)[-30:]
+    for market_day in recent_market_days:
+        daily.setdefault(market_day, _period_bucket())
+        iso = datetime.fromisoformat(market_day).isocalendar()
+        weekly.setdefault(f"{iso.year}-W{iso.week:02d}", _period_bucket())
+        monthly.setdefault(market_day[:7], _period_bucket())
     try:
         strategy_forward = _mistock_strategy_forward(account_trades, index_rows)
     except Exception as exc:
