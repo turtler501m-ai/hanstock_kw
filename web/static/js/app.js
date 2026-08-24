@@ -3245,6 +3245,28 @@ async function refreshStrategyLookup() {
     }
 }
 
+async function renderStrategyLookupTab() {
+    const envelope = await fetchJson('/api/ai-strategies', 30000);
+    const selected = (envelope.strategies || []).filter((strategy) =>
+        strategy.selected && strategy.status === 'approved');
+    const strategyIds = selected.map((strategy) => String(strategy.id));
+    const selection = document.getElementById('strategy-preview-selection');
+    if (selection) {
+        selection.innerHTML = strategyIds.length
+            ? `<strong>조회 전략 ${strategyIds.length}개</strong><span>${
+                selected.map((strategy) => escapeHtml(strategyDisplayName(strategy))).join(' · ')
+            }</span><small>저장된 최신 분석 결과 · 새 분석은 선택 전략 조회 버튼으로 실행</small>`
+            : '<strong>조회 대기</strong><span>AI 전략 탭에서 사용할 전략을 선택하세요.</span>';
+    }
+    if (!strategyIds.length) {
+        renderStrategyPreviewCards([], selected);
+        return;
+    }
+    await renderCachedStrategyPreviews(strategyIds, selected, { updating: false });
+    finishStrategyPreviewUpdatingState();
+    setButtonBusy('btn-candidates', false);
+}
+
 function configureStrategyLookupTab() {
     const strategyTab = document.getElementById('dashboard-tab-strategy');
     const aiTab = document.getElementById('dashboard-tab-ai');

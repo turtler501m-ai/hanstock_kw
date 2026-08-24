@@ -25,6 +25,22 @@ class StrategyLookupTabContractTests(unittest.TestCase):
         self.assertIn("await renderCachedStrategyPreviews(strategyIds, selected);", script)
         self.assertIn("await renderCandidates({ strategyIds, strategies: selected });", script)
 
+    def test_opening_lookup_tab_only_reads_cached_strategy_results(self):
+        app_script = (ROOT / "web/static/js/app.js").read_text(encoding="utf-8")
+        common_script = (ROOT / "web/static/js/common-analysis.js").read_text(encoding="utf-8")
+
+        self.assertIn("async function renderStrategyLookupTab()", app_script)
+        self.assertIn(
+            "await renderCachedStrategyPreviews(strategyIds, selected, { updating: false });",
+            app_script,
+        )
+        self.assertIn(
+            "return refresh('strategy-lookup', renderStrategyLookupTab, 30000);",
+            common_script,
+        )
+        strategy_branch = common_script.split("if (target === 'strategy') {", 1)[1].split("}", 1)[0]
+        self.assertNotIn("refreshCommonAnalysisViews", strategy_branch)
+
     def test_cached_results_are_shown_while_selected_strategies_update(self):
         script = (ROOT / "web/static/js/app.js").read_text(encoding="utf-8")
         self.assertIn(

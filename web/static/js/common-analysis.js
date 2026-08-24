@@ -168,7 +168,7 @@ async function refreshCommonDashboardTab(target, options = {}) {
         ]);
     }
     if (target === 'strategy') {
-        return refresh('strategy-analysis', refreshCommonAnalysisViews, 30000);
+        return refresh('strategy-lookup', renderStrategyLookupTab, 30000);
     }
     if (target === 'schedule') return refresh('schedule', renderScheduleInfo);
     if (target === 'orders') return refresh('approvals', renderApprovals);
