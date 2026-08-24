@@ -3806,6 +3806,69 @@ th,
     background: rgba(239, 68, 68, 0.12);
 }
 
+.strategy-analysis-details {
+    border-top: 1px solid rgba(148, 163, 184, 0.14);
+}
+
+.strategy-analysis-details > summary {
+    padding: 0.9rem 1rem;
+    color: #bfdbfe;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.strategy-analysis-details > .section-help {
+    margin: 0;
+    padding: 0 1rem 0.8rem;
+}
+
+.strategy-analysis-table-wrap {
+    max-height: 620px;
+    overflow: auto;
+}
+
+.strategy-analysis-table th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: #172033;
+}
+
+.strategy-analysis-table td {
+    vertical-align: top;
+}
+
+.strategy-analysis-checklist {
+    display: grid;
+    gap: 0.3rem;
+    min-width: 250px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.strategy-analysis-checklist li {
+    display: grid;
+    grid-template-columns: 1rem minmax(110px, auto) minmax(90px, 1fr);
+    gap: 0.35rem;
+    align-items: baseline;
+    font-size: 0.78rem;
+}
+
+.strategy-analysis-checklist li.is-pass > span,
+.strategy-analysis-checklist li.is-pass > strong {
+    color: #86efac;
+}
+
+.strategy-analysis-checklist li.is-fail > span,
+.strategy-analysis-checklist li.is-fail > strong {
+    color: #fca5a5;
+}
+
+.strategy-analysis-checklist small {
+    color: rgba(255, 255, 255, 0.58);
+}
+
 @media (max-width: 760px) {
     .strategy-lookup-actions {
         width: 100%;
@@ -3823,5 +3886,11 @@ th,
     }
     .strategy-preview-metrics {
         justify-content: flex-start;
+    }
+    .strategy-analysis-checklist li {
+        grid-template-columns: 1rem 1fr;
+    }
+    .strategy-analysis-checklist small {
+        grid-column: 2;
     }
 }

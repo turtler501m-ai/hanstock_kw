@@ -72,6 +72,23 @@ class StrategyLookupTabContractTests(unittest.TestCase):
         self.assertIn('class="strategy-preview-card"', script)
         self.assertIn(".strategy-preview-card", stylesheet)
 
+    def test_each_strategy_card_lists_exclusions_and_check_items(self):
+        script = (ROOT / "web/static/js/app.js").read_text(encoding="utf-8")
+        stylesheet = (ROOT / "web/static/css/style.css").read_text(encoding="utf-8")
+
+        self.assertIn("function strategyAnalysisChecks(row)", script)
+        self.assertIn("function strategyAnalysisChecklistMarkup(row)", script)
+        self.assertIn("function strategyExcludedRowsMarkup(rows)", script)
+        self.assertIn('const analyzedRows = data.scan_summary || [];', script)
+        self.assertIn('class="strategy-analysis-details"', script)
+        self.assertIn("분석 세부내역 · 통과", script)
+        self.assertIn("Alpha HA 진입 형태", script)
+        self.assertIn("RSI 과매도", script)
+        self.assertIn("직전 고가 돌파", script)
+        self.assertIn("손절 위험 허용", script)
+        self.assertIn(".strategy-analysis-checklist", stylesheet)
+        self.assertIn("max-height: 620px", stylesheet)
+
     def test_approved_independent_strategy_can_be_selected(self):
         script = (ROOT / "web/static/js/app.js").read_text(encoding="utf-8")
         function_body = script.split(

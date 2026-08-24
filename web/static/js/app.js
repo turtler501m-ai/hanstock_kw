@@ -2795,6 +2795,60 @@ async function renderSignals() {
     }
 }
 
+function strategyAnalysisChecks(row) {
+    const risk = row.strategy_risk || {};
+    const params = risk.effective_parameters || {};
+    const value = (label, passed, detail = '') => ({ label, passed: Boolean(passed), detail });
+    if (String(row.strategy_id || '').includes('heikin_ashi')) {
+        const atrMin = Number(params.atr_pct_min ?? 0.5);
+        const atrMax = Number(params.atr_pct_max ?? 5);
+        const adxMin = Number(params.adx_min ?? 20);
+        return [
+            value('Alpha HA 진입 형태', risk.long_setup || risk.short_setup, `${risk.prev_alpha_color || '-'} → ${risk.alpha_color || '-'}`),
+            value('EMA200 추세 방향', risk.direction && risk.direction !== 'flat', `방향 ${risk.direction || '-'}`),
+            value(`ADX ≥ ${adxMin}`, Number(risk.adx) >= adxMin, `ADX ${formatNumber(risk.adx, 1)}`),
+            value(`ATR ${atrMin}~${atrMax}%`, Number(risk.atr_pct) >= atrMin && Number(risk.atr_pct) <= atrMax, `ATR ${formatNumber(risk.atr_pct, 2)}%`),
+        ];
+    }
+    if (String(row.strategy_id || '').includes('rsi_limit')) {
+        return [
+            value('EMA200 추세', risk.trend_ok, `현재 ${formatCurrency(row.current_price)} · EMA ${formatCurrency(risk.ema200)}`),
+            value(`RSI 과매도 ≤ ${Number(params.oversold_threshold ?? 30)}`, risk.oversold_seen, `RSI ${formatNumber(risk.rsi, 1)}`),
+            value('RSI 반등 확인', risk.rsi_recovered, `${formatNumber(risk.previous_rsi, 1)} → ${formatNumber(risk.rsi, 1)}`),
+            value('직전 고가 돌파', risk.price_confirmed, `기준 ${formatCurrency(risk.previous_high)}`),
+            value('거래량 확인', risk.volume_confirmed, `20일 대비 ${formatNumber(row.feature_payload?.volume_ratio_20d, 2)}배`),
+            value('손절 위험 허용', risk.risk_acceptable, `손절폭 ${formatNumber(risk.stop_distance_pct, 2)}%`),
+            value('재진입 제한 해제', risk.reentry_reset_ok, ''),
+        ];
+    }
+    return (row.reasons || []).map((reason) => value(strategyReasonLabel(reason), row.passed));
+}
+
+function strategyAnalysisChecklistMarkup(row) {
+    return strategyAnalysisChecks(row).map((check) => `
+        <li class="${check.passed ? 'is-pass' : 'is-fail'}">
+            <span aria-hidden="true">${check.passed ? '✓' : '✕'}</span>
+            <strong>${escapeHtml(check.label)}</strong>
+            ${check.detail ? `<small>${escapeHtml(check.detail)}</small>` : ''}
+        </li>
+    `).join('');
+}
+
+function strategyExcludedRowsMarkup(rows) {
+    if (!rows.length) return '<tr><td colspan="5" class="table-message">제외된 종목이 없습니다.</td></tr>';
+    return rows.map((row) => {
+        const failed = strategyAnalysisChecks(row).filter((check) => !check.passed);
+        const reasons = (row.reasons || []).map(strategyReasonLabel).join(' · ') || '진입 기준 미충족';
+        return `<tr>
+            <td><span class="symbol-name">${escapeHtml(row.name || row.ticker)}</span><span class="symbol-code">${escapeHtml(row.ticker || '')}</span></td>
+            <td>${formatNumber(row.score, 2)} / ${formatNumber(row.min_score, 2)}</td>
+            <td><ul class="strategy-analysis-checklist">${strategyAnalysisChecklistMarkup(row)}</ul></td>
+            <td><div class="reason-detail">${escapeHtml(reasons)}</div></td>
+            <td>${failed.length.toLocaleString()}개</td>
+        </tr>`;
+    }).join('');
+}
+
 function renderStrategyPreviewCards(results, strategies = []) {
     const container = document.getElementById('strategy-preview-results');
     const legacyTable = document.querySelector('.panel-candidates .candidate-legacy-table');
@@ -2808,6 +2862,9 @@ function renderStrategyPreviewCards(results, strategies = []) {
             { id: result.strategyId, name: result.strategyId };
         const data = result.data || {};
         const candidates = data.candidates || [];
+        const analyzedRows = data.scan_summary || [];
+        const passedRows = analyzedRows.filter((row) => row.passed);
+        const excludedRows = analyzedRows.filter((row) => !row.passed);
         const error = result.error || data.scan_error;
         const cache = data._cache || {};
         const isUpdating = Boolean(result.updating);
@@ -2851,6 +2908,16 @@ function renderStrategyPreviewCards(results, strategies = []) {
                     <tbody>${rows}</tbody>
                 </table>
             </div>
+            <details class="strategy-analysis-details">
+                <summary>분석 세부내역 · 통과 ${passedRows.length.toLocaleString()}종목 · 제외 ${excludedRows.length.toLocaleString()}종목</summary>
+                <p class="section-help">각 체크 항목의 ✓/✕와 측정값을 기준으로 후보 제외 사유를 확인할 수 있습니다.</p>
+                <div class="table-responsive strategy-analysis-table-wrap">
+                    <table class="strategy-analysis-table">
+                        <thead><tr><th>종목</th><th>점수/기준</th><th>체크 항목</th><th>판정 사유</th><th>미충족</th></tr></thead>
+                        <tbody>${strategyExcludedRowsMarkup(excludedRows)}</tbody>
+                    </table>
+                </div>
+            </details>
         </article>`;
     }).join('');
 }
