@@ -126,6 +126,7 @@ class StrategyLookupTabContractTests(unittest.TestCase):
         self.assertIn("조회할 때마다 결과가 누적됩니다.", script)
         self.assertIn("async function openStrategyLookupRun(runId)", script)
         self.assertIn("renderStrategyPreviewCards(results, aiStrategyCatalog)", script)
+        self.assertGreaterEqual(script.count("await renderStrategyLookupHistory();"), 3)
 
     def test_analysis_details_support_score_and_sorting(self):
         script = (ROOT / "web/static/js/app.js").read_text(encoding="utf-8")

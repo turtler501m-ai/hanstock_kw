@@ -425,6 +425,25 @@ def trigger_scheduler_run(payload: dict = Body(...)):
     ):
         raise HTTPException(status_code=409, detail="스케줄러가 이미 실행 중입니다.")
 
+    if mode == "analysis_only" and allowed_categories == {"candidate"}:
+        from src.db.strategy_lookup_repository import save_strategy_lookup_result
+
+        captured_at = trader.datetime.now(trader.KST).isoformat()
+        for strategy_id in resolved_strategy_ids:
+            save_strategy_lookup_result(
+                run_id,
+                strategy_id,
+                {
+                    "strategy_id": strategy_id,
+                    "status": "running",
+                    "candidates": [],
+                    "scan_summary": [],
+                    "scanned": 0,
+                    "min_score": 2,
+                },
+                captured_at=captured_at,
+            )
+
     t = threading.Thread(
         target=_bg_run_multiple_scheduled_cycles,
         args=(mode, include_ai_rebalance, auto_approve, strategy_ids, allowed_categories, run_id),

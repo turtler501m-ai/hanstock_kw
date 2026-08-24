@@ -3287,6 +3287,7 @@ async function previewSelectedStrategies() {
             strategy_ids: strategyIds,
             allowed_categories: ['candidate'],
         });
+        await renderStrategyLookupHistory();
         setStatus(`선택 전략 ${strategyIds.length}개를 분석 전용으로 실행 중입니다. 주문은 생성되지 않습니다.`, true);
         await waitForStrategyPreviewCompletion(started.run_id);
         await renderCandidates({ strategyIds, strategies: selected });
@@ -3325,6 +3326,7 @@ async function refreshStrategyLookup() {
             strategy_ids: strategyIds,
             allowed_categories: ['candidate'],
         });
+        await renderStrategyLookupHistory();
         setStatus(`선택 전략 ${strategyIds.length}개를 백그라운드에서 새로고침하고 있습니다. 최대 10분까지 기다립니다.`, true);
         await waitForStrategyPreviewCompletion(started.run_id);
         await renderCandidates({ strategyIds, strategies: selected });
@@ -3355,12 +3357,12 @@ async function renderStrategyLookupTab() {
             }</span><small>저장된 최신 분석 결과 · 새 분석은 선택 전략 조회 버튼으로 실행</small>`
             : '<strong>조회 대기</strong><span>AI 전략 탭에서 사용할 전략을 선택하세요.</span>';
     }
+    await renderStrategyLookupHistory();
     if (!strategyIds.length) {
         renderStrategyPreviewCards([], selected);
         return;
     }
     await renderCachedStrategyPreviews(strategyIds, selected, { updating: false });
-    await renderStrategyLookupHistory();
     finishStrategyPreviewUpdatingState();
     setButtonBusy('btn-candidates', false);
 }

@@ -2651,6 +2651,7 @@ def _persist_strategy_lookup_candidate_snapshot(
             strategy_id,
             {
                 "strategy_id": str(strategy_id),
+                "status": "completed",
                 "candidates": rows,
                 "scan_summary": list(scan.get("scan_summary") or []),
                 "scanned": int(scan.get("scanned") or 0),
