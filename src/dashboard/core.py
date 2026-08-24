@@ -2612,6 +2612,7 @@ def _persist_strategy_lookup_candidate_snapshot(
     result: dict,
     registered_strategies: list[dict],
     optimizer: str = "score_tilted_inverse_vol",
+    lookup_run_id: str | None = None,
 ) -> str | None:
     """백그라운드 분석 결과를 전략조회용 최신 스냅샷으로 저장한다."""
     if not isinstance(result, dict):
@@ -2634,7 +2635,7 @@ def _persist_strategy_lookup_candidate_snapshot(
         rows.append(row)
 
     min_score = int(scan.get("min_score") or 2)
-    return _save_candidate_cache(
+    cached_at = _save_candidate_cache(
         min_score,
         rows,
         list(scan.get("scan_summary") or []),
@@ -2642,6 +2643,24 @@ def _persist_strategy_lookup_candidate_snapshot(
         str(strategy_id),
         optimizer,
     )
+    if lookup_run_id:
+        from src.db.strategy_lookup_repository import save_strategy_lookup_result
+
+        save_strategy_lookup_result(
+            lookup_run_id,
+            strategy_id,
+            {
+                "strategy_id": str(strategy_id),
+                "candidates": rows,
+                "scan_summary": list(scan.get("scan_summary") or []),
+                "scanned": int(scan.get("scanned") or 0),
+                "min_score": min_score,
+                "optimizer": optimizer,
+                "_cache": {"cached_at": cached_at},
+            },
+            captured_at=cached_at,
+        )
+    return cached_at
 
 
 def _run_scheduled_cycles_for_strategies(
@@ -2650,6 +2669,7 @@ def _run_scheduled_cycles_for_strategies(
     auto_approve: bool,
     strategy_ids: list[str],
     allowed_categories: set[str] | None = None,
+    lookup_run_id: str | None = None,
 ) -> dict:
     from src.scheduler import run_scheduled_cycle
     from src.config import config
@@ -2688,7 +2708,8 @@ def _run_scheduled_cycles_for_strategies(
                 result = run_scheduled_cycle(mode, **cycle_kwargs)
                 if mode == "analysis_only":
                     _persist_strategy_lookup_candidate_snapshot(
-                        strategy_id, result, registered_strategies
+                        strategy_id, result, registered_strategies,
+                        lookup_run_id=lookup_run_id,
                     )
                 runs.append({
                     "strategy_id": strategy_id,
@@ -2733,7 +2754,8 @@ def _run_scheduled_cycles_for_strategies(
                 result = run_scheduled_cycle(mode, **cycle_kwargs)
             if mode == "analysis_only" and allowed_categories == {"candidate"}:
                 _persist_strategy_lookup_candidate_snapshot(
-                    strategy_id, result, registered_strategies
+                    strategy_id, result, registered_strategies,
+                    lookup_run_id=lookup_run_id,
                 )
             mark_common_analysis_stage(
                 cycle["id"],
@@ -2771,6 +2793,7 @@ def _bg_run_multiple_scheduled_cycles(
     allowed_categories: set[str] | None = None,
     run_id: str | None = None,
 ):
+    lookup_kwargs = {"lookup_run_id": run_id} if run_id else {}
     _dashboard_scheduler_service.run(
         _run_scheduled_cycles_for_strategies,
         mode=mode,
@@ -2779,4 +2802,5 @@ def _bg_run_multiple_scheduled_cycles(
         strategy_ids=strategy_ids,
         allowed_categories=allowed_categories,
         run_id=run_id,
+        **lookup_kwargs,
     )

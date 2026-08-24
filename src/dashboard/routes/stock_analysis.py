@@ -33,6 +33,23 @@ def get_ai_strategies():
     return {"strategies": [_strategy_api_payload(strategy) for strategy in load_ai_strategies()]}
 
 
+@router.get("/api/strategy-lookup/runs")
+def get_strategy_lookup_runs(limit: int = 30):
+    from src.db.strategy_lookup_repository import list_strategy_lookup_runs
+
+    return {"runs": list_strategy_lookup_runs(limit)}
+
+
+@router.get("/api/strategy-lookup/runs/{run_id}")
+def get_strategy_lookup_run(run_id: str):
+    from src.db.strategy_lookup_repository import load_strategy_lookup_run
+
+    results = load_strategy_lookup_run(run_id)
+    if not results:
+        raise HTTPException(status_code=404, detail="Strategy lookup run not found")
+    return {"run_id": run_id, "results": results}
+
+
 @router.post("/api/ai-strategies/{id}/autonomy/run")
 def run_ai_strategy_autonomy(id: str, payload: dict = Body(default_factory=dict)):
     """Run guarded autonomy from the main Hanstock AI strategy screen."""

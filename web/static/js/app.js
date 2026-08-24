@@ -12,6 +12,9 @@ let holdingPnlFilter = 'all';
 let activeStrategyAuditId = '';
 let schedulerPollInterval = null;
 let aiStrategyCatalog = [];
+let strategyPreviewResultsCache = [];
+let strategyPreviewCatalogCache = [];
+const strategyAnalysisSortState = new Map();
 let aiStrategyDraftSelection = null;
 let aiStrategySelectionDirty = false;
 let aiStrategyCategoryFilter = '';
@@ -2834,14 +2837,45 @@ function strategyAnalysisChecklistMarkup(row) {
     `).join('');
 }
 
+function strategyAnalysisEvaluation(row) {
+    const checks = strategyAnalysisChecks(row);
+    const passedChecks = checks.filter((check) => check.passed).length;
+    const checklistScore = checks.length ? Math.round((passedChecks / checks.length) * 100) : 0;
+    const strategyScore = Number(row.score || 0);
+    const minScore = Number(row.min_score || 0);
+    const tradePossible = Boolean(row.passed) && strategyScore >= minScore && checklistScore === 100;
+    return {
+        checks,
+        checklistScore,
+        failedCount: checks.length - passedChecks,
+        tradePossible,
+        verdict: tradePossible ? '매매 가능' : (checklistScore >= 60 ? '관찰' : '제외'),
+    };
+}
+
+function sortStrategyAnalysisRows(rows, sortKey) {
+    return [...rows].sort((left, right) => {
+        const a = strategyAnalysisEvaluation(left);
+        const b = strategyAnalysisEvaluation(right);
+        if (sortKey === 'score_asc') return a.checklistScore - b.checklistScore;
+        if (sortKey === 'failed_desc') return b.failedCount - a.failedCount;
+        if (sortKey === 'name') return String(left.name || left.ticker || '').localeCompare(String(right.name || right.ticker || ''), 'ko');
+        if (sortKey === 'verdict') return Number(b.tradePossible) - Number(a.tradePossible) || b.checklistScore - a.checklistScore;
+        return b.checklistScore - a.checklistScore || Number(right.score || 0) - Number(left.score || 0);
+    });
+}
+
 function strategyExcludedRowsMarkup(rows) {
-    if (!rows.length) return '<tr><td colspan="5" class="table-message">제외된 종목이 없습니다.</td></tr>';
+    if (!rows.length) return '<tr><td colspan="7" class="table-message">분석 세부내역이 없습니다.</td></tr>';
     return rows.map((row) => {
-        const failed = strategyAnalysisChecks(row).filter((check) => !check.passed);
+        const evaluation = strategyAnalysisEvaluation(row);
+        const failed = evaluation.checks.filter((check) => !check.passed);
         const reasons = (row.reasons || []).map(strategyReasonLabel).join(' · ') || '진입 기준 미충족';
         return `<tr>
             <td><span class="symbol-name">${escapeHtml(row.name || row.ticker)}</span><span class="symbol-code">${escapeHtml(row.ticker || '')}</span></td>
             <td>${formatNumber(row.score, 2)} / ${formatNumber(row.min_score, 2)}</td>
+            <td><strong>${evaluation.checklistScore}점</strong> / 100점</td>
+            <td>${pill(evaluation.verdict, evaluation.tradePossible ? 'buy' : (evaluation.verdict === '관찰' ? 'warn' : 'sell'))}</td>
             <td><ul class="strategy-analysis-checklist">${strategyAnalysisChecklistMarkup(row)}</ul></td>
             <td><div class="reason-detail">${escapeHtml(reasons)}</div></td>
             <td>${failed.length.toLocaleString()}개</td>
@@ -2853,6 +2887,8 @@ function renderStrategyPreviewCards(results, strategies = []) {
     const container = document.getElementById('strategy-preview-results');
     const legacyTable = document.querySelector('.panel-candidates .candidate-legacy-table');
     if (!container) return;
+    strategyPreviewResultsCache = results;
+    strategyPreviewCatalogCache = strategies;
     const strategyMap = new Map(strategies.map((strategy) => [String(strategy.id), strategy]));
     container.hidden = false;
     if (legacyTable) legacyTable.hidden = true;
@@ -2865,6 +2901,8 @@ function renderStrategyPreviewCards(results, strategies = []) {
         const analyzedRows = data.scan_summary || [];
         const passedRows = analyzedRows.filter((row) => row.passed);
         const excludedRows = analyzedRows.filter((row) => !row.passed);
+        const sortKey = strategyAnalysisSortState.get(String(result.strategyId)) || 'score_desc';
+        const sortedAnalysisRows = sortStrategyAnalysisRows(analyzedRows, sortKey);
         const error = result.error || data.scan_error;
         const cache = data._cache || {};
         const isUpdating = Boolean(result.updating);
@@ -2910,16 +2948,73 @@ function renderStrategyPreviewCards(results, strategies = []) {
             </div>
             <details class="strategy-analysis-details">
                 <summary>분석 세부내역 · 통과 ${passedRows.length.toLocaleString()}종목 · 제외 ${excludedRows.length.toLocaleString()}종목</summary>
-                <p class="section-help">각 체크 항목의 ✓/✕와 측정값을 기준으로 후보 제외 사유를 확인할 수 있습니다.</p>
+                <div class="strategy-analysis-toolbar">
+                    <p class="section-help">체크 충족률을 100점으로 환산합니다. 100점이면서 기존 전략 점수 기준까지 통과해야 ‘매매 가능’입니다.</p>
+                    <label>정렬
+                        <select class="strategy-analysis-sort" data-strategy-id="${escapeHtml(String(result.strategyId))}">
+                            <option value="score_desc" ${sortKey === 'score_desc' ? 'selected' : ''}>체크점수 높은순</option>
+                            <option value="score_asc" ${sortKey === 'score_asc' ? 'selected' : ''}>체크점수 낮은순</option>
+                            <option value="failed_desc" ${sortKey === 'failed_desc' ? 'selected' : ''}>미충족 많은순</option>
+                            <option value="verdict" ${sortKey === 'verdict' ? 'selected' : ''}>매매 가능 우선</option>
+                            <option value="name" ${sortKey === 'name' ? 'selected' : ''}>종목명순</option>
+                        </select>
+                    </label>
+                </div>
                 <div class="table-responsive strategy-analysis-table-wrap">
                     <table class="strategy-analysis-table">
-                        <thead><tr><th>종목</th><th>점수/기준</th><th>체크 항목</th><th>판정 사유</th><th>미충족</th></tr></thead>
-                        <tbody>${strategyExcludedRowsMarkup(excludedRows)}</tbody>
+                        <thead><tr><th>종목</th><th>전략점수/기준</th><th>체크점수</th><th>판정</th><th>체크 항목</th><th>판정 사유</th><th>미충족</th></tr></thead>
+                        <tbody>${strategyExcludedRowsMarkup(sortedAnalysisRows)}</tbody>
                     </table>
                 </div>
             </details>
         </article>`;
     }).join('');
+    container.querySelectorAll('.strategy-analysis-sort').forEach((select) => {
+        select.addEventListener('change', () => {
+            strategyAnalysisSortState.set(String(select.dataset.strategyId), select.value);
+            renderStrategyPreviewCards(strategyPreviewResultsCache, strategyPreviewCatalogCache);
+        });
+    });
+}
+
+function strategyLookupRunTime(value) {
+    return value ? String(value).replace('T', ' ').slice(0, 19) : '-';
+}
+
+async function openStrategyLookupRun(runId) {
+    const envelope = await fetchJson(`/api/strategy-lookup/runs/${encodeURIComponent(runId)}`, 30000);
+    const results = (envelope.results || []).map((item) => ({
+        strategyId: item.strategy_id,
+        data: item.data || {},
+    }));
+    renderStrategyPreviewCards(results, aiStrategyCatalog);
+    setStatus(`분석 이력 ${strategyLookupRunTime(envelope.results?.[0]?.captured_at)}을 표시합니다.`, true);
+}
+
+async function renderStrategyLookupHistory() {
+    const container = document.getElementById('strategy-lookup-history');
+    if (!container) return;
+    try {
+        const envelope = await fetchJson('/api/strategy-lookup/runs?limit=50', 30000);
+        const runs = envelope.runs || [];
+        container.innerHTML = `<div class="strategy-lookup-history-header"><strong>분석 실행 목록</strong><small>조회할 때마다 결과가 누적됩니다.</small></div>${
+            runs.length ? `<div class="strategy-lookup-run-list">${runs.map((run) => `
+                <button type="button" class="strategy-lookup-run" data-run-id="${escapeHtml(run.run_id)}">
+                    <strong>${escapeHtml(strategyLookupRunTime(run.captured_at))}</strong>
+                    <span>전략 ${Number(run.strategy_count || 0).toLocaleString()}개 · 분석 ${Number(run.scanned || 0).toLocaleString()}종목 · 매매후보 ${Number(run.candidate_count || 0).toLocaleString()}종목</span>
+                    <small>세부내역 보기</small>
+                </button>`).join('')}</div>` : '<p class="section-help">아직 저장된 분석 실행이 없습니다.</p>'
+        }`;
+        container.querySelectorAll('.strategy-lookup-run').forEach((button) => {
+            button.addEventListener('click', async () => {
+                container.querySelectorAll('.strategy-lookup-run').forEach((item) => item.classList.remove('is-active'));
+                button.classList.add('is-active');
+                await openStrategyLookupRun(button.dataset.runId);
+            });
+        });
+    } catch (error) {
+        container.innerHTML = `<p class="section-help">분석 실행 목록을 불러오지 못했습니다: ${escapeHtml(error.message)}</p>`;
+    }
 }
 
 async function renderCachedStrategyPreviews(strategyIds, strategies = [], options = {}) {
@@ -3195,6 +3290,7 @@ async function previewSelectedStrategies() {
         setStatus(`선택 전략 ${strategyIds.length}개를 분석 전용으로 실행 중입니다. 주문은 생성되지 않습니다.`, true);
         await waitForStrategyPreviewCompletion(started.run_id);
         await renderCandidates({ strategyIds, strategies: selected });
+        await renderStrategyLookupHistory();
         setStatus(`전략 조회 완료 · ${strategyIds.length}개 전략 · 주문 없음`, true);
     } catch (error) {
         setTableMessage('#table-candidates tbody', 9, error.message);
@@ -3232,6 +3328,7 @@ async function refreshStrategyLookup() {
         setStatus(`선택 전략 ${strategyIds.length}개를 백그라운드에서 새로고침하고 있습니다. 최대 10분까지 기다립니다.`, true);
         await waitForStrategyPreviewCompletion(started.run_id);
         await renderCandidates({ strategyIds, strategies: selected });
+        await renderStrategyLookupHistory();
         setStatus(`전략 새로고침 완료 · ${strategyIds.length}개 전략 · DB 최신본 저장`, true);
     } catch (error) {
         setStatus(`전략 새로고침 실패: ${error.message}`);
@@ -3263,6 +3360,7 @@ async function renderStrategyLookupTab() {
         return;
     }
     await renderCachedStrategyPreviews(strategyIds, selected, { updating: false });
+    await renderStrategyLookupHistory();
     finishStrategyPreviewUpdatingState();
     setButtonBusy('btn-candidates', false);
 }
@@ -3294,6 +3392,13 @@ function configureStrategyLookupTab() {
             const table = candidatePanel.querySelector('.table-responsive');
             table?.classList.add('candidate-legacy-table');
             candidatePanel.insertBefore(results, table);
+        }
+        if (!candidatePanel.querySelector('#strategy-lookup-history')) {
+            const history = document.createElement('section');
+            history.id = 'strategy-lookup-history';
+            history.className = 'strategy-lookup-history';
+            history.innerHTML = '<p class="section-help">분석 실행 목록을 불러오는 중입니다...</p>';
+            candidatePanel.querySelector('#strategy-preview-results')?.before(history);
         }
         candidatePanel.querySelector('#ai-flow-list')?.remove();
         const table = candidatePanel.querySelector('.table-responsive');

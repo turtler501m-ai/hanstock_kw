@@ -100,6 +100,25 @@ def init_db() -> None:
         conn.execute("CREATE INDEX IF NOT EXISTS idx_scanned_candidates_scanned_at ON scanned_candidates(scanned_at)")
         conn.execute(
             """
+            CREATE TABLE IF NOT EXISTS strategy_lookup_runs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                run_id TEXT NOT NULL,
+                strategy_id TEXT NOT NULL,
+                captured_at TEXT NOT NULL,
+                scanned INTEGER NOT NULL DEFAULT 0,
+                candidate_count INTEGER NOT NULL DEFAULT 0,
+                min_score REAL NOT NULL DEFAULT 0,
+                payload TEXT NOT NULL,
+                UNIQUE(run_id, strategy_id)
+            )
+            """
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_strategy_lookup_runs_captured "
+            "ON strategy_lookup_runs(captured_at DESC, run_id)"
+        )
+        conn.execute(
+            """
             CREATE TABLE IF NOT EXISTS watchlist (
                 symbol TEXT PRIMARY KEY,
                 name TEXT NOT NULL,

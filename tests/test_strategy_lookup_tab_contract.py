@@ -118,6 +118,24 @@ class StrategyLookupTabContractTests(unittest.TestCase):
         self.assertIn("status.textContent = '업데이트 완료';", body)
         self.assertNotIn("status.textContent.includes", body)
 
+    def test_lookup_runs_are_accumulated_and_open_inline(self):
+        script = (ROOT / "web/static/js/app.js").read_text(encoding="utf-8")
+
+        self.assertIn("async function renderStrategyLookupHistory()", script)
+        self.assertIn("/api/strategy-lookup/runs?limit=50", script)
+        self.assertIn("조회할 때마다 결과가 누적됩니다.", script)
+        self.assertIn("async function openStrategyLookupRun(runId)", script)
+        self.assertIn("renderStrategyPreviewCards(results, aiStrategyCatalog)", script)
+
+    def test_analysis_details_support_score_and_sorting(self):
+        script = (ROOT / "web/static/js/app.js").read_text(encoding="utf-8")
+
+        self.assertIn("function strategyAnalysisEvaluation(row)", script)
+        self.assertIn("checklistScore", script)
+        self.assertIn("100점이면서 기존 전략 점수 기준까지 통과", script)
+        self.assertIn('class="strategy-analysis-sort"', script)
+        self.assertIn("매매 가능 우선", script)
+
     def test_approved_independent_strategy_can_be_selected(self):
         script = (ROOT / "web/static/js/app.js").read_text(encoding="utf-8")
         function_body = script.split(

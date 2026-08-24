@@ -3822,6 +3822,32 @@ th,
     padding: 0 1rem 0.8rem;
 }
 
+.strategy-analysis-toolbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 1rem;
+    padding: .75rem 1rem;
+}
+
+.strategy-analysis-toolbar .section-help { margin: 0; }
+.strategy-analysis-toolbar label { display: flex; align-items: center; gap: .5rem; white-space: nowrap; }
+.strategy-analysis-toolbar select { min-width: 150px; }
+
+.strategy-lookup-history {
+    margin: 1rem 0;
+    padding: 1rem;
+    border: 1px solid var(--card-border);
+    border-radius: 12px;
+    background: rgba(15, 23, 42, .32);
+}
+
+.strategy-lookup-history-header { display: flex; align-items: baseline; gap: .75rem; margin-bottom: .75rem; }
+.strategy-lookup-history-header small, .strategy-lookup-run span, .strategy-lookup-run small { color: var(--text-muted); }
+.strategy-lookup-run-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(270px, 1fr)); gap: .6rem; max-height: 240px; overflow: auto; }
+.strategy-lookup-run { display: grid; gap: .3rem; text-align: left; padding: .75rem; background: rgba(255,255,255,.03); border: 1px solid var(--card-border); }
+.strategy-lookup-run.is-active { border-color: var(--primary); background: rgba(59, 130, 246, .12); }
+
 .strategy-analysis-table-wrap {
     max-height: 620px;
     overflow: auto;
