@@ -26,6 +26,7 @@ class MistockDashboardTests(unittest.TestCase):
                 {"date": "2026-08-21", "close": 22000},
                 {"date": "2026-08-24", "close": 22220},
             ],
+            "USDKRW": [{"date": "2026-08-25", "close": 1380}],
         }
         with patch.object(mistock, "_load_mistock_index_rows", return_value=market_rows), patch.object(
             mistock, "_mistock_strategy_forward", return_value=[]
@@ -37,6 +38,7 @@ class MistockDashboardTests(unittest.TestCase):
         self.assertEqual(latest["realized_pnl"], 0.0)
         self.assertEqual(latest["sp500_change_pct"], 1.0)
         self.assertEqual(latest["nasdaq_change_pct"], 1.0)
+        self.assertNotIn("2026-08-25", [row["period"] for row in performance["daily"]])
 
     def test_holding_daily_change_translates_broker_share_class_for_yahoo(self):
         frame = {"Close": pd.DataFrame({"BF-B": [400.0, 404.0]})}

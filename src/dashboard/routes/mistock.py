@@ -2668,7 +2668,10 @@ def _build_mistock_periodic_performance(
     # A performance day must remain visible even when the strategy generated no
     # orders.  Previously daily buckets were created only from trades/cashflows,
     # so a quiet US session disappeared from the dashboard entirely.
-    recent_market_days = sorted(daily_market)[-30:]
+    recent_market_days = sorted(
+        day for day, context in daily_market.items()
+        if context.get("sp500") is not None or context.get("nasdaq") is not None
+    )[-30:]
     for market_day in recent_market_days:
         daily.setdefault(market_day, _period_bucket())
         iso = datetime.fromisoformat(market_day).isocalendar()
