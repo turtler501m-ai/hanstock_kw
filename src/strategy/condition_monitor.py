@@ -14,6 +14,34 @@ from src.utils.logger import logger
 STATE_KEY = "technical_condition_monitor_v1"
 
 
+def _load_us_condition_symbols(api) -> tuple[list[str], str, str | None]:
+    """Use Kiwoom ranking when supported, otherwise keep US monitoring useful."""
+    ranker = getattr(api, "get_overseas_volume_rank", None)
+    if callable(ranker):
+        try:
+            symbols = list(dict.fromkeys(
+                list(ranker(excd="NAS", cnt=50) or [])
+                + list(ranker(excd="NYS", cnt=50) or [])
+            ))
+            if symbols:
+                return symbols, "kiwoom_overseas_volume_rank", None
+        except Exception as exc:
+            rank_error = f"{type(exc).__name__}:{exc}"
+        else:
+            rank_error = "empty overseas volume ranking"
+    else:
+        rank_error = "Kiwoom US volume ranking is not supported"
+
+    from src.mistock.config import config as mistock_config
+
+    fallback = list(dict.fromkeys(
+        str(symbol or "").upper().strip()
+        for symbol in (mistock_config.universe_list or [])
+        if str(symbol or "").strip()
+    ))
+    return fallback[:100], "mistock_config_universe", rank_error
+
+
 def save_condition_symbols(market: str, symbols: list[str], *, source: str) -> dict:
     normalized = list(dict.fromkeys(str(symbol or "").upper().strip() for symbol in symbols if symbol))
     if not normalized:
@@ -111,11 +139,13 @@ def run_condition_monitor_cycle(markets: set[str] | None = None) -> dict:
             from src.mistock.trader import _get_broker_client
 
             api = _get_broker_client()
-            symbols = list(dict.fromkeys(
-                api.get_overseas_volume_rank(excd="NAS", cnt=50)
-                + api.get_overseas_volume_rank(excd="NYS", cnt=50)
-            ))
-            result["US"] = save_condition_symbols("US", symbols, source="kiwoom_overseas_volume_rank")
+            symbols, source, fallback_reason = _load_us_condition_symbols(api)
+            result["US"] = save_condition_symbols("US", symbols, source=source)
+            if fallback_reason:
+                result["US"]["fallback_reason"] = fallback_reason
+                logger.info(
+                    f"[CONDITION_MONITOR] US fallback source={source}: {fallback_reason}"
+                )
         except Exception as exc:
             result["errors"].append(f"US:{type(exc).__name__}:{exc}")
             logger.info(f"[CONDITION_MONITOR] US unavailable: {exc}")

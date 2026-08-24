@@ -282,6 +282,28 @@ class TechnicalSignalsTests(unittest.TestCase):
         kr_api.fetch_volume_rank.assert_called_once_with(top_n=50)
         us_client.assert_not_called()
 
+    def test_condition_monitor_uses_configured_us_universe_when_rank_api_is_missing(self):
+        class USClientWithoutRankApi:
+            pass
+
+        kr_api = Mock()
+        kr_api.fetch_volume_rank.return_value = []
+        with tempfile.TemporaryDirectory() as tmp:
+            store = RuntimeStateStore(Path(tmp) / "runtime.sqlite")
+            with (
+                patch("src.strategy.condition_monitor.runtime_state_store", store),
+                patch("src.broker.factory.create_domestic_stock_broker", return_value=kr_api),
+                patch("src.mistock.trader._get_broker_client", return_value=USClientWithoutRankApi()),
+                patch("src.mistock.config.config.universe_list", ["AAPL", "MSFT", "AAPL"]),
+            ):
+                result = run_condition_monitor_cycle({"US"})
+                us_symbols = get_fresh_condition_symbols("US")
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(us_symbols, ["AAPL", "MSFT"])
+        self.assertEqual(result["US"]["source"], "mistock_config_universe")
+        self.assertIn("not supported", result["US"]["fallback_reason"])
+
     def test_walk_forward_models_costs_and_multiple_folds(self):
         prices = [100 + index * 0.2 + (index % 10) for index in range(140)]
         highs = [price * 1.01 for price in prices]
