@@ -27,6 +27,22 @@ from src.strategy.position_tracker import (
 
 WATCHLIST = []
 
+
+def _market_series(frame, column: str, fallback=None):
+    """Return a one-dimensional price series without collapsing to a scalar."""
+    if column not in frame:
+        return fallback
+    values = frame[column].dropna()
+    # yfinance can return a one-column DataFrame when its column index contains
+    # duplicate/multi-level labels.  Select that column explicitly, while
+    # preserving a Series even when only one valid observation remains.
+    if getattr(values, "ndim", 1) > 1:
+        if values.shape[1] == 0:
+            return fallback
+        values = values.iloc[:, 0]
+    return values
+
+
 def sync_selected_strategy_universes(watchlist_data: dict) -> dict[str, int]:
     """Add shared watchlist symbols to every selected isolated strategy."""
     from src.db.repository import (
@@ -1030,11 +1046,13 @@ def find_candidates(
             if df.empty or len(df) < minimum_history:
                 continue
 
-            closes = df["Close"].dropna().squeeze()
-            highs = df["High"].dropna().squeeze()
-            opens = df["Open"].dropna().squeeze() if "Open" in df else closes
-            lows = df["Low"].dropna().squeeze() if "Low" in df else closes
-            volumes = df["Volume"].dropna().squeeze()
+            closes = _market_series(df, "Close")
+            highs = _market_series(df, "High")
+            opens = _market_series(df, "Open", closes)
+            lows = _market_series(df, "Low", closes)
+            volumes = _market_series(df, "Volume")
+            if any(series is None for series in (opens, closes, highs, lows, volumes)):
+                continue
             if getattr(df.index, "size", 0) and str(df.index[-1])[:10] == datetime.now().strftime("%Y-%m-%d"):
                 opens, closes, highs, lows, volumes = (
                     series.iloc[:-1] for series in (opens, closes, highs, lows, volumes)

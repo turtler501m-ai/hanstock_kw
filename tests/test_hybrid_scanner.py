@@ -93,5 +93,27 @@ class TestHybridScanner(unittest.TestCase):
         api.fetch_daily_bars.assert_called_once_with("005930", count=120)
         self.assertEqual(res["scanned"], 1)
 
+    def test_yfinance_single_valid_observation_is_skipped_without_scalar_error(self):
+        dates = pd.date_range("2026-01-01", periods=70)
+        rows = pd.DataFrame({
+            "Open": [None] * 69 + [100.0],
+            "High": [None] * 69 + [101.0],
+            "Low": [None] * 69 + [99.0],
+            "Close": [None] * 69 + [100.0],
+            "Volume": [None] * 69 + [1000.0],
+        }, index=dates)
+        batch = pd.concat({"005930.KS": rows}, axis=1)
+
+        with patch("src.strategy.seven_split.yf.download", return_value=batch):
+            result = find_candidates(
+                held_symbols=set(),
+                universe=["005930"],
+                min_score=0,
+                ranker="rule_only",
+            )
+
+        self.assertEqual(result["scanned"], 0)
+        self.assertEqual(result["candidates"], [])
+
 if __name__ == "__main__":
     unittest.main()
