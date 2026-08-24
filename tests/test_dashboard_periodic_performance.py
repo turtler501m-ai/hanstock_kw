@@ -15,9 +15,41 @@ from src.dashboard.core import (
     _safe_index_rows,
     _strategy_label,
 )
+from src.dashboard.routes.stock_performance import _merge_current_holding_change
 
 
 class DashboardPeriodicPerformanceTests(unittest.TestCase):
+    def test_live_holding_change_creates_quiet_day_and_month_rows(self):
+        result = {"daily": [], "monthly": [], "strategy_validation": []}
+
+        _merge_current_holding_change(
+            result,
+            {
+                "holding_daily_change_pct": 1.25,
+                "holdings": [{"symbol": "005930"}, {"symbol": "000660"}],
+            },
+            "2026-08-24",
+        )
+
+        self.assertEqual(result["daily"][0]["period"], "2026-08-24")
+        self.assertEqual(result["daily"][0]["order_count"], 0)
+        self.assertEqual(result["daily"][0]["holding_change_pct"], 1.25)
+        self.assertEqual(result["daily"][0]["holding_change_symbol_count"], 2)
+        self.assertEqual(result["monthly"][0]["period"], "2026-08")
+        self.assertEqual(result["monthly"][0]["holding_change_pct"], 1.25)
+
+    def test_live_holding_change_does_not_create_row_without_holdings(self):
+        result = {"daily": [], "monthly": []}
+
+        _merge_current_holding_change(
+            result,
+            {"holding_daily_change_pct": 0.0, "holdings": []},
+            "2026-08-24",
+        )
+
+        self.assertEqual(result["daily"], [])
+        self.assertEqual(result["monthly"], [])
+
     def test_market_indices_never_fall_back_to_etf_prices(self):
         self.assertNotIn("069500", _INDEX_SYMBOL_ALIASES["KOSPI"])
         self.assertNotIn("229200", _INDEX_SYMBOL_ALIASES["KOSDAQ"])

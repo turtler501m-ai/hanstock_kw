@@ -41,6 +41,39 @@ class _CompatRouter(APIRouter):
 _refresh_legacy_dependencies()
 router = _CompatRouter(tags=["stock", "stock-performance"])
 
+
+def _merge_current_holding_change(result: dict, parsed: dict, today: str) -> None:
+    """Expose the live holding move even when there were no trades today.
+
+    Period buckets are normally created from trades.  That made the live
+    holding change disappear from the performance tab on quiet trading days.
+    """
+    current_change = parsed.get("holding_daily_change_pct")
+    holdings = parsed.get("holdings") or []
+    if current_change is None or not holdings:
+        return
+
+    day_rows = result.setdefault("daily", [])
+    day_row = next((row for row in day_rows if row.get("period") == today), None)
+    if day_row is None:
+        day_row = {"period": today, **_period_bucket()}
+        day_rows.append(day_row)
+        day_rows.sort(key=lambda row: str(row.get("period") or ""))
+
+    month = today[:7]
+    month_rows = result.setdefault("monthly", [])
+    month_row = next((row for row in month_rows if row.get("period") == month), None)
+    if month_row is None:
+        month_row = {"period": month, **_period_bucket()}
+        month_rows.append(month_row)
+        month_rows.sort(key=lambda row: str(row.get("period") or ""))
+
+    for row in (day_row, month_row):
+        row["holding_change_pct"] = current_change
+        row["holding_change_symbol_count"] = len(holdings)
+        row["holding_change_missing_count"] = 0
+
+
 @router.get("/api/performance/periodic")
 def get_periodic_performance(response: Response, strategy_id: str | None = None):
     _refresh_legacy_dependencies()
@@ -57,21 +90,8 @@ def get_periodic_performance(response: Response, strategy_id: str | None = None)
         if not strategy_id:
             try:
                 parsed = _parse_balance(_get_balance_data(_get_api()))
-                current_change = parsed.get("holding_daily_change_pct")
-                if current_change is not None:
-                    today = trader.datetime.now(trader.KST).strftime("%Y-%m-%d")
-                    month = today[:7]
-                    holdings = parsed.get("holdings") or []
-                    for row in result.get("daily", []):
-                        if row.get("period") == today:
-                            row["holding_change_pct"] = current_change
-                            row["holding_change_symbol_count"] = len(holdings)
-                            row["holding_change_missing_count"] = 0
-                    for row in result.get("monthly", []):
-                        if row.get("period") == month:
-                            row["holding_change_pct"] = current_change
-                            row["holding_change_symbol_count"] = len(holdings)
-                            row["holding_change_missing_count"] = 0
+                today = trader.datetime.now(trader.KST).strftime("%Y-%m-%d")
+                _merge_current_holding_change(result, parsed, today)
             except Exception:
                 pass
         return result
