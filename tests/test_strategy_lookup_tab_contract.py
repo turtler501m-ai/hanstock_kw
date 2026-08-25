@@ -114,6 +114,9 @@ class StrategyLookupTabContractTests(unittest.TestCase):
         template = (ROOT / "web/templates/index.html").read_text(encoding="utf-8")
 
         self.assertIn('name="max_total_open_risk_pct"', template)
+        self.assertIn('name="max_risk_per_trade_pct" type="number" min="0.01" max="100" step="0.01"', template)
+        self.assertIn('name="max_total_open_risk_pct" type="number" min="0.01" max="100" step="0.01"', template)
+        self.assertIn('name="max_strategy_exposure_pct" type="number" min="0.1" max="100" step="0.1"', template)
         self.assertIn("setValue('max_total_open_risk_pct'", script)
         self.assertIn("profile.risk.max_total_open_risk_pct < profile.risk.max_risk_per_trade_pct", script)
 
