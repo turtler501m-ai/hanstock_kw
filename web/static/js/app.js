@@ -2112,6 +2112,7 @@ function fillStrategyDetail(strategy) {
     setValue('min_rule_score_for_ai', strategyProfileValue(strategy, 'min_rule_score_for_ai', 2));
     setValue('min_ai_confidence', strategyProfileValue(strategy, 'min_ai_confidence', 0.6));
     setValue('max_risk_per_trade_pct', strategyRiskValue(strategy, 'max_risk_per_trade_pct', 0.5));
+    setValue('max_total_open_risk_pct', strategyRiskValue(strategy, 'max_total_open_risk_pct', 2));
     setValue('max_strategy_exposure_pct', strategyRiskValue(strategy, 'max_strategy_exposure_pct', 30));
     setValue('min_cash_reserve_pct', strategyRiskValue(strategy, 'min_cash_reserve_pct', 20));
     setValue('max_daily_ai_orders', strategyRiskValue(strategy, 'max_daily_ai_orders', 3));
@@ -2149,10 +2150,14 @@ function bindStrategyDetailForm() {
             profile.market_regime_filter = form.elements.namedItem('market_regime_filter').value
                 .split(',').map((value) => value.trim()).filter(Boolean);
             profile.risk = profile.risk || {};
-            ['max_risk_per_trade_pct', 'max_strategy_exposure_pct', 'min_cash_reserve_pct', 'max_daily_ai_orders']
+            ['max_risk_per_trade_pct', 'max_total_open_risk_pct', 'max_strategy_exposure_pct', 'min_cash_reserve_pct', 'max_daily_ai_orders']
                 .forEach((key) => {
                     profile.risk[key] = Number(form.elements.namedItem(key).value || 0);
                 });
+            if (profile.risk.max_total_open_risk_pct < profile.risk.max_risk_per_trade_pct) {
+                profile.risk.max_total_open_risk_pct = profile.risk.max_risk_per_trade_pct;
+                form.elements.namedItem('max_total_open_risk_pct').value = profile.risk.max_total_open_risk_pct;
+            }
             await patchStrategyJson(id, {
                 name: form.elements.namedItem('name').value.trim(),
                 description: form.elements.namedItem('description').value.trim(),

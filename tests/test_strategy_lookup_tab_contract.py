@@ -109,6 +109,14 @@ class StrategyLookupTabContractTests(unittest.TestCase):
         self.assertIn(".strategy-analysis-checklist", stylesheet)
         self.assertIn("max-height: 620px", stylesheet)
 
+    def test_ai_strategy_editor_exposes_total_open_risk(self):
+        script = (ROOT / "web/static/js/app.js").read_text(encoding="utf-8")
+        template = (ROOT / "web/templates/index.html").read_text(encoding="utf-8")
+
+        self.assertIn('name="max_total_open_risk_pct"', template)
+        self.assertIn("setValue('max_total_open_risk_pct'", script)
+        self.assertIn("profile.risk.max_total_open_risk_pct < profile.risk.max_risk_per_trade_pct", script)
+
     def test_completion_badge_does_not_depend_on_previous_text(self):
         script = (ROOT / "web/static/js/app.js").read_text(encoding="utf-8")
         body = script.split("function finishStrategyPreviewUpdatingState() {", 1)[1].split(

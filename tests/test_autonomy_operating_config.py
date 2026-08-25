@@ -58,6 +58,20 @@ class AutonomyOperatingConfigTests(unittest.TestCase):
             with self.assertRaises(RuntimeConfigurationError):
                 _require_runtime_mode()
 
+    def test_total_open_risk_is_raised_to_per_trade_limit(self):
+        strategy = normalize_ai_strategy({
+            "id": "risk-edit",
+            "model": "none",
+            "profile": {"risk": {
+                "max_risk_per_trade_pct": 10,
+                "max_total_open_risk_pct": 2,
+            }},
+        })
+
+        risk = strategy["profile"]["risk"]
+        self.assertEqual(risk["max_risk_per_trade_pct"], 10.0)
+        self.assertEqual(risk["max_total_open_risk_pct"], 10.0)
+
 
 if __name__ == "__main__":
     unittest.main()

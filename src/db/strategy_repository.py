@@ -75,6 +75,14 @@ def _parse_strategy_profile(strategy: dict) -> dict:
             else {}
         ),
     }
+    risk = profile["risk"]
+    try:
+        per_trade = max(0.01, min(100.0, float(risk.get("max_risk_per_trade_pct") or 0.5)))
+        total_open = max(0.01, min(100.0, float(risk.get("max_total_open_risk_pct") or 2.0)))
+    except (TypeError, ValueError):
+        per_trade, total_open = 0.5, 2.0
+    risk["max_risk_per_trade_pct"] = per_trade
+    risk["max_total_open_risk_pct"] = max(per_trade, total_open)
     profile.pop("backtest", None)
     profile["risk"].pop("paper_trading_required_days", None)
     profile["model"] = str(profile.get("model") or strategy.get("model") or "none")
