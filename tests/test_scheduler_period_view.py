@@ -20,6 +20,16 @@ class SchedulerPeriodViewTests(unittest.TestCase):
         self.assertIn("new URLSearchParams({ period })", script)
         self.assertIn("?.value || 'daily'", script)
 
+    def test_mistock_frontend_offers_daily_weekly_and_monthly_periods(self):
+        html = (ROOT / "web/templates/mistock/index.html").read_text(encoding="utf-8")
+        script = (ROOT / "web/static/js/mistock_app.js").read_text(encoding="utf-8")
+
+        self.assertIn('id="sched-result-period"', html)
+        self.assertIn('<option value="daily" selected>', html)
+        self.assertIn('<option value="weekly">', html)
+        self.assertIn('<option value="monthly">', html)
+        self.assertIn("new URLSearchParams({ period })", script)
+
     def test_scheduler_status_defaults_to_daily_period(self):
         from src.dashboard.routes.stock_plan import get_scheduler_status
 

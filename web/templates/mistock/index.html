@@ -760,10 +760,18 @@
                 <section class="card glass panel-schedule-result" style="margin-top: 1.5rem;">
                     <div class="panel-header split-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
                         <div>
-                            <h2>최근 스케쥴 실행 결과</h2>
-                            <p class="section-help">최종 자동매매 스케쥴러 실행 시 도출된 판단 및 주문 내역입니다.</p>
+                            <h2>기간별 스케쥴 실행 결과</h2>
+                            <p class="section-help">일별·주별·월별로 생성된 계획, 승인과 주문 처리 결과를 집계합니다.</p>
                         </div>
-                        <span class="time-muted" id="sched-last-run-time">-</span>
+                        <div class="schedule-result-period-control">
+                            <label for="sched-result-period">집계 기간</label>
+                            <select id="sched-result-period">
+                                <option value="daily" selected>일별 · 오늘</option>
+                                <option value="weekly">주별 · 최근 7일</option>
+                                <option value="monthly">월별 · 최근 30일</option>
+                            </select>
+                            <span class="time-muted" id="sched-last-run-time">-</span>
+                        </div>
                     </div>
 
                     <div class="result-summary-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1rem; margin-bottom: 1.5rem;">
@@ -782,6 +790,10 @@
                         <div class="card glass" style="padding: 1rem; text-align: center;">
                             <span class="label" style="font-size: 0.8rem; display: block; margin-bottom: 0.25rem;">자동 승인 완료</span>
                             <strong id="sched-result-approved-cnt" style="font-size: 1.25rem;">-</strong>
+                        </div>
+                        <div class="card glass" style="padding: 1rem; text-align: center;">
+                            <span class="label" style="font-size: 0.8rem; display: block; margin-bottom: 0.25rem;">성공 건수</span>
+                            <strong id="sched-result-success-cnt" style="font-size: 1.25rem; color: var(--success);">-</strong>
                         </div>
                         <div class="card glass" style="padding: 1rem; text-align: center;">
                             <span class="label" style="font-size: 0.8rem; display: block; margin-bottom: 0.25rem;">실패 건수</span>

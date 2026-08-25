@@ -3209,13 +3209,14 @@ def load_mistock_daily_runs(days: int = 30) -> list:
     return unique_runs
 
 
-def merge_mistock_runs(runs: list) -> dict | None:
+def merge_mistock_runs(runs: list, *, period: str = "monthly", period_label: str = "월별", range_days: int = 30) -> dict | None:
     if not runs:
         return None
         
     merged_results = []
     merged_approved = []
     merged_errors = []
+    execution_runs = []
     
     latest_recorded_at = runs[-1]["recorded_at"]
     latest_mode = runs[-1]["mode"]
@@ -3231,6 +3232,13 @@ def merge_mistock_runs(runs: list) -> dict | None:
         
         raw_result = run["result"]
         mapped = map_mistock_to_broker_format(raw_result)
+        execution_runs.append({
+            "round": round_num,
+            "time": display_time,
+            "recorded_at": recorded_at_str,
+            "mode": run.get("mode") or "execute",
+            "status": mapped.get("status") or ("success" if mapped.get("ok", True) else "failed"),
+        })
         if idx == len(runs) - 1:
             latest_errors = mapped.get("errors", []) if isinstance(mapped.get("errors", []), list) else []
         
@@ -3271,8 +3279,10 @@ def merge_mistock_runs(runs: list) -> dict | None:
             
     return {
         "recorded_at": latest_recorded_at,
-        "summary_label": "최근 30일 전체 집계",
-        "range_days": 30,
+        "period": period,
+        "period_label": period_label,
+        "summary_label": f"{period_label} 집계",
+        "range_days": range_days,
         "mode": latest_mode,
         "result": {
             "status": "success",
@@ -3283,6 +3293,15 @@ def merge_mistock_runs(runs: list) -> dict | None:
             "errors": latest_errors,
             "historical_errors": merged_errors,
             "historical_error_count": len(merged_errors),
+            "execution_runs": execution_runs,
+            "summary_counts": {
+                "plan_count": len(merged_results),
+                "queue_count": sum(item.get("decision") == "queue" for item in merged_results),
+                "approved_count": len(merged_approved),
+                "success_count": sum(item.get("status") in {"executed", "filled", "success"} or item.get("ok") is True for item in merged_approved),
+                "failed_count": sum(item.get("status") == "failed" or item.get("ok") is False for item in merged_approved) + len(merged_errors),
+                "run_count": len(execution_runs),
+            },
             "scanned": runs[-1]["result"].get("scanned", 0),
             "candidates": runs[-1]["result"].get("candidates", 0)
         }
@@ -3441,12 +3460,16 @@ def mistock_patch_schedule(payload: dict = Body(...)):
 
 
 @router.get("/api/mistock/scheduler/status")
-def mistock_scheduler_status():
+def mistock_scheduler_status(period: str = "daily"):
     global _mistock_scheduler_run_state
     _mistock_scheduler_run_state.refresh()
     
-    runs = load_mistock_daily_runs(days=30)
-    last_result = merge_mistock_runs(runs)
+    period_options = {"daily": (1, "일별"), "weekly": (7, "주별"), "monthly": (30, "월별")}
+    if period not in period_options:
+        raise HTTPException(status_code=400, detail="period must be one of: daily, weekly, monthly")
+    range_days, period_label = period_options[period]
+    runs = load_mistock_daily_runs(days=range_days)
+    last_result = merge_mistock_runs(runs, period=period, period_label=period_label, range_days=range_days)
     _clear_stale_mistock_scheduler_error(last_result)
         
     run_state_to_return = _mistock_scheduler_run_state.copy()
@@ -3511,6 +3534,9 @@ def mistock_scheduler_status():
         "active_strategy_id": active_strategy_id,
         "active_strategy_name": active_strategy_name,
         "strategy_dispatch": strategy_dispatch,
+        "result_period": period,
+        "result_period_label": period_label,
+        "result_range_days": range_days,
     }
 
 

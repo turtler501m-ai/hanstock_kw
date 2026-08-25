@@ -844,15 +844,25 @@ class MistockDashboardTests(unittest.TestCase):
             result = mistock.mistock_scheduler_status()
 
         last = result["last_result"]["result"]
-        load_runs.assert_called_once_with(days=30)
-        self.assertEqual(result["last_result"]["range_days"], 30)
-        self.assertEqual(result["last_result"]["summary_label"], "최근 30일 전체 집계")
+        load_runs.assert_called_once_with(days=1)
+        self.assertEqual(result["last_result"]["range_days"], 1)
+        self.assertEqual(result["last_result"]["summary_label"], "일별 집계")
         self.assertEqual([row["symbol"] for row in last["results"]], ["AAPL", "NVDA"])
         self.assertEqual([row["symbol"] for row in last["auto_approved"]], ["AAPL", "MSFT"])
         self.assertEqual(last["errors"][0]["symbol"], "TSLA")
         self.assertEqual(last["results"][0]["round"], 1)
         self.assertEqual(last["results"][1]["round"], 2)
         self.assertEqual(last["results"][0]["time"], "06-18 01:00")
+        self.assertEqual(last["summary_counts"]["run_count"], 2)
+
+    def test_mistock_scheduler_status_supports_weekly_period(self):
+        with patch("src.dashboard.routes.mistock.load_mistock_daily_runs", return_value=[]) as load_runs:
+            result = mistock.mistock_scheduler_status(period="weekly")
+
+        load_runs.assert_called_once_with(days=7)
+        self.assertEqual(result["result_period"], "weekly")
+        self.assertEqual(result["result_period_label"], "주별")
+        self.assertEqual(result["result_range_days"], 7)
 
     def test_mistock_scheduler_status_keeps_historical_errors_out_of_current_errors(self):
         runs = [

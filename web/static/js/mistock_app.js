@@ -3857,6 +3857,10 @@ document.addEventListener('DOMContentLoaded', () => {
         catch(err) { setElementText('watchlist-policy-status', err.status === 409 ? `버전 충돌: ${err.message}` : `저장 실패: ${err.message}`); } finally { setButtonBusy(submit,false); }
     });
     document.getElementById('btn-refresh-schedules')?.addEventListener('click', renderMistockSchedules);
+    document.getElementById('sched-result-period')?.addEventListener('change', () => {
+        window._expandedRounds = new Set();
+        renderScheduleInfo();
+    });
 
     const operationsRefreshBtn = document.getElementById('btn-refresh-operations');
     if (operationsRefreshBtn) operationsRefreshBtn.addEventListener('click', () => renderMistockOperations(true));
@@ -4329,7 +4333,9 @@ window.addEventListener('load', () => {
 
 async function renderScheduleInfo() {
     try {
-        const data = await fetchJson('/api/mistock/scheduler/status');
+        const period = document.getElementById('sched-result-period')?.value || 'daily';
+        const params = new URLSearchParams({ period });
+        const data = await fetchJson(`/api/mistock/scheduler/status?${params.toString()}`);
         await renderSchedulerStrategyChecklist(data.strategy_dispatch?.schedules || []);
         
         // 1. Config / Settings
@@ -4394,12 +4400,15 @@ async function renderScheduleInfo() {
             const approved = lastResult.result.auto_approved || [];
             const approvalErrors = lastResult.result.auto_approval_errors || [];
             const runErrors = lastResult.result.errors || lastResult.result.retry_errors || [];
+            const schedulerRuns = lastResult.result.execution_runs || [];
+            const summaryCounts = lastResult.result.summary_counts || {};
             
             // Update daily total summary metrics at the top
-            const totalPlanCount = results.length;
-            const totalQueuedCount = results.filter(r => r.decision === 'queue').length;
-            const totalApprovedCount = approved.filter(a => a.status === 'executed').length;
-            const totalFailedCount = approved.filter(a => a.status === 'failed').length + approvalErrors.length + runErrors.length;
+            const totalPlanCount = summaryCounts.plan_count ?? results.length;
+            const totalQueuedCount = summaryCounts.queue_count ?? results.filter(r => r.decision === 'queue').length;
+            const totalApprovedCount = summaryCounts.approved_count ?? approved.length;
+            const totalSuccessCount = summaryCounts.success_count ?? approved.filter(a => a.status === 'executed').length;
+            const totalFailedCount = summaryCounts.failed_count ?? approved.filter(a => a.status === 'failed').length + approvalErrors.length + runErrors.length;
             
             const planCntEl = document.getElementById('sched-result-plan-cnt');
             if (planCntEl) planCntEl.textContent = `${totalPlanCount}건`;
@@ -4409,6 +4418,9 @@ async function renderScheduleInfo() {
             
             const approvedCntEl = document.getElementById('sched-result-approved-cnt');
             if (approvedCntEl) approvedCntEl.textContent = `${totalApprovedCount}건`;
+
+            const successCntEl = document.getElementById('sched-result-success-cnt');
+            if (successCntEl) successCntEl.textContent = `${totalSuccessCount}건`;
             
             const failedCntEl = document.getElementById('sched-result-failed-cnt');
             if (failedCntEl) failedCntEl.textContent = `${totalFailedCount}건`;
@@ -4424,6 +4436,12 @@ async function renderScheduleInfo() {
             
             // Build groups dynamically by round
             const uniqueRounds = new Map(); // round -> { time, results, approved, approvalErrors, mode }
+            schedulerRuns.forEach(run => {
+                if (!run.round) return;
+                uniqueRounds.set(run.round, {
+                    time: run.time || '', results: [], approved: [], approvalErrors: [], mode: run.mode || lastResult.mode
+                });
+            });
             results.forEach(r => {
                 if (r.round) {
                     if (!uniqueRounds.has(r.round)) {
