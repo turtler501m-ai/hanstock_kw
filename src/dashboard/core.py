@@ -2192,11 +2192,9 @@ def _load_symbol_price_rows(symbols: set[str], *, limit: int = 1500) -> dict[str
 
 
 def _daily_holding_change_context(
-    trades: list[dict], dates: set[str]
+    trades: list[dict], dates: set[str], *, include_holding_sessions: bool = False
 ) -> dict[str, dict]:
     """Return prior-close weighted moves for positions held at each session open."""
-    if not dates:
-        return {}
     valid_trades = []
     symbols: set[str] = set()
     for trade in _account_trades(trades):
@@ -2223,6 +2221,17 @@ def _daily_holding_change_context(
         symbol: sorted(prices)
         for symbol, prices in prices_by_symbol.items()
     }
+    if include_holding_sessions and valid_trades:
+        first_trade_day = valid_trades[0][0]
+        dates = set(dates)
+        dates.update(
+            price_day
+            for symbol_dates in ordered_price_dates.values()
+            for price_day in symbol_dates
+            if price_day >= first_trade_day
+        )
+    if not dates:
+        return {}
 
     positions: dict[str, int] = {}
     trade_index = 0
@@ -2526,7 +2535,18 @@ def _build_periodic_performance(trades: list[dict]) -> dict:
     index_rows = _load_index_rows()
     market_context = _daily_market_context(index_rows)
     monthly_market_context = _monthly_market_context(index_rows)
-    holding_change_context = _daily_holding_change_context(trades, set(daily))
+    holding_change_context = _daily_holding_change_context(
+        trades, set(daily), include_holding_sessions=True
+    )
+    # A holding's daily move exists even on sessions without an order. Keep a
+    # zero-order bucket so yesterday's value remains visible after today's
+    # live balance row is merged.
+    for day, holding_context in holding_change_context.items():
+        if day not in daily and (
+            int(holding_context.get("holding_change_symbol_count") or 0) > 0
+            or int(holding_context.get("holding_change_missing_count") or 0) > 0
+        ):
+            daily[day] = _period_bucket()
     daily_rows = [
         {
             "period": key,

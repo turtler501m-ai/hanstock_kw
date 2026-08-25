@@ -297,6 +297,34 @@ class DashboardPeriodicPerformanceTests(unittest.TestCase):
         self.assertEqual(row["holding_change_symbol_count"], 2)
         self.assertEqual(row["holding_change_missing_count"], 0)
 
+    def test_periodic_performance_keeps_quiet_holding_sessions(self):
+        trader.config.dry_run = True
+        trades = [{
+            "ok": 1, "dry_run": 1, "symbol": "AAA", "action": "buy",
+            "qty": 10, "price": 90, "ts": "2026-05-01 10:00:00",
+        }]
+        prices = {
+            "AAA": [
+                {"date": "2026-05-01", "close": 100},
+                {"date": "2026-05-02", "close": 110},
+                {"date": "2026-05-03", "close": 99},
+            ],
+        }
+
+        with patch("src.dashboard.core._load_index_rows", return_value={}), patch(
+            "src.dashboard.core._load_symbol_price_rows", return_value=prices
+        ):
+            performance = _build_periodic_performance(trades)
+
+        quiet_rows = {
+            row["period"]: row for row in performance["daily"]
+            if row["period"] in {"2026-05-02", "2026-05-03"}
+        }
+        self.assertEqual(set(quiet_rows), {"2026-05-02", "2026-05-03"})
+        self.assertEqual(quiet_rows["2026-05-02"]["order_count"], 0)
+        self.assertEqual(quiet_rows["2026-05-02"]["holding_change_pct"], 10.0)
+        self.assertEqual(quiet_rows["2026-05-03"]["holding_change_pct"], -10.0)
+
 
 if __name__ == "__main__":
     unittest.main()
