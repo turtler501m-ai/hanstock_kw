@@ -1323,10 +1323,14 @@ def _apply_strategy_risk_sizing(orders: list[dict], candidates: list[dict], cash
     candidate_map = {str(item.get("ticker")): item for item in candidates}
     total_risk_remaining = {
         "rsi_limit_strategy": max(
-            0.0, float(config.total_capital) * 0.02 - strategy_open_risk("rsi_limit_strategy")
+            0.0,
+            float(config.total_capital) * float(config.rsi_max_total_open_risk_pct) / 100
+            - strategy_open_risk("rsi_limit_strategy"),
         ),
         "heikin_ashi_scalping_strategy": max(
-            0.0, float(config.total_capital) * 0.01 - strategy_open_risk("heikin_ashi_scalping_strategy")
+            0.0,
+            float(config.total_capital) * float(config.alpha_ha_max_total_open_risk_pct) / 100
+            - strategy_open_risk("heikin_ashi_scalping_strategy"),
         ),
     }
     result = []
@@ -1345,7 +1349,11 @@ def _apply_strategy_risk_sizing(orders: list[dict], candidates: list[dict], cash
         max_stop_pct = 5.0 if strategy_id == "rsi_limit_strategy" else 8.0
         if risk_per_share / entry * 100 > max_stop_pct:
             continue
-        risk_pct = 1.0 if strategy_id == "rsi_limit_strategy" else 0.5
+        risk_pct = (
+            float(config.rsi_risk_per_trade_pct)
+            if strategy_id == "rsi_limit_strategy"
+            else float(config.alpha_ha_risk_per_trade_pct)
+        )
         risk_budget = min(
             float(config.total_capital) * risk_pct / 100,
             total_risk_remaining[strategy_id],

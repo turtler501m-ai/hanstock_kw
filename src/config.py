@@ -66,10 +66,14 @@ class Settings(BaseSettings):
     total_capital: float = 10000000.0
     # Display-only account baseline. It must not affect order sizing or risk limits.
     account_initial_capital: float = 0.0
-    max_positions: int = 3
+    max_positions: int = 60
     max_single_weight: float = 0.30
     cash_buffer: float = 0.20
     max_daily_loss_pct: float = 30.0
+    rsi_risk_per_trade_pct: float = 10.0
+    rsi_max_total_open_risk_pct: float = 10.0
+    alpha_ha_risk_per_trade_pct: float = 10.0
+    alpha_ha_max_total_open_risk_pct: float = 10.0
     # Comma-separated Korean stock symbols to exclude from automated orders and scans.
     hanstock_excluded_symbols: str = ""
     

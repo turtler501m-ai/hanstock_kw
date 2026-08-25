@@ -460,6 +460,44 @@ BROKER_ENV_BINDINGS = {'DOMESTIC_STOCK_BROKER': ('domestic_stock_broker', str),
  'KIWOOM_US_REAL_APP_KEY': ('kiwoom_us_real_app_key', str),
  'KIWOOM_US_REAL_APP_SECRET': ('kiwoom_us_real_app_secret', str)}
 
+_RISK_BUDGET_FIELDS = [
+    {
+        "key": "RSI_RISK_PER_TRADE_PCT",
+        "label": "RSI 종목당 위험 한도",
+        "type": "float",
+        "hint": "한 종목의 최초 손절가까지 허용하는 TOTAL_CAPITAL 대비 최대 위험 비율입니다.",
+        "options": [], "secret": False, "restart_required": True,
+    },
+    {
+        "key": "RSI_MAX_TOTAL_OPEN_RISK_PCT",
+        "label": "RSI 전체 오픈 위험 한도",
+        "type": "float",
+        "hint": "RSI 전략 보유종목의 미청산 손절 위험 합계 한도입니다.",
+        "options": [], "secret": False, "restart_required": True,
+    },
+    {
+        "key": "ALPHA_HA_RISK_PER_TRADE_PCT",
+        "label": "알파 종목당 위험 한도",
+        "type": "float",
+        "hint": "한 종목의 최초 손절가까지 허용하는 TOTAL_CAPITAL 대비 최대 위험 비율입니다.",
+        "options": [], "secret": False, "restart_required": True,
+    },
+    {
+        "key": "ALPHA_HA_MAX_TOTAL_OPEN_RISK_PCT",
+        "label": "알파 전체 오픈 위험 한도",
+        "type": "float",
+        "hint": "알파 전략 보유종목의 미청산 손절 위험 합계 한도입니다.",
+        "options": [], "secret": False, "restart_required": True,
+    },
+]
+ENV_FIELDS.extend(_RISK_BUDGET_FIELDS)
+STRATEGY_ENV_BINDINGS.update({
+    "RSI_RISK_PER_TRADE_PCT": ("rsi_risk_per_trade_pct", None, float),
+    "RSI_MAX_TOTAL_OPEN_RISK_PCT": ("rsi_max_total_open_risk_pct", None, float),
+    "ALPHA_HA_RISK_PER_TRADE_PCT": ("alpha_ha_risk_per_trade_pct", None, float),
+    "ALPHA_HA_MAX_TOTAL_OPEN_RISK_PCT": ("alpha_ha_max_total_open_risk_pct", None, float),
+})
+
 for _field in ENV_FIELDS:
     _field["runtime_binding"] = (
         STRATEGY_ENV_BINDINGS.get(_field["key"])

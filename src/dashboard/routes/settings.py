@@ -70,6 +70,10 @@ def _current_env_field_value(key: str, raw_values: dict[str, str]) -> str:
         "MAX_SINGLE_WEIGHT": getattr(trader.config, "max_single_weight", trader.MAX_SINGLE_WEIGHT),
         "CASH_BUFFER": getattr(trader.config, "cash_buffer", trader.CASH_BUFFER),
         "MAX_DAILY_LOSS_PCT": getattr(trader.config, "max_daily_loss_pct", trader.MAX_DAILY_LOSS_PCT),
+        "RSI_RISK_PER_TRADE_PCT": getattr(trader.config, "rsi_risk_per_trade_pct", 10.0),
+        "RSI_MAX_TOTAL_OPEN_RISK_PCT": getattr(trader.config, "rsi_max_total_open_risk_pct", 10.0),
+        "ALPHA_HA_RISK_PER_TRADE_PCT": getattr(trader.config, "alpha_ha_risk_per_trade_pct", 10.0),
+        "ALPHA_HA_MAX_TOTAL_OPEN_RISK_PCT": getattr(trader.config, "alpha_ha_max_total_open_risk_pct", 10.0),
         "SCAN_UNIVERSE_SIZE": getattr(trader.config, "scan_universe_size", trader.SCAN_UNIVERSE_SIZE),
         "TRADE_DB_PATH": getattr(trader.config, "trade_db_path", ""),
         "ACTIVE_MODEL_VERSION": getattr(trader.config, "active_model_version", ""),
@@ -129,6 +133,16 @@ def get_config():
         "max_single_weight": trader.MAX_SINGLE_WEIGHT,
         "cash_buffer": trader.CASH_BUFFER,
         "max_daily_loss_pct": trader.MAX_DAILY_LOSS_PCT,
+        "strategy_risk_budgets": {
+            "rsi_limit_strategy": {
+                "risk_per_trade_pct": trader.config.rsi_risk_per_trade_pct,
+                "max_total_open_risk_pct": trader.config.rsi_max_total_open_risk_pct,
+            },
+            "heikin_ashi_scalping_strategy": {
+                "risk_per_trade_pct": trader.config.alpha_ha_risk_per_trade_pct,
+                "max_total_open_risk_pct": trader.config.alpha_ha_max_total_open_risk_pct,
+            },
+        },
         "watchlist": trader.WATCHLIST,
         "scan_universe_size": trader.SCAN_UNIVERSE_SIZE,
         "kospi_universe_size": len(trader.KOSPI_UNIVERSE),

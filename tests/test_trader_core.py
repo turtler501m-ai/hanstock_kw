@@ -65,7 +65,19 @@ class TraderCoreTests(unittest.TestCase):
 
         self.assertEqual(orders, [])
 
-    def test_rsi_order_quantity_is_capped_by_one_percent_initial_risk(self):
+    def test_strategy_risk_budget_fields_are_dashboard_editable(self):
+        from src.dashboard.settings_schema import ENV_FIELD_MAP, STRATEGY_ENV_BINDINGS
+
+        for key in (
+            "RSI_RISK_PER_TRADE_PCT",
+            "RSI_MAX_TOTAL_OPEN_RISK_PCT",
+            "ALPHA_HA_RISK_PER_TRADE_PCT",
+            "ALPHA_HA_MAX_TOTAL_OPEN_RISK_PCT",
+        ):
+            self.assertIn(key, ENV_FIELD_MAP)
+            self.assertIn(key, STRATEGY_ENV_BINDINGS)
+
+    def test_rsi_order_quantity_uses_configured_initial_risk(self):
         candidate = {
             "ticker": "005930", "score": 5, "volatility": 0.02, "reasons": [],
             "strategy_id": "rsi_limit_strategy",
@@ -73,7 +85,9 @@ class TraderCoreTests(unittest.TestCase):
         }
         with patch("src.strategy.seven_split.config.total_capital", 1_000_000), \
                 patch("src.strategy.seven_split.config.max_single_weight", 1.0), \
-                patch("src.strategy.seven_split.config.cash_buffer", 0.0):
+                patch("src.strategy.seven_split.config.cash_buffer", 0.0), \
+                patch("src.strategy.seven_split.config.rsi_risk_per_trade_pct", 1.0), \
+                patch("src.strategy.seven_split.config.rsi_max_total_open_risk_pct", 2.0):
             orders = build_orders(
                 [candidate], lambda _symbol: {"ask1": 100, "current": 100},
                 held_count=0, cash=1_000_000,

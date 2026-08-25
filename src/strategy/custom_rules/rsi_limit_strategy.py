@@ -22,8 +22,8 @@ STRATEGY_PROFILE = {
     ],
     "market_regime_filter": ["bull"],
     "risk": {
-        "max_risk_per_trade_pct": 1.0,
-        "max_total_open_risk_pct": 2.0,
+        "max_risk_per_trade_pct": 10.0,
+        "max_total_open_risk_pct": 10.0,
         "max_strategy_exposure_pct": 30.0,
     },
 }
@@ -201,7 +201,7 @@ class CustomRSILimitStrategy:
             "atr_period": self.atr_period,
             "atr_stop_multiple": self.atr_stop_multiple,
             "max_stop_distance_pct": self.max_stop_distance_pct,
-            "risk_per_trade_pct": 1.0,
+            "risk_per_trade_pct": 10.0,
             "max_exposure_pct": 30.0,
             "max_holding_bars": self.max_holding_bars,
             "reentry_reset_rsi": 50.0,

@@ -8,8 +8,8 @@ STRATEGY_PROFILE = {
     "avoid": ["flat_adx", "extreme_atr", "synthetic_price_execution", "duplicate_symbol_exposure"],
     "market_regime_filter": ["bull"],
     "risk": {
-        "max_risk_per_trade_pct": 0.5,
-        "max_total_open_risk_pct": 1.0,
+        "max_risk_per_trade_pct": 10.0,
+        "max_total_open_risk_pct": 10.0,
         "max_strategy_exposure_pct": 30.0,
     },
 }
