@@ -207,7 +207,7 @@ def load_recent_scheduler_results(days: int = 30) -> dict | None:
                     "error_count": len(res_data.get("auto_approval_errors") or []) + len(run_errors),
                     "status": "failed" if run_errors else "completed",
                     "message": scan_error or (str(run_errors[0]) if run_errors else ""),
-                    "universe_count": int(candidate_scan.get("universe_size") or 0) if isinstance(candidate_scan, dict) else 0,
+                    "universe_count": int(candidate_scan.get("universe_size") or candidate_scan.get("scanned") or len(analysis_rows)) if isinstance(candidate_scan, dict) else 0,
                     "scanned_count": int(candidate_scan.get("scanned") or len(analysis_rows)) if isinstance(candidate_scan, dict) else 0,
                     "candidate_count": len(candidate_scan.get("candidates") or []) if isinstance(candidate_scan, dict) else 0,
                     "condition_counts": condition_counts,

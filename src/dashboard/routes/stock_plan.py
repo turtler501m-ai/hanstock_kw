@@ -230,6 +230,13 @@ def get_scheduler_status(
     try:
         from src.db.repository import list_strategy_schedules, load_strategy_universe
 
+        observed_universe_counts = {}
+        for run in ((last_result or {}).get("result") or {}).get("execution_runs") or []:
+            run_strategy_id = str(run.get("strategy_id") or "")
+            observed_count = int(run.get("universe_count") or run.get("scanned_count") or 0)
+            if run_strategy_id and observed_count > observed_universe_counts.get(run_strategy_id, 0):
+                observed_universe_counts[run_strategy_id] = observed_count
+
         schedules = [
             schedule
             for schedule in list_strategy_schedules(enabled_only=False)
@@ -245,7 +252,7 @@ def get_scheduler_status(
                     applied_id = str(strategy.get("id") or "")
                     strategy_universe = load_strategy_universe(applied_id)
                     shared_universe = load_strategy_universe(AI_STOCK_SCHEDULE_ID)
-                    universe_count = len(strategy_universe or shared_universe)
+                    universe_count = len(strategy_universe or shared_universe) or observed_universe_counts.get(applied_id, 0)
 
                     total_universe_count += universe_count
                     from src.db.ai_watchlist_repository import get_policy
