@@ -207,6 +207,53 @@ class SchedulerApiTests(unittest.TestCase):
         self.assertEqual(status["last_result"]["range_days"], 30)
         self.assertIn("run_date", rows[0])
 
+    def test_scheduler_status_keeps_candidate_rejection_checks_for_zero_candidate_run(self):
+        from datetime import datetime
+        from src.db.scheduler_repository import KST
+        from src.db.repository import save_scheduler_result
+
+        save_scheduler_result(
+            "analysis_only",
+            datetime.now(KST).isoformat(),
+            {
+                "strategy_id": "rsi_limit_strategy",
+                "results": [],
+                "candidate_scan": {
+                    "universe_size": 1,
+                    "scanned": 1,
+                    "candidates": [],
+                    "scan_summary": [{
+                        "ticker": "005930",
+                        "name": "삼성전자",
+                        "score": 0,
+                        "passed": False,
+                        "reasons": ["EMA200 추세 통과", "RSI(14) 45.0→47.0 반등 대기"],
+                        "strategy_risk": {
+                            "trend_ok": True,
+                            "oversold_seen": False,
+                            "price_confirmed": False,
+                            "risk_acceptable": True,
+                            "event_risk": False,
+                            "reentry_reset_ok": True,
+                            "entry_ready": False,
+                            "rsi": 47.0,
+                            "previous_rsi": 45.0,
+                            "stop_distance_pct": 3.2,
+                        },
+                    }],
+                },
+            },
+        )
+
+        run = get_scheduler_status(period="daily")["last_result"]["result"]["execution_runs"][-1]
+        self.assertEqual(run["universe_count"], 1)
+        self.assertEqual(run["scanned_count"], 1)
+        self.assertEqual(run["candidate_count"], 0)
+        self.assertEqual(run["condition_counts"]["trend_ok"], 1)
+        self.assertEqual(run["condition_counts"]["oversold_seen"], 0)
+        self.assertFalse(run["analysis_rows"][0]["checks"]["entry_ready"])
+        self.assertEqual(run["analysis_rows"][0]["rsi"], 47.0)
+
     def test_get_scheduler_status_enriches_names_and_approved_order_details(self):
         from datetime import datetime
         from src.db.scheduler_repository import KST

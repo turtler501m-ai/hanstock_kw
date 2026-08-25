@@ -156,6 +156,46 @@ def load_recent_scheduler_results(days: int = 30) -> dict | None:
                     if isinstance(candidate_scan, dict)
                     else None
                 )
+                scan_rows = candidate_scan.get("scan_summary") or [] if isinstance(candidate_scan, dict) else []
+                analysis_rows = []
+                condition_counts = {
+                    "history_ready": 0,
+                    "trend_ok": 0,
+                    "oversold_seen": 0,
+                    "price_confirmed": 0,
+                    "risk_acceptable": 0,
+                    "event_safe": 0,
+                    "reentry_reset_ok": 0,
+                    "entry_ready": 0,
+                }
+                for scan_row in scan_rows:
+                    risk = scan_row.get("strategy_risk") or {}
+                    history_ready = not any("500봉이 부족" in str(reason) for reason in scan_row.get("reasons") or [])
+                    checks = {
+                        "history_ready": history_ready,
+                        "trend_ok": bool(risk.get("trend_ok")),
+                        "oversold_seen": bool(risk.get("oversold_seen")),
+                        "price_confirmed": bool(risk.get("price_confirmed")),
+                        "risk_acceptable": bool(risk.get("risk_acceptable")),
+                        "event_safe": not bool(risk.get("event_risk")),
+                        "reentry_reset_ok": bool(risk.get("reentry_reset_ok", True)),
+                        "entry_ready": bool(risk.get("entry_ready")),
+                    }
+                    for key, passed in checks.items():
+                        condition_counts[key] += int(passed)
+                    analysis_rows.append({
+                        "symbol": scan_row.get("ticker") or scan_row.get("symbol"),
+                        "name": scan_row.get("name"),
+                        "score": scan_row.get("score"),
+                        "passed": bool(scan_row.get("passed")),
+                        "reasons": scan_row.get("reasons") or [],
+                        "rsi": risk.get("rsi", scan_row.get("rsi")),
+                        "previous_rsi": risk.get("previous_rsi"),
+                        "ema200": risk.get("ema200"),
+                        "previous_high": risk.get("previous_high"),
+                        "stop_distance_pct": risk.get("stop_distance_pct"),
+                        "checks": checks,
+                    })
                 merged_runs.append({
                     "round": round_num,
                     "recorded_at": recorded_at_str,
@@ -167,6 +207,11 @@ def load_recent_scheduler_results(days: int = 30) -> dict | None:
                     "error_count": len(res_data.get("auto_approval_errors") or []) + len(run_errors),
                     "status": "failed" if run_errors else "completed",
                     "message": scan_error or (str(run_errors[0]) if run_errors else ""),
+                    "universe_count": int(candidate_scan.get("universe_size") or 0) if isinstance(candidate_scan, dict) else 0,
+                    "scanned_count": int(candidate_scan.get("scanned") or len(analysis_rows)) if isinstance(candidate_scan, dict) else 0,
+                    "candidate_count": len(candidate_scan.get("candidates") or []) if isinstance(candidate_scan, dict) else 0,
+                    "condition_counts": condition_counts,
+                    "analysis_rows": analysis_rows,
                 })
                 
                 # plans / results

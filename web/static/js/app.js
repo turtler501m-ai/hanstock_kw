@@ -5816,7 +5816,12 @@ async function renderScheduleInfo() {
                     mode: run.mode || lastResult.mode,
                     strategyId: run.strategy_id || '',
                     status: run.status || 'completed',
-                    message: run.message || ''
+                    message: run.message || '',
+                    universeCount: Number(run.universe_count || 0),
+                    scannedCount: Number(run.scanned_count || 0),
+                    candidateCount: Number(run.candidate_count || 0),
+                    conditionCounts: run.condition_counts || {},
+                    analysisRows: Array.isArray(run.analysis_rows) ? run.analysis_rows : []
                 });
             });
             results.forEach(r => {
@@ -5920,6 +5925,8 @@ async function renderScheduleInfo() {
                             
                             <!-- Card Body -->
                             <div class="round-body" id="round-body-${round}" style="display: ${isExpanded ? 'block' : 'none'}; padding: 1.25rem; border-top: 1px solid var(--border); background: rgba(0, 0, 0, 0.05);">
+                                <div class="scheduler-analysis-summary" style="margin-bottom:1.5rem;"></div>
+                                <div class="scheduler-analysis-details" style="margin-bottom:1.5rem;"></div>
                                 <h4 style="margin-bottom: 0.75rem; font-size: 0.95rem; font-weight: 500; display: flex; align-items: center; gap: 0.5rem; color: var(--text);">
                                     <span style="width: 4px; height: 14px; background: var(--success); display: inline-block; border-radius: 2px;"></span>
                                     자동 승인 및 주문 전송 내역
@@ -5970,6 +5977,28 @@ async function renderScheduleInfo() {
                                 </div>
                             </div>
                         `;
+
+                        const analysisSummary = card.querySelector('.scheduler-analysis-summary');
+                        const analysisDetails = card.querySelector('.scheduler-analysis-details');
+                        if (analysisSummary && roundData.scannedCount > 0) {
+                            const labels = [
+                                ['history_ready', '500봉 확보'], ['trend_ok', '상승 EMA200'],
+                                ['oversold_seen', 'RSI30 재돌파'], ['price_confirmed', '직전 고가 돌파'],
+                                ['risk_acceptable', '손절거리 통과'], ['event_safe', '이벤트 위험 없음'],
+                                ['reentry_reset_ok', '재진입 초기화'], ['entry_ready', '최종 진입 가능']
+                            ];
+                            analysisSummary.innerHTML = `
+                                <h4 style="margin-bottom:.75rem;">후보 분석 집계</h4>
+                                <p class="section-help">감시 ${roundData.universeCount || roundData.scannedCount}종목 · 분석 ${roundData.scannedCount}종목 · 후보 ${roundData.candidateCount}종목</p>
+                                <div class="schedule-result-metrics">${labels.map(([key, label]) => `<div class="schedule-result-metric"><span>${label}</span><strong>${Number(roundData.conditionCounts[key] || 0)} / ${roundData.scannedCount}</strong></div>`).join('')}</div>`;
+                        }
+                        if (analysisDetails && roundData.analysisRows.length) {
+                            analysisDetails.innerHTML = `
+                                <details><summary><strong>종목별 조건 점검 ${roundData.analysisRows.length}건</strong></summary>
+                                <div class="table-responsive" style="margin-top:.75rem;"><table style="width:100%;"><thead><tr><th>종목</th><th>점수</th><th>RSI</th><th>EMA200 추세</th><th>RSI 재돌파</th><th>고점 돌파</th><th>손절거리</th><th>결과/사유</th></tr></thead><tbody>
+                                ${roundData.analysisRows.map(row => `<tr><td><strong>${escapeHtml(row.name || row.symbol || '-')}</strong><br><small>${escapeHtml(row.symbol || '')}</small></td><td>${formatNumber(row.score || 0, 1)}</td><td>${row.rsi == null ? '-' : formatNumber(row.rsi, 1)}</td><td>${row.checks?.trend_ok ? '통과' : '제외'}</td><td>${row.checks?.oversold_seen ? '통과' : '제외'}</td><td>${row.checks?.price_confirmed ? '통과' : '제외'}</td><td>${row.stop_distance_pct == null ? '-' : `${formatNumber(row.stop_distance_pct, 2)}%`} · ${row.checks?.risk_acceptable ? '통과' : '제외'}</td><td>${row.checks?.entry_ready ? pill('진입 가능', 'buy') : pill('조건 미충족', 'hold')}<br><small>${escapeHtml((row.reasons || []).join(' · '))}</small></td></tr>`).join('')}
+                                </tbody></table></div></details>`;
+                        }
                         
                         // Populate Plans table inside this round body
                         const plansTbody = card.querySelector('.table-plans tbody');
