@@ -2858,7 +2858,7 @@
                     <td style="text-align:right; font-family:'JetBrains Mono';">${price ? price.toLocaleString() : '-'}</td>
                     <td style="font-family:'JetBrains Mono';">${item.rsi !== undefined && item.rsi !== null ? Number(item.rsi).toFixed(1) : '-'}</td>
                     <td style="font-family:'JetBrains Mono';">${item.sma20 !== undefined && item.sma20 !== null ? Number(item.sma20).toLocaleString() : '-'}</td>
-                    <td><span class="badge ${score >= 3.5 ? 'status-ok' : 'status-fail'}">${score.toFixed(2)}</span></td>
+                    <td><span class="badge ${score >= 2.5 ? 'status-ok' : 'status-fail'}">${score.toFixed(2)}</span></td>
                     <td><ul class="scan-reason-list">${reasons.slice(0, 4).map(r => `<li>${escapeHtml(r.trim())}</li>`).join('')}</ul></td>
                     <td><button type="button" class="button-ghost compact-button queue-order" data-symbol="${escapeHtml(symbol)}" data-name="${escapeHtml(name)}" data-action="buy" data-qty="1" data-price="${price}" data-reason="알파 하이킨아시 후보" data-source="heikin_ashi_scalping" data-strategy-id="heikin_ashi_scalping_strategy">승인요청</button></td>
                 `;

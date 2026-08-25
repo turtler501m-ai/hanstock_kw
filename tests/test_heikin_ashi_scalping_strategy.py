@@ -31,9 +31,11 @@ class HeikinAshiScalpingStrategyTests(unittest.TestCase):
     def test_long_requires_transition_confirmation_and_breakout(self):
         score, indicators = self._calculate(["bear", "bull", "bull"])
         metadata = indicators["heikin_ashi_scalping"]
-        self.assertEqual(score, 5.0)
+        self.assertGreaterEqual(score, 4.5)
         self.assertTrue(metadata["long_setup"])
         self.assertEqual(metadata["direction"], "long")
+        self.assertEqual(metadata["minimum_entry_score"], 2.5)
+        self.assertIn("price_confirmation", metadata["score_components"])
         self.assertGreater(metadata["target_1r"], metadata["entry"])
 
     def test_single_color_change_does_not_enter(self):
@@ -41,9 +43,35 @@ class HeikinAshiScalpingStrategyTests(unittest.TestCase):
         self.assertEqual(score, 0.0)
         self.assertFalse(indicators["heikin_ashi_scalping"]["long_setup"])
 
-    def test_breakout_is_required(self):
-        score, _indicators = self._calculate(["bear", "bull", "bull"], breakout=False)
+    def test_breakout_adds_quality_but_is_not_required_in_demo(self):
+        confirmed_score, _ = self._calculate(["bear", "bull", "bull"], breakout=True)
+        score, indicators = self._calculate(["bear", "bull", "bull"], breakout=False)
+        self.assertGreaterEqual(score, 2.5)
+        self.assertLess(score, confirmed_score)
+        self.assertTrue(indicators["heikin_ashi_scalping"]["long_setup"])
+        self.assertFalse(indicators["heikin_ashi_scalping"]["price_confirmed"])
+
+    def test_demo_scoring_uses_extended_reversal_window(self):
+        strategy = HeikinAshiScalpingStrategy()
+        self.assertEqual(strategy.trigger_window, 7)
+        self.assertEqual(strategy.effective_config()["minimum_entry_score"], 2.5)
+
+    def test_ema200_safety_filter_still_blocks_entry(self):
+        strategy = HeikinAshiScalpingStrategy()
+        prices = [100.0 + index * 0.1 for index in range(500)]
+        candles = [Candle(price - 0.2, price + 0.3, price - 0.3, price) for price in prices]
+        alpha = [Candle(100, 101, 99, 100.8) for _ in prices]
+        alpha[-3] = Candle(100.8, 101, 99, 100)
+        indicators = {"highs": [c.high for c in candles], "lows": [c.low for c in candles]}
+        with (
+            patch.object(strategy, "_heikin_ashi", side_effect=[candles, alpha]),
+            patch.object(strategy, "_ema_series", return_value=[200.0] * len(prices)),
+            patch.object(strategy, "_directional_indicators", return_value=(25.0, 30.0, 10.0)),
+            patch.object(strategy, "_atr", return_value=1.5),
+        ):
+            score = strategy.calculate_score(prices, indicators)
         self.assertEqual(score, 0.0)
+        self.assertFalse(indicators["heikin_ashi_scalping"]["safety_ready"])
 
     def test_short_is_metadata_only_for_spot_order_safety(self):
         strategy = HeikinAshiScalpingStrategy()

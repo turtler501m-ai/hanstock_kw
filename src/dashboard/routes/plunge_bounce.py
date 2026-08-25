@@ -661,10 +661,7 @@ def get_heikin_ashi_performance():
 @router.get("/api/strategy/heikin_ashi_scalping/scan")
 def run_heikin_ashi_scan():
     try:
-        from src.db.repository import get_watchlist_setting
-
-        min_score = float(get_watchlist_setting("HEIKIN_MIN_SCORE", "3.5"))
-        return _strategy_scan("heikin_ashi_scalping_strategy", min_score=min_score)
+        return _strategy_scan("heikin_ashi_scalping_strategy", min_score=2.5)
     except Exception as e:
         logger.error(f"[HeikinAshiRoute] Scan failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))

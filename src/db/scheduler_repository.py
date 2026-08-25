@@ -167,6 +167,12 @@ def load_recent_scheduler_results(days: int = 30) -> dict | None:
                     "event_safe": 0,
                     "reentry_reset_ok": 0,
                     "entry_ready": 0,
+                    "alpha_reversal": 0,
+                    "trend_quality_ok": 0,
+                    "volatility_ok": 0,
+                    "fast_trend_ok": 0,
+                    "rsi_momentum_ok": 0,
+                    "volume_confirmed": 0,
                 }
                 for scan_row in scan_rows:
                     risk = scan_row.get("strategy_risk") or {}
@@ -180,6 +186,12 @@ def load_recent_scheduler_results(days: int = 30) -> dict | None:
                         "event_safe": not bool(risk.get("event_risk")),
                         "reentry_reset_ok": bool(risk.get("reentry_reset_ok", True)),
                         "entry_ready": bool(risk.get("entry_ready")),
+                        "alpha_reversal": bool(risk.get("alpha_reversal")),
+                        "trend_quality_ok": bool(risk.get("trend_quality_ok")),
+                        "volatility_ok": bool(risk.get("volatility_ok")),
+                        "fast_trend_ok": bool(risk.get("fast_trend_ok")),
+                        "rsi_momentum_ok": bool(risk.get("rsi_momentum_ok")),
+                        "volume_confirmed": bool(risk.get("volume_confirmed")),
                     }
                     for key, passed in checks.items():
                         condition_counts[key] += int(passed)
@@ -194,6 +206,9 @@ def load_recent_scheduler_results(days: int = 30) -> dict | None:
                         "ema200": risk.get("ema200"),
                         "previous_high": risk.get("previous_high"),
                         "stop_distance_pct": risk.get("stop_distance_pct"),
+                        "adx": risk.get("adx"),
+                        "atr_pct": risk.get("atr_pct"),
+                        "volume_ratio": risk.get("volume_ratio"),
                         "checks": checks,
                     })
                 merged_runs.append({
