@@ -6,7 +6,7 @@ from src.strategy.seven_split import generate_signal
 
 
 class RsiOversoldReboundStrategyTests(unittest.TestCase):
-    def _evaluate(self, *, previous_rsi=29.0, current_rsi=31.0, breakout=True):
+    def _evaluate(self, *, previous_rsi=34.0, current_rsi=36.0, breakout=True):
         strategy = CustomRSILimitStrategy()
         prices = [100.0 + index * 0.05 for index in range(500)]
         highs = [price + 0.2 for price in prices]
@@ -36,7 +36,7 @@ class RsiOversoldReboundStrategyTests(unittest.TestCase):
     def test_balanced_entry_requires_recovery_and_price_breakout(self):
         score, indicators = self._evaluate()
         metadata = indicators["rsi_oversold_rebound"]
-        self.assertEqual(score, 5.0)
+        self.assertGreaterEqual(score, 2.0)
         self.assertTrue(metadata["entry_ready"])
         self.assertEqual(metadata["phase"], "entry")
         self.assertIn(metadata["grade"], {"A", "B"})
@@ -46,9 +46,41 @@ class RsiOversoldReboundStrategyTests(unittest.TestCase):
         self.assertEqual(score, 0.0)
         self.assertFalse(indicators["rsi_oversold_rebound"]["entry_ready"])
 
-    def test_recovery_without_previous_high_breakout_is_rejected(self):
-        score, _indicators = self._evaluate(breakout=False)
+    def test_recovery_uses_demo_threshold_and_extended_window(self):
+        strategy = CustomRSILimitStrategy()
+        rsi = [50.0] * 30
+        rsi[-10] = 34.0
+        rsi[-9] = 36.0
+        self.assertEqual(strategy._recovery_index(rsi), len(rsi) - 9)
+        self.assertEqual(strategy.effective_config()["oversold_threshold"], 35.0)
+        self.assertEqual(strategy.effective_config()["recovery_trigger_window_bars"], 10)
+
+    def test_recovery_without_previous_high_breakout_can_enter_by_score(self):
+        score, indicators = self._evaluate(breakout=False)
+        self.assertGreaterEqual(score, 2.0)
+        self.assertTrue(indicators["rsi_oversold_rebound"]["entry_ready"])
+        self.assertFalse(indicators["rsi_oversold_rebound"]["price_confirmed"])
+
+    def test_safety_filter_blocks_scored_setup(self):
+        strategy = CustomRSILimitStrategy()
+        prices = [100.0 + index * 0.05 for index in range(500)]
+        indicators = {
+            "opens": [price - 0.1 for price in prices],
+            "highs": [price + 0.2 for price in prices],
+            "lows": [price - 0.3 for price in prices],
+            "volumes": [100.0] * len(prices),
+        }
+        rsi = [50.0] * len(prices)
+        rsi[-2:] = [29.0, 36.0]
+        falling_ema = [110.0] * len(prices)
+        with (
+            patch.object(strategy, "_rsi_series", return_value=rsi),
+            patch.object(strategy, "_ema_series", return_value=falling_ema),
+            patch.object(strategy, "_atr", return_value=1.0),
+        ):
+            score = strategy.calculate_score(prices, indicators)
         self.assertEqual(score, 0.0)
+        self.assertFalse(indicators["rsi_oversold_rebound"]["safety_ready"])
 
     def test_position_uses_structural_stop(self):
         profile = self._profile({"atr": 2.0, "recent_swing_low": 96.5, "runner_exit": False})

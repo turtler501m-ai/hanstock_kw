@@ -41,13 +41,13 @@ class CustomRSILimitStrategy:
     def __init__(
         self,
         rsi_period: int = 14,
-        buy_threshold: float = 30.0,
+        buy_threshold: float = 35.0,
         ema_period: int = 200,
         ema_slope_lookback: int = 20,
         atr_period: int = 14,
         atr_stop_multiple: float = 1.5,
         volume_ratio: float = 1.0,
-        recovery_window: int = 3,
+        recovery_window: int = 10,
         max_stop_distance_pct: float = 5.0,
         max_holding_bars: int = 20,
     ) -> None:
@@ -79,9 +79,10 @@ class CustomRSILimitStrategy:
         ema_now = ema_series[-1]
         ema_past = ema_series[-1 - self.ema_slope_lookback]
         trend_ok = current > ema_now and ema_now > ema_past
+        oversold_index = self._oversold_index(rsi_series)
         recovery_index = self._recovery_index(rsi_series)
-        oversold_seen = recovery_index is not None
-        rsi_recovered = recovery_index is not None
+        oversold_seen = oversold_index is not None
+        rsi_recovered = recovery_index is not None and current_rsi > self.buy_threshold
         price_confirmed = current > previous_high and current > current_open
 
         volumes = [float(value) for value in indicators.get("volumes", []) if value is not None]
@@ -97,7 +98,10 @@ class CustomRSILimitStrategy:
         atr = self._atr(candles, self.atr_period)
         recent_swing_low = min(candle[2] for candle in candles[-8:-1])
         atr_stop = current - atr * self.atr_stop_multiple
-        stop = min(recent_swing_low, atr_stop)
+        # Use the nearer of the confirmed swing low and ATR stop. Position sizing
+        # still limits account risk, while an unnecessarily distant stop no
+        # longer removes otherwise useful demo-account observations.
+        stop = max(recent_swing_low, atr_stop)
         risk = max(current - stop, current * 0.001)
         bullish_divergence = self._bullish_divergence(prices, rsi_series)
         support_distance = current - recent_swing_low
@@ -113,23 +117,31 @@ class CustomRSILimitStrategy:
                 market, symbol, "rsi_limit_strategy", current_rsi=current_rsi,
             )
 
-        entry_ready = all((
-            trend_ok, oversold_seen, rsi_recovered, price_confirmed,
-            risk_acceptable, not event_risk, reentry_reset_ok,
-        ))
-        quality_points = sum((
-            trend_ok,
-            oversold_seen,
-            rsi_recovered,
-            price_confirmed,
-            volume_confirmed,
-            support_nearby,
-            risk_acceptable,
-        )) + (2 if bullish_divergence else 0)
-        grade = "A" if entry_ready and quality_points >= 7 else ("B" if entry_ready else "C")
+        safety_ready = all((trend_ok, risk_acceptable, not event_risk, reentry_reset_ok))
+        quality_score = (
+            (2.0 if rsi_recovered else (0.75 if oversold_seen else 0.0))
+            + (1.0 if price_confirmed else 0.0)
+            + (0.5 if volume_confirmed else 0.0)
+            + (0.5 if support_nearby else 0.0)
+            + (0.5 if bullish_divergence else 0.0)
+            + (0.5 if current_rsi > previous_rsi else 0.0)
+        )
+        score_components = {
+            "rsi_recovery": 2.0 if rsi_recovered else (0.75 if oversold_seen else 0.0),
+            "price_confirmation": 1.0 if price_confirmed else 0.0,
+            "volume_confirmation": 0.5 if volume_confirmed else 0.0,
+            "support_nearby": 0.5 if support_nearby else 0.0,
+            "bullish_divergence": 0.5 if bullish_divergence else 0.0,
+            "rsi_momentum": 0.5 if current_rsi > previous_rsi else 0.0,
+        }
+        signal_ready = safety_ready and rsi_recovered
+        score = round(min(5.0, quality_score), 2) if signal_ready else 0.0
+        entry_ready = safety_ready and score >= 2.0
+        grade = "A" if entry_ready and score >= 4.0 else ("B" if entry_ready else "C")
         reasons = [
             f"EMA200 추세 {'통과' if trend_ok else '미통과'}",
-            f"RSI(14) {previous_rsi:.1f}→{current_rsi:.1f} {'30 재돌파' if rsi_recovered else '반등 대기'}",
+            f"RSI(14) {previous_rsi:.1f}→{current_rsi:.1f} "
+            f"{f'{self.buy_threshold:g} 재돌파' if rsi_recovered else '반등 대기'}",
             f"직전 고가 {previous_high:.2f} {'돌파' if price_confirmed else '미돌파'}",
             f"거래량 {volume_ratio:.2f}배 {'확인' if volume_confirmed else '선택 필터 미충족'}",
         ]
@@ -137,6 +149,8 @@ class CustomRSILimitStrategy:
             "phase": "entry" if entry_ready else ("setup" if trend_ok and oversold_seen else "filter"),
             "grade": grade,
             "entry_ready": entry_ready,
+            "safety_ready": safety_ready,
+            "signal_ready": signal_ready,
             "trend_ok": trend_ok,
             "oversold_seen": oversold_seen,
             "rsi_recovered": rsi_recovered,
@@ -151,6 +165,7 @@ class CustomRSILimitStrategy:
             "reentry_reset_ok": reentry_reset_ok,
             "stop_distance_pct": round(stop_distance_pct, 2),
             "recovery_index_bars_ago": len(prices) - 1 - recovery_index if recovery_index is not None else None,
+            "oversold_index_bars_ago": len(prices) - 1 - oversold_index if oversold_index is not None else None,
             "rsi": round(current_rsi, 2),
             "previous_rsi": round(previous_rsi, 2),
             "ema200": round(ema_now, 4),
@@ -164,8 +179,10 @@ class CustomRSILimitStrategy:
             "target_2r": round(current + risk * 2, 4),
             "runner_exit": previous_rsi >= 70 > current_rsi,
             "reentry_allowed": entry_ready,
-            "score": 5.0 if entry_ready else 0.0,
-            "strategy_version": "rsi_pullback_recovery_v2",
+            "score": score,
+            "score_components": score_components,
+            "minimum_entry_score": 2.0,
+            "strategy_version": "rsi_pullback_recovery_v3_demo_scored",
             "effective_parameters": self.effective_config(),
         }
         indicators["custom_reasons"] = reasons
@@ -194,6 +211,13 @@ class CustomRSILimitStrategy:
         start = max(1, len(rsi_values) - self.recovery_window - 1)
         for index in range(len(rsi_values) - 1, start - 1, -1):
             if rsi_values[index - 1] <= self.buy_threshold < rsi_values[index]:
+                return index
+        return None
+
+    def _oversold_index(self, rsi_values: list[float]) -> int | None:
+        start = max(0, len(rsi_values) - self.recovery_window - 1)
+        for index in range(len(rsi_values) - 2, start - 1, -1):
+            if rsi_values[index] <= self.buy_threshold:
                 return index
         return None
 
