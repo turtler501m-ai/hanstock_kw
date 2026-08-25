@@ -2105,7 +2105,12 @@ function fillStrategyDetail(strategy) {
     setValue('strategy_id', strategy.id);
     setValue('name', strategy.name || strategyDisplayName(strategy));
     setValue('description', strategy.description || '');
-    setValue('model', strategy.model || 'none');
+    const modelField = form.elements.namedItem('model');
+    const strategyModel = strategy.model || 'none';
+    if (modelField && !Array.from(modelField.options).some((option) => option.value === strategyModel)) {
+        modelField.add(new Option(strategyModel, strategyModel));
+    }
+    setValue('model', strategyModel);
     setValue('ai_weight', strategyProfileValue(strategy, 'ai_weight', strategy.weight || 0));
     setValue('strategy_type', strategyProfileValue(strategy, 'strategy_type', 'custom'));
     setValue('risk_level', strategyProfileValue(strategy, 'risk_level', 'balanced'));

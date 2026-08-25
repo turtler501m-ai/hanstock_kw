@@ -119,6 +119,7 @@ class StrategyLookupTabContractTests(unittest.TestCase):
         self.assertIn('name="max_strategy_exposure_pct" type="number" min="0.1" max="100" step="0.1"', template)
         self.assertIn("setValue('max_total_open_risk_pct'", script)
         self.assertIn("profile.risk.max_total_open_risk_pct < profile.risk.max_risk_per_trade_pct", script)
+        self.assertIn("modelField.add(new Option(strategyModel, strategyModel))", script)
 
     def test_completion_badge_does_not_depend_on_previous_text(self):
         script = (ROOT / "web/static/js/app.js").read_text(encoding="utf-8")

@@ -91,20 +91,44 @@ def sync_custom_rules_to_db(conn) -> dict[str, int]:
                 profile_json = json.dumps(profile, ensure_ascii=False, sort_keys=True)
                 profile_hash = strategy_profile_hash(profile)
                 exists = conn.execute(
-                    "SELECT 1 FROM ai_strategies WHERE id = ?", (strategy_id,)
+                    "SELECT name, description, profile_json FROM ai_strategies WHERE id = ?",
+                    (strategy_id,),
                 ).fetchone()
                 if exists:
+                    # Code discovery runs from init_db(), including immediately after a
+                    # dashboard edit.  Preserve fields owned by the strategy editor so
+                    # the code preset does not silently restore its defaults.
+                    try:
+                        existing_profile = json.loads(exists[2] or "{}")
+                    except (json.JSONDecodeError, TypeError):
+                        existing_profile = {}
+                    if isinstance(existing_profile, dict):
+                        for key in (
+                            "ai_weight",
+                            "strategy_type",
+                            "risk_level",
+                            "min_rule_score_for_ai",
+                            "min_ai_confidence",
+                            "allow_candidate_promotion",
+                            "market_regime_filter",
+                        ):
+                            if key in existing_profile:
+                                profile[key] = existing_profile[key]
+                        if isinstance(existing_profile.get("risk"), dict):
+                            profile["risk"] = {
+                                **(profile.get("risk") or {}),
+                                **existing_profile["risk"],
+                            }
+                    profile_json = json.dumps(profile, ensure_ascii=False, sort_keys=True)
+                    profile_hash = strategy_profile_hash(profile)
                     conn.execute(
                         """
                         UPDATE ai_strategies
-                        SET name = ?, provider = 'none', model = ?, description = ?,
-                            profile_json = ?, profile_hash = ?
+                        SET provider = 'none', model = ?, profile_json = ?, profile_hash = ?
                         WHERE id = ?
                         """,
                         (
-                            strategy_name,
                             strategy_id,
-                            description,
                             profile_json,
                             profile_hash,
                             strategy_id,
