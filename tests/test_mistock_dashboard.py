@@ -53,6 +53,24 @@ class MistockDashboardTests(unittest.TestCase):
         self.assertEqual(download.call_args.args[0], ["BF-B"])
         self.assertEqual(result["holding_daily_change_pct"], 1.0)
         self.assertEqual(result["holding_daily_change_symbol_count"], 1)
+        self.assertEqual(result["holding_daily_changes"], {"BF.B": 1.0})
+
+    def test_mistock_periodic_performance_merges_current_holding_change_into_latest_rows(self):
+        periodic = {
+            "daily": [{"period": "2026-08-21"}, {"period": "2026-08-24"}],
+            "weekly": [{"period": "2026-W34"}, {"period": "2026-W35"}],
+            "monthly": [{"period": "2026-07"}, {"period": "2026-08"}],
+        }
+
+        result = mistock._merge_mistock_holding_change(
+            periodic,
+            {"holding_daily_change_pct": 1.25, "holding_daily_change_symbol_count": 3},
+        )
+
+        self.assertNotIn("holding_change_pct", result["daily"][0])
+        for bucket in ("daily", "weekly", "monthly"):
+            self.assertEqual(result[bucket][-1]["holding_change_pct"], 1.25)
+            self.assertEqual(result[bucket][-1]["holding_change_symbol_count"], 3)
 
     def test_mistock_performance_uses_pure_us_indices(self):
         self.assertEqual(mistock._MISTOCK_INDEX_TICKERS["sp500"], "^GSPC")

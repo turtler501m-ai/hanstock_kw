@@ -2705,7 +2705,11 @@ def _build_mistock_periodic_performance(
 def _mistock_holding_daily_change(holdings: dict[str, dict]) -> dict:
     symbols = [symbol for symbol, item in holdings.items() if float(item.get("qty") or 0) > 0]
     if not symbols:
-        return {"holding_daily_change_pct": None, "holding_daily_change_symbol_count": 0}
+        return {
+            "holding_daily_change_pct": None,
+            "holding_daily_change_symbol_count": 0,
+            "holding_daily_changes": {},
+        }
     try:
         import yfinance as yf
         from src.online_access import require_online_access
@@ -2727,6 +2731,7 @@ def _mistock_holding_daily_change(holdings: dict[str, dict]) -> dict:
         close = frame["Close"]
         previous_value = current_value = 0.0
         count = 0
+        symbol_changes = {}
         for symbol in symbols:
             yahoo_symbol = yahoo_symbols[symbol]
             series = close[yahoo_symbol].dropna() if getattr(close, "ndim", 1) > 1 else close.dropna()
@@ -2735,14 +2740,61 @@ def _mistock_holding_daily_change(holdings: dict[str, dict]) -> dict:
             qty = float(holdings[symbol].get("qty") or 0)
             previous_value += qty * float(series.iloc[-2])
             current_value += qty * float(series.iloc[-1])
+            previous_close = float(series.iloc[-2])
+            current_close = float(series.iloc[-1])
+            symbol_changes[symbol] = round((current_close / previous_close - 1) * 100, 2) if previous_close > 0 else None
             count += 1
         return {
             "holding_daily_change_pct": round((current_value / previous_value - 1) * 100, 2) if previous_value > 0 else None,
             "holding_daily_change_symbol_count": count,
+            "holding_daily_changes": symbol_changes,
         }
     except Exception as exc:
         logger.info(f"Mistock holding daily performance unavailable: {exc}")
-        return {"holding_daily_change_pct": None, "holding_daily_change_symbol_count": 0}
+        return {
+            "holding_daily_change_pct": None,
+            "holding_daily_change_symbol_count": 0,
+            "holding_daily_changes": {},
+        }
+
+
+def _mistock_positions_from_trades(trades: list[dict]) -> tuple[dict, dict, float]:
+    holdings: dict[str, dict] = {}
+    names: dict[str, str] = {}
+    realized_pnl = 0.0
+    for trade in trades:
+        symbol = trade["symbol"]
+        names[symbol] = trade.get("name", symbol)
+        qty = float(trade.get("qty") or 0.0)
+        price = float(trade.get("price") or 0.0)
+        if qty <= 0 or price <= 0:
+            continue
+        holding = holdings.setdefault(symbol, {"qty": 0.0, "cost": 0.0})
+        if trade["action"] == "buy":
+            total_qty = holding["qty"] + qty
+            total_cost = holding["qty"] * holding["cost"] + qty * price
+            holding["qty"] = total_qty
+            holding["cost"] = total_cost / total_qty if total_qty > 0 else 0.0
+        elif trade["action"] == "sell":
+            sell_qty = min(qty, holding["qty"])
+            realized_pnl += (price - holding["cost"]) * sell_qty
+            holding["qty"] = max(0.0, holding["qty"] - sell_qty)
+            if holding["qty"] <= 0:
+                holding["cost"] = 0.0
+    return holdings, names, realized_pnl
+
+
+def _merge_mistock_holding_change(periodic: dict, daily_change: dict) -> dict:
+    change = daily_change.get("holding_daily_change_pct")
+    count = int(daily_change.get("holding_daily_change_symbol_count") or 0)
+    if change is None or count <= 0:
+        return periodic
+    for bucket in ("daily", "weekly", "monthly"):
+        rows = periodic.get(bucket) or []
+        if rows:
+            rows[-1]["holding_change_pct"] = change
+            rows[-1]["holding_change_symbol_count"] = count
+    return periodic
 
 
 @router.get("/api/mistock/performance")
@@ -2757,35 +2809,7 @@ def mistock_performance(strategy_id: str = ""):
         success_count = sum(1 for t in account_trades if t.get("ok", 1))
         success_rate = (success_count / total_trades * 100) if total_trades > 0 else 0.0
         
-        holdings = {}
-        realized_pnl = 0.0
-        names = {}
-        
-        for t in account_trades:
-            sym = t["symbol"]
-            names[sym] = t.get("name", sym)
-            qty = float(t.get("qty") or 0.0)
-            price = float(t.get("price") or 0.0)
-            action = t["action"]
-            
-            if qty <= 0 or price <= 0:
-                continue
-                
-            if sym not in holdings:
-                holdings[sym] = {"qty": 0.0, "cost": 0.0}
-                
-            h = holdings[sym]
-            if action == "buy":
-                total_qty = h["qty"] + qty
-                total_cost = h["qty"] * h["cost"] + qty * price
-                h["qty"] = total_qty
-                h["cost"] = total_cost / total_qty if total_qty > 0 else 0.0
-            elif action == "sell":
-                sell_qty = min(qty, h["qty"])
-                realized_pnl += (price - h["cost"]) * sell_qty
-                h["qty"] = max(0.0, h["qty"] - sell_qty)
-                if h["qty"] <= 0:
-                    h["cost"] = 0.0
+        holdings, names, realized_pnl = _mistock_positions_from_trades(account_trades)
                     
         # Filter sold holdings
         sells = [row for row in account_trades if row["action"] == "sell"]
@@ -2841,6 +2865,9 @@ def mistock_performance(strategy_id: str = ""):
         daily_change = _mistock_holding_daily_change(
             {symbol: position for symbol, position in holdings.items() if not strategy_id or float(position.get("qty") or 0) > 0}
         )
+        symbol_changes = daily_change.get("holding_daily_changes") or {}
+        for item in eval_details:
+            item["daily_change_pct"] = symbol_changes.get(item["symbol"])
                 
         return {
             "total_trades": total_trades,
@@ -2871,7 +2898,13 @@ def mistock_periodic_performance(strategy_id: str = ""):
     try:
         trades = mistock_db.rows("SELECT * FROM trades ORDER BY ts ASC")
         cashflows = mistock_db.rows("SELECT * FROM performance_cashflows ORDER BY occurred_at, id")
-        return _build_mistock_periodic_performance(trades, strategy_id=strategy_id, cashflows=cashflows)
+        periodic = _build_mistock_periodic_performance(trades, strategy_id=strategy_id, cashflows=cashflows)
+        account_trades = _mistock_account_trades(trades)
+        if strategy_id:
+            account_trades = [row for row in account_trades if str(row.get("strategy_id") or "unattributed") == strategy_id]
+        holdings, _, _ = _mistock_positions_from_trades(account_trades)
+        daily_change = _mistock_holding_daily_change(holdings)
+        return _merge_mistock_holding_change(periodic, daily_change)
     except Exception as e:
         from src.utils.logger import logger
         logger.error(f"Failed to calculate mistock periodic performance: {e}")

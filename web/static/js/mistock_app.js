@@ -3307,11 +3307,13 @@ async function renderTrades() {
                 tbodyEval.innerHTML = '';
                 const details = perf.eval_details || [];
                 if (!details.length) {
-                    setTableMessage('#table-eval-details tbody', 6, '자동매매로 매수한 보유종목이 없습니다.');
+                    setTableMessage('#table-eval-details tbody', 8, '자동매매로 매수한 보유종목이 없습니다.');
                 } else {
                     details.forEach((item) => {
                         const tr = document.createElement('tr');
                         const pnlClass = item.eval_pnl > 0 ? 'text-success' : (item.eval_pnl < 0 ? 'text-danger' : '');
+                        const dailyChange = item.daily_change_pct;
+                        const dailyClass = Number(dailyChange) > 0 ? 'text-success' : (Number(dailyChange) < 0 ? 'text-danger' : '');
                         tr.innerHTML = `
                             <td>
                                 <span class="symbol-name">${escapeHtml(item.name || item.symbol)}</span>
@@ -3322,6 +3324,7 @@ async function renderTrades() {
                             <td>${formatCurrency(item.current_price)}</td>
                             <td>${formatCurrency(Number(item.current_price || 0) * Number(item.qty || 0))}</td>
                             <td class="${pnlClass}">${formatPercent(item.return_rate)}</td>
+                            <td class="${dailyClass}">${dailyChange == null ? '-' : formatPercent(dailyChange)}</td>
                             <td class="${pnlClass}">${item.eval_pnl > 0 ? '+' : ''}${formatCurrency(item.eval_pnl)}</td>
                         `;
                         tbodyEval.appendChild(tr);
@@ -3522,7 +3525,7 @@ function updatePeriodicPerformanceUI() {
     if (tbody) {
         tbody.innerHTML = '';
         if (!dataList.length) {
-            tbody.innerHTML = `<tr><td colspan="10" style="text-align: center; padding: 2rem; color: #94a3b8;">성과 분석 데이터가 없습니다.</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="11" style="text-align: center; padding: 2rem; color: #94a3b8;">성과 분석 데이터가 없습니다.</td></tr>`;
         } else {
             // Sort to display latest data first in the table
             const tableDataList = [...dataList].reverse();
@@ -3531,6 +3534,8 @@ function updatePeriodicPerformanceUI() {
                 const pnl = item.realized_pnl || 0;
                 const pnlRate = item.realized_pnl_rate || 0;
                 const pnlClass = pnl > 0 ? 'text-success' : (pnl < 0 ? 'text-danger' : '');
+                const holdingChange = item.holding_change_pct;
+                const holdingClass = Number(holdingChange) > 0 ? 'text-success' : (Number(holdingChange) < 0 ? 'text-danger' : '');
                 
                 tr.innerHTML = `
                     <td><button type="button" class="period-detail-button"><strong>${escapeHtml(item.period)}</strong></button></td>
@@ -3541,6 +3546,7 @@ function updatePeriodicPerformanceUI() {
                     <td class="${pnlClass}">${pnlRate > 0 ? '+' : ''}${pnlRate.toFixed(2)}%</td>
                     <td class="${pnl > 0 ? 'text-success' : (pnl < 0 ? 'text-danger' : '')}">${formatCurrency(item.net_cashflow)}</td>
                     <td>${formatCurrency(item.external_cashflow || 0)}</td>
+                    <td class="${holdingClass}">${holdingChange == null ? '-' : formatPercent(holdingChange)}</td>
                     <td>${formatMarketIndex(item.sp500, item.sp500_change_pct)}</td>
                     <td>${formatMarketIndex(item.nasdaq, item.nasdaq_change_pct)}</td>
                 `;
