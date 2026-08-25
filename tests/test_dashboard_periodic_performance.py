@@ -15,7 +15,10 @@ from src.dashboard.core import (
     _safe_index_rows,
     _strategy_label,
 )
-from src.dashboard.routes.stock_performance import _merge_current_holding_change
+from src.dashboard.routes.stock_performance import (
+    _merge_current_holding_change,
+    _merge_stored_holding_changes,
+)
 
 
 class DashboardPeriodicPerformanceTests(unittest.TestCase):
@@ -49,6 +52,17 @@ class DashboardPeriodicPerformanceTests(unittest.TestCase):
 
         self.assertEqual(result["daily"], [])
         self.assertEqual(result["monthly"], [])
+
+    def test_stored_holding_change_restores_prior_quiet_day(self):
+        result = {"daily": [], "monthly": []}
+        _merge_stored_holding_changes(result, [{
+            "session_date": "2026-08-24",
+            "holding_change_pct": -1.25,
+            "symbol_count": 7,
+        }])
+        self.assertEqual(result["daily"][0]["period"], "2026-08-24")
+        self.assertEqual(result["daily"][0]["holding_change_pct"], -1.25)
+        self.assertEqual(result["daily"][0]["holding_change_symbol_count"], 7)
 
     def test_market_indices_never_fall_back_to_etf_prices(self):
         self.assertNotIn("069500", _INDEX_SYMBOL_ALIASES["KOSPI"])

@@ -74,6 +74,24 @@ def _merge_current_holding_change(result: dict, parsed: dict, today: str) -> Non
         row["holding_change_missing_count"] = 0
 
 
+def _merge_stored_holding_changes(result: dict, snapshots: list[dict]) -> None:
+    rows = result.setdefault("daily", [])
+    by_day = {str(row.get("period") or ""): row for row in rows}
+    for snapshot in snapshots:
+        day = str(snapshot.get("session_date") or "")[:10]
+        if len(day) != 10:
+            continue
+        row = by_day.get(day)
+        if row is None:
+            row = {"period": day, **_period_bucket()}
+            rows.append(row)
+            by_day[day] = row
+        row["holding_change_pct"] = float(snapshot["holding_change_pct"])
+        row["holding_change_symbol_count"] = int(snapshot.get("symbol_count") or 0)
+        row["holding_change_missing_count"] = 0
+    rows.sort(key=lambda row: str(row.get("period") or ""))
+
+
 @router.get("/api/performance/periodic")
 def get_periodic_performance(response: Response, strategy_id: str | None = None):
     _refresh_legacy_dependencies()
@@ -89,8 +107,17 @@ def get_periodic_performance(response: Response, strategy_id: str | None = None)
         # balance, so expose it in the cumulative-performance table/chart.
         if not strategy_id:
             try:
+                from src.db.performance_repository import (
+                    list_holding_daily_snapshots,
+                    save_holding_daily_snapshot,
+                )
                 parsed = _parse_balance(_get_balance_data(_get_api()))
                 today = trader.datetime.now(trader.KST).strftime("%Y-%m-%d")
+                current_change = parsed.get("holding_daily_change_pct")
+                holdings = parsed.get("holdings") or []
+                if current_change is not None and holdings:
+                    save_holding_daily_snapshot(today, current_change, len(holdings))
+                _merge_stored_holding_changes(result, list_holding_daily_snapshots())
                 _merge_current_holding_change(result, parsed, today)
             except Exception:
                 pass

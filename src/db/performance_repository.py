@@ -118,6 +118,18 @@ def init_performance_tables(conn=None) -> None:
         )
         db.execute(
             """
+            CREATE TABLE IF NOT EXISTS performance_holding_daily_snapshots (
+                scope_key TEXT NOT NULL,
+                session_date TEXT NOT NULL,
+                holding_change_pct REAL NOT NULL,
+                symbol_count INTEGER NOT NULL DEFAULT 0,
+                captured_at TEXT NOT NULL,
+                PRIMARY KEY (scope_key, session_date)
+            )
+            """
+        )
+        db.execute(
+            """
             CREATE TABLE IF NOT EXISTS strategy_performance_review_events (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 scope_key TEXT NOT NULL,
@@ -189,6 +201,37 @@ def list_strategy_performance_reviews() -> list[dict]:
         rows = conn.execute(
             "SELECT * FROM strategy_performance_reviews_v2 WHERE scope_key=? ORDER BY reviewed_at DESC",
             (scope_key,),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def save_holding_daily_snapshot(session_date: str, change_pct: float, symbol_count: int) -> None:
+    init_performance_tables()
+    with connect_db() as conn:
+        conn.execute(
+            """INSERT INTO performance_holding_daily_snapshots
+               (scope_key, session_date, holding_change_pct, symbol_count, captured_at)
+               VALUES (?, ?, ?, ?, ?)
+               ON CONFLICT(scope_key, session_date) DO UPDATE SET
+                 holding_change_pct=excluded.holding_change_pct,
+                 symbol_count=excluded.symbol_count,
+                 captured_at=excluded.captured_at""",
+            (
+                account_scope_key(), str(session_date)[:10], float(change_pct),
+                max(0, int(symbol_count)), datetime.now(KST).isoformat(),
+            ),
+        )
+
+
+def list_holding_daily_snapshots() -> list[dict]:
+    init_performance_tables()
+    with connect_db() as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            """SELECT session_date, holding_change_pct, symbol_count, captured_at
+               FROM performance_holding_daily_snapshots
+               WHERE scope_key=? ORDER BY session_date""",
+            (account_scope_key(),),
         ).fetchall()
     return [dict(row) for row in rows]
 
