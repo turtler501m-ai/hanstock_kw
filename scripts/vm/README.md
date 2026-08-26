@@ -52,3 +52,22 @@ The installer writes `CRON_TZ=Asia/Seoul`. Override it with `HANSTOCK_CRON_TZ` i
 Logs are written to `logs/daily-auto.log`.
 
 Each completed or failed job writes `duration_seconds` to its log. Strategy results also store start/completion timestamps and elapsed seconds in the scheduler result table.
+
+## Kiwoom market-regime preflight
+
+The `_kw` deployment refreshes read-only KOSPI/KOSDAQ regime inputs at 08:43
+KST on weekdays, before trading schedules start. Install or repair the cron block
+manually with:
+
+```bash
+bash ./scripts/vm/install-market-regime-preflight-cron.sh
+```
+
+The runner invokes `python -m src.market_regime preflight --market KR`, uses
+an independent non-overlap lock, and does not execute the order scheduler. Its
+log is `logs/market-regime-preflight.log`. `update.sh` installs the `_kw`-named
+cron block automatically and does not modify `_ora` cron blocks.
+
+The command exits with `0` after a `good` or `degraded` snapshot, `1` for an
+`insufficient` snapshot, and `2` for a collection or persistence error. The
+runner preserves that exit code in cron while recording it in the log.

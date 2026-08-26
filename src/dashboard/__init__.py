@@ -19,6 +19,7 @@ import src.dashboard.routes.mistock as mistock
 import src.dashboard.routes.plunge_bounce as plunge_bounce
 import src.dashboard.routes.narrative_momentum as narrative_momentum
 import src.dashboard.routes.ai_stock as ai_stock
+import src.dashboard.routes.market_regime as market_regime
 
 for route_module in [
     pages,
@@ -29,6 +30,7 @@ for route_module in [
     plunge_bounce,
     narrative_momentum,
     ai_stock,
+    market_regime,
 ]:
     app.include_router(route_module.router)
 
@@ -82,5 +84,5 @@ def _ai_stock_error_response(status_code: int, market: str, errors: list[str]) -
 # Dynamically expose all names from core and all route files for backward compatibility
 import src.dashboard.core as _core
 
-for mod in [_core, pages, account, settings, stock, mistock, plunge_bounce, narrative_momentum]:
+for mod in [_core, pages, account, settings, stock, mistock, plunge_bounce, narrative_momentum, market_regime]:
     globals().update({k: v for k, v in mod.__dict__.items() if not k.startswith("__")})

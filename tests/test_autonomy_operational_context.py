@@ -249,6 +249,37 @@ class MarketRegimeClassificationTests(unittest.TestCase):
             "sideways_low_vol",
         )
 
+    def test_operational_snapshot_prefers_persisted_kr_regime(self):
+        now = datetime(2026, 7, 23, 3, tzinfo=timezone.utc)
+        provider = OperationalSnapshotProvider(
+            kr_broker=_KR(), market_data=_Market(now),
+            candidate_repository=_Repo(now), clock=lambda: now,
+            account_id="acct", market_regime_reader=lambda: {
+                "snapshot_id": 91, "session_date": "20260723",
+                "evaluated_at": now.isoformat(), "regime": "bear_rally",
+                "quality": "good", "confidence": 0.81,
+                "risk_multiplier": 0.5, "source": "kiwoom",
+                "new_risk_allowed": True,
+            },
+        )
+        result = provider.snapshot("KR", "s1").market
+        self.assertEqual(result["regime"], "bear_rally")
+        self.assertEqual(result["regime_quality"], "good")
+        self.assertEqual(result["snapshot_id"], "91")
+
+    def test_insufficient_persisted_kr_regime_fails_closed(self):
+        now = datetime(2026, 7, 23, 3, tzinfo=timezone.utc)
+        provider = OperationalSnapshotProvider(
+            kr_broker=_KR(), market_data=_Market(now),
+            candidate_repository=_Repo(now), clock=lambda: now,
+            account_id="acct", market_regime_reader=lambda: {
+                "session_date": "20260723", "regime": "insufficient_data",
+                "quality": "insufficient", "new_risk_allowed": False,
+            },
+        )
+        with self.assertRaisesRegex(RuntimeConfigurationError, "insufficient"):
+            provider.snapshot("KR", "s1")
+
 
 if __name__ == "__main__":
     unittest.main()

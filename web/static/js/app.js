@@ -3480,6 +3480,153 @@ function configureStrategyLookupTab() {
     }
 }
 
+const MARKET_REGIME_LABELS = {
+    bull: '상승', bull_pullback: '상승 중 조정', sideways_low_vol: '저변동 횡보',
+    sideways_high_vol: '고변동 횡보', bear_rally: '하락 중 반등', bear: '하락',
+    crash: '급락', insufficient_data: '데이터 부족', unknown: '미확인',
+};
+
+function marketRegimeLabel(value) {
+    const key = String(value || 'unknown').toLowerCase();
+    return MARKET_REGIME_LABELS[key] || value || '-';
+}
+
+function marketRegimePercent(value, digits = 1) {
+    if (value === null || value === undefined || value === '') return '-';
+    const number = Number(value);
+    if (!Number.isFinite(number)) return '-';
+    const normalized = Math.abs(number) <= 1 ? number * 100 : number;
+    return `${normalized.toFixed(digits)}%`;
+}
+
+function marketRegimeDate(value) {
+    if (!value) return '-';
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? escapeHtml(value) : parsed.toLocaleString('ko-KR');
+}
+
+function marketRegimeIndexRows(indices = {}) {
+    const kospi = indices.kospi || indices.KOSPI || {};
+    const kosdaq = indices.kosdaq || indices.KOSDAQ || {};
+    const rows = [
+        ['개별 국면', 'regime', marketRegimeLabel], ['최신 종가', 'close', (v) => formatNumber(v, 2)],
+        ['SMA20', 'sma20', (v) => formatNumber(v, 2)], ['SMA60', 'sma60', (v) => formatNumber(v, 2)],
+        ['SMA200', 'sma200', (v) => formatNumber(v, 2)], ['5일 수익률', 'return_5d', marketRegimePercent],
+        ['20일 수익률', 'return_20d', marketRegimePercent], ['20일 낙폭', 'drawdown_20d', marketRegimePercent],
+        ['변동성 비율', 'volatility_ratio', (v) => formatNumber(v, 2)], ['관측치', 'observations', formatNumber],
+        ['기준일', 'session_date', (v) => v || '-'],
+    ];
+    return rows.map(([label, key, formatter]) => `<tr><th>${label}</th><td>${escapeHtml(formatter(kospi[key]))}</td><td>${escapeHtml(formatter(kosdaq[key]))}</td></tr>`).join('');
+}
+
+function renderMarketRegimeList(id, items, emptyText) {
+    const element = document.getElementById(id);
+    if (!element) return;
+    const list = Array.isArray(items) ? items : [];
+    element.innerHTML = list.length
+        ? list.map((item) => `<li>${escapeHtml(typeof item === 'string' ? item : item.message || item.reason || JSON.stringify(item))}</li>`).join('')
+        : `<li class="muted">${escapeHtml(emptyText)}</li>`;
+}
+
+function renderMarketRegimeCurrent(envelope) {
+    const data = envelope.current || envelope.snapshot || envelope;
+    const quality = String(data.quality || 'unknown').toLowerCase();
+    const summary = document.getElementById('market-regime-summary');
+    if (summary) summary.dataset.quality = quality;
+    const values = {
+        'market-regime-value': marketRegimeLabel(data.regime),
+        'market-regime-quality': ({ good: '정상', degraded: '제한', insufficient: '사용 불가' })[quality] || quality,
+        'market-regime-confidence': marketRegimePercent(data.confidence, 0),
+        'market-regime-session-date': data.session_date || '-',
+        'market-regime-evaluated-at': marketRegimeDate(data.evaluated_at),
+        'market-regime-risk-gate': data.new_risk_allowed === true ? '허용' : data.new_risk_allowed === false ? '차단' : '-',
+        'market-regime-risk-multiplier': marketRegimePercent(data.risk_multiplier, 0),
+        'market-regime-source': data.source || (data.sources || []).map((source) => source.name || source.source || source).join(', ') || '-',
+    };
+    Object.entries(values).forEach(([id, value]) => { const el = document.getElementById(id); if (el) el.textContent = value; });
+    const tbody = document.querySelector('#table-market-regime-indices tbody');
+    if (tbody) tbody.innerHTML = marketRegimeIndexRows(data.indices);
+    const breadth = data.breadth || {};
+    const breadthMetrics = [
+        ['전체 표본', breadth.sample_size], ['유효 데이터', `${breadth.valid_count ?? '-'} / ${breadth.sample_size ?? '-'}`],
+        ['수집 성공률', marketRegimePercent(breadth.success_ratio ?? (breadth.sample_size ? breadth.valid_count / breadth.sample_size : null))],
+        ['상승 종목', marketRegimePercent(breadth.advance_ratio)], ['SMA20 상회', marketRegimePercent(breadth.above_sma20_ratio)],
+        ['SMA60 상회', marketRegimePercent(breadth.above_sma60_ratio)],
+    ];
+    const breadthEl = document.getElementById('market-regime-breadth');
+    if (breadthEl) breadthEl.innerHTML = breadthMetrics.map(([label, value]) => `<div><span>${label}</span><strong>${escapeHtml(value ?? '-')}</strong></div>`).join('');
+    renderMarketRegimeList('market-regime-failures', breadth.failures || data.failed_symbols, '실패 종목이 없습니다.');
+    renderMarketRegimeList('market-regime-reasons', data.reasons, '저장된 판정 근거가 없습니다.');
+    renderMarketRegimeList('market-regime-warnings', data.warnings, '경고가 없습니다.');
+}
+
+function renderMarketRegimeDiagnostics(envelope) {
+    const data = envelope.diagnostics || envelope;
+    const raw = data.checklist || data.checks || [];
+    const checks = Array.isArray(raw) ? raw : Object.entries(raw).map(([name, value]) => ({ name, ok: typeof value === 'object' ? value.ok : Boolean(value), ...(typeof value === 'object' ? value : {}) }));
+    const element = document.getElementById('market-regime-checklist');
+    if (!element) return;
+    element.innerHTML = checks.length ? checks.map((check) => {
+        const ok = check.ok ?? check.passed ?? check.status === 'ok';
+        return `<div class="market-regime-check ${ok ? 'ok' : 'fail'}"><span aria-hidden="true">${ok ? '✓' : '!'}</span><div><strong>${escapeHtml(check.label || check.name || check.key || '점검 항목')}</strong>${check.message || check.detail ? `<small>${escapeHtml(check.message || check.detail)}</small>` : ''}</div></div>`;
+    }).join('') : '<p class="section-help">점검 결과가 없습니다.</p>';
+}
+
+function renderMarketRegimeHistory(envelope) {
+    const rows = envelope.history || envelope.items || [];
+    const tbody = document.querySelector('#table-market-regime-history tbody');
+    if (!tbody) return;
+    tbody.innerHTML = rows.length ? rows.map((row) => `<tr>
+        <td>${escapeHtml(row.session_date || '-')}</td><td>${escapeHtml(marketRegimeLabel(row.regime))}</td>
+        <td>${escapeHtml(row.quality || '-')}</td><td>${escapeHtml(marketRegimePercent(row.confidence, 0))}</td>
+        <td>${escapeHtml(marketRegimePercent(row.risk_multiplier, 0))}</td><td>${escapeHtml(row.source || '-')}</td>
+    </tr>`).join('') : '<tr><td colspan="6" class="table-message">저장된 국면 이력이 없습니다.</td></tr>';
+}
+
+async function loadMarketRegimeDashboard() {
+    const status = document.getElementById('market-regime-refresh-status');
+    const error = document.getElementById('market-regime-error');
+    if (status) status.textContent = '저장된 결과 불러오는 중...';
+    if (error) error.hidden = true;
+    try {
+        const [current, history, diagnostics] = await Promise.all([
+            fetchJson('/api/market-regime/current', 30000),
+            fetchJson('/api/market-regime/history?days=30', 30000),
+            fetchJson('/api/market-regime/diagnostics', 30000),
+        ]);
+        renderMarketRegimeCurrent(current);
+        renderMarketRegimeHistory(history);
+        renderMarketRegimeDiagnostics(diagnostics);
+        if (status) status.textContent = `조회 완료 · ${new Date().toLocaleTimeString('ko-KR')}`;
+    } catch (err) {
+        if (status) status.textContent = '조회 실패';
+        if (error) { error.textContent = `시장 국면 조회 실패: ${err.message}`; error.hidden = false; }
+    }
+}
+
+async function refreshMarketRegimeData() {
+    const button = document.getElementById('btn-refresh-market-regime');
+    const status = document.getElementById('market-regime-refresh-status');
+    const error = document.getElementById('market-regime-error');
+    setButtonBusy(button, true);
+    if (button) button.textContent = '수집 중...';
+    if (status) status.textContent = 'Kiwoom 데이터를 다시 수집하고 있습니다...';
+    if (error) error.hidden = true;
+    try {
+        const result = await postJson('/api/market-regime/refresh', {});
+        if (result.current || result.snapshot || result.regime) renderMarketRegimeCurrent(result);
+        await loadMarketRegimeDashboard();
+        setStatus('시장 국면 데이터 수집과 재계산이 완료되었습니다.', true);
+    } catch (err) {
+        if (status) status.textContent = '수집 실패';
+        if (error) { error.textContent = `데이터 다시 수집 실패: ${err.message}`; error.hidden = false; }
+        setStatus(`시장 국면 갱신 실패: ${err.message}`);
+    } finally {
+        if (button) button.textContent = '데이터 다시 수집';
+        setButtonBusy(button, false);
+    }
+}
+
 async function renderCandidateHistory() {
     try {
         const data = await fetchJson(withActiveStrategy('/api/candidates/history', { limit: 50 }), 30000);
@@ -5096,6 +5243,8 @@ async function fetchDashboardData() {
 
 // 매수후보 포착 히스토리 새로고침 버튼 바인딩
 document.addEventListener('DOMContentLoaded', () => {
+    document.querySelector('[data-dashboard-tab="market-regime"]')?.addEventListener('click', loadMarketRegimeDashboard);
+    document.getElementById('btn-refresh-market-regime')?.addEventListener('click', refreshMarketRegimeData);
     configureStrategyLookupTab();
     document.getElementById('select-performance-scope')?.addEventListener('change', () => {
         renderTrades();

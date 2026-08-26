@@ -50,6 +50,7 @@ class OperationalSnapshotProvider:
         daily_equity: DailyEquityService | None = None,
         account_id: str | None = None,
         kill_switch_reader: Callable[[], bool] | None = None,
+        market_regime_reader: Callable[[], Mapping[str, Any] | None] | None = None,
         clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
         max_age_seconds: int = 300,
     ):
@@ -63,6 +64,7 @@ class OperationalSnapshotProvider:
             else f"kiwoom:{getattr(config, 'kiwoom_trading_env', 'demo')}"
         ).strip()
         self.kill_switch_reader = kill_switch_reader or _default_kill_switch_reader
+        self.market_regime_reader = market_regime_reader or _default_market_regime_reader
         self.daily_equity = daily_equity or DailyEquityService(
             repo=candidate_repository,
             external_reconciliation=lambda _account, _market, _date: (
@@ -207,6 +209,11 @@ class OperationalSnapshotProvider:
         return result
 
     def _market_snapshot(self, market, strategy_id, candidates, instruments, now):
+        persisted = self.market_regime_reader() if market == "KR" else None
+        if persisted is not None:
+            return self._persisted_kr_market_snapshot(
+                persisted, market, strategy_id, candidates, instruments
+            )
         index_map = self.market_data.index_series(market)
         if not index_map:
             raise RuntimeConfigurationError("market index series is required")
@@ -245,6 +252,40 @@ class OperationalSnapshotProvider:
             "evaluated_at": evaluated_at.isoformat(),
             "data_as_of": data_as_of.isoformat(),
             "regime": regime,
+            "candidates": tuple(dict(row) for row in candidates),
+            "instruments": instruments,
+        }
+
+    def _persisted_kr_market_snapshot(
+        self, persisted, market, strategy_id, candidates, instruments
+    ):
+        quality = str(persisted.get("quality") or "").strip().lower()
+        regime = str(persisted.get("regime") or "").strip()
+        if quality == "insufficient" or not bool(persisted.get("new_risk_allowed")):
+            raise RuntimeConfigurationError("KR market regime data is insufficient")
+        if quality not in {"good", "degraded"} or not regime:
+            raise RuntimeConfigurationError("KR market regime snapshot is invalid")
+        session_text = str(persisted.get("session_date") or "").strip()
+        try:
+            session_date = datetime.strptime(session_text, "%Y%m%d").date()
+        except ValueError as exc:
+            raise RuntimeConfigurationError("KR market regime session_date is invalid") from exc
+        evaluated_at = _aware(self.clock(), "market snapshot clock")
+        age_days = (evaluated_at.date() - session_date).days
+        if age_days < 0 or age_days > 4:
+            raise RuntimeConfigurationError("KR market regime snapshot is stale")
+        return {
+            "snapshot_id": str(
+                persisted.get("snapshot_id")
+                or f"kr-regime:{session_text}:{persisted.get('evaluated_at', '')}"
+            ),
+            "evaluated_at": evaluated_at.isoformat(),
+            "data_as_of": session_text,
+            "regime": regime,
+            "regime_quality": quality,
+            "regime_confidence": float(persisted.get("confidence") or 0.0),
+            "risk_multiplier": float(persisted.get("risk_multiplier") or 0.0),
+            "regime_source": str(persisted.get("source") or "kiwoom"),
             "candidates": tuple(dict(row) for row in candidates),
             "instruments": instruments,
         }
@@ -417,6 +458,11 @@ def _default_us_balance_reader() -> Mapping[str, Any]:
 def _default_kill_switch_reader() -> bool:
     from src.strategy.risk import RiskEngine
     return bool(RiskEngine().check_kill_switch())
+
+
+def _default_market_regime_reader() -> Mapping[str, Any] | None:
+    from src.market_regime.repository import MarketRegimeRepository
+    return MarketRegimeRepository().current()
 
 
 def _classify(values, realized, baseline, breadth):
