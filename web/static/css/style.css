@@ -470,6 +470,37 @@ h1 .highlight {
     gap: 0.75rem;
 }
 
+.market-regime-decision {
+    display: grid;
+    grid-template-columns: auto minmax(240px, 1fr) minmax(220px, .65fr);
+    gap: 1rem;
+    align-items: center;
+    margin-top: 1.1rem;
+    padding: 1.2rem;
+    border: 1px solid rgba(148, 163, 184, .2);
+    border-radius: 14px;
+    background: rgba(15, 23, 42, .48);
+}
+.market-regime-icon { font-size: 2.5rem; line-height: 1; }
+.market-regime-decision .label { color: var(--text-muted); font-size: .8rem; }
+.market-regime-decision strong { display: block; margin-top: .25rem; font-size: 1.55rem; }
+.market-regime-decision p { margin: .4rem 0 0; color: var(--text-muted); }
+.market-regime-action-box { padding: .85rem 1rem; border-radius: 10px; background: rgba(59, 130, 246, .1); }
+.market-regime-action-box strong { font-size: 1rem; }
+.market-regime-action-box small { display: block; margin-top: .35rem; color: var(--text-muted); }
+.market-regime-simple-grid { display: grid; grid-template-columns: repeat(4, minmax(140px, 1fr)); gap: .7rem; margin-top: .8rem; }
+.market-regime-simple-grid > div { padding: .85rem; border-radius: 10px; background: rgba(15, 23, 42, .32); }
+.market-regime-simple-grid span, .market-regime-simple-grid small { display: block; color: var(--text-muted); font-size: .78rem; }
+.market-regime-simple-grid strong { display: block; margin-top: .3rem; }
+.market-regime-simple-grid small { margin-top: .35rem; line-height: 1.4; }
+.market-regime-breadth-summary { margin-top: 1rem; }
+.market-regime-plain-sentence { margin: .35rem 0 1rem; font-size: 1.05rem; line-height: 1.6; }
+.market-regime-details { margin-top: 1rem; }
+.market-regime-details > summary { cursor: pointer; font-weight: 700; font-size: 1rem; }
+.market-regime-details[open] > summary { margin-bottom: 1rem; }
+.market-regime-meta-line { display: flex; flex-wrap: wrap; gap: .65rem 1.5rem; padding: .75rem; border-radius: 8px; background: rgba(15, 23, 42, .32); color: var(--text-muted); }
+.market-regime-meta-line strong { margin-left: .3rem; color: var(--text-color); }
+
 .market-regime-status-grid {
     display: grid;
     grid-template-columns: repeat(4, minmax(140px, 1fr));
@@ -508,6 +539,9 @@ h1 .highlight {
     .market-regime-status-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .market-regime-checklist { grid-template-columns: 1fr; }
     .market-regime-actions { justify-content: flex-start; }
+    .market-regime-decision { grid-template-columns: auto 1fr; align-items: start; }
+    .market-regime-action-box { grid-column: 1 / -1; }
+    .market-regime-simple-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 .dashboard-two-column {

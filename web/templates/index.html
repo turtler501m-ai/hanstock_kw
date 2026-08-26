@@ -478,59 +478,78 @@
                 <section class="card glass market-regime-hero" id="market-regime-summary" data-quality="unknown">
                     <div class="panel-header split-header">
                         <div>
-                            <p class="eyebrow">KR MARKET REGIME</p>
-                            <h2>시장 국면 일일 점검</h2>
-                            <p class="section-help">전 거래일 확정 일봉으로 계산된 국면과 데이터 품질을 확인합니다.</p>
+                            <p class="eyebrow">오늘의 시장 안내</p>
+                            <h2>국내 시장, 지금 어떤 상태인가요?</h2>
+                            <p class="section-help">복잡한 지표를 종합해 오늘의 투자 환경을 쉬운 말로 보여드립니다.</p>
                         </div>
                         <div class="market-regime-actions">
                             <span id="market-regime-refresh-status" class="time-muted" role="status" aria-live="polite">저장된 결과 조회</span>
-                            <button type="button" id="btn-refresh-market-regime" class="button-ghost">데이터 다시 수집</button>
+                            <button type="button" id="btn-refresh-market-regime" class="button-ghost">최신 데이터로 다시 계산</button>
                         </div>
                     </div>
                     <div id="market-regime-error" class="market-regime-error" role="alert" hidden></div>
-                    <div class="market-regime-status-grid">
-                        <div class="market-regime-primary"><span class="label">종합 국면</span><strong id="market-regime-value">-</strong></div>
-                        <div><span class="label">데이터 품질</span><strong id="market-regime-quality">-</strong></div>
-                        <div><span class="label">신뢰도</span><strong id="market-regime-confidence">-</strong></div>
-                        <div><span class="label">기준 거래일</span><strong id="market-regime-session-date">-</strong></div>
-                        <div><span class="label">계산 시각</span><strong id="market-regime-evaluated-at">-</strong></div>
-                        <div><span class="label">신규 매수</span><strong id="market-regime-risk-gate">-</strong></div>
-                        <div><span class="label">위험 배율</span><strong id="market-regime-risk-multiplier">-</strong></div>
-                        <div><span class="label">데이터 출처</span><strong id="market-regime-source">-</strong></div>
+                    <div class="market-regime-decision">
+                        <div class="market-regime-icon" id="market-regime-icon" aria-hidden="true">⏳</div>
+                        <div>
+                            <span class="label">현재 시장 상태</span>
+                            <strong id="market-regime-value">확인 중</strong>
+                            <p id="market-regime-summary-text">저장된 시장 데이터를 불러오고 있습니다.</p>
+                        </div>
+                        <div class="market-regime-action-box">
+                            <span class="label">오늘의 대응</span>
+                            <strong id="market-regime-action">판단 대기</strong>
+                            <small id="market-regime-action-note">데이터 확인 후 안내합니다.</small>
+                        </div>
+                    </div>
+                    <div class="market-regime-simple-grid">
+                        <div><span>새로 매수해도 되나요?</span><strong id="market-regime-risk-gate">-</strong></div>
+                        <div><span>평소 대비 투자 규모</span><strong id="market-regime-risk-multiplier">-</strong></div>
+                        <div><span>판단 신뢰도</span><strong id="market-regime-confidence">-</strong></div>
+                        <div><span>데이터 상태</span><strong id="market-regime-quality">-</strong><small id="market-regime-quality-note"></small></div>
                     </div>
                 </section>
 
-                <div class="dashboard-two-column market-regime-columns">
-                    <section class="card glass">
-                        <h2>지수 상세</h2>
+                <section class="card glass market-regime-breadth-summary">
+                    <h2>시장 전체 분위기</h2>
+                    <p id="market-regime-breadth-sentence" class="market-regime-plain-sentence">시장 참여 종목의 흐름을 확인 중입니다.</p>
+                    <div id="market-regime-breadth" class="market-regime-metric-list"></div>
+                </section>
+
+                <details class="card glass market-regime-details">
+                    <summary>상세 지표와 점검 결과 보기</summary>
+                    <p class="section-help">이 영역은 수치와 수집 상태를 자세히 확인할 때 사용하세요.</p>
+                    <div class="market-regime-meta-line">
+                        <span>기준일 <strong id="market-regime-session-date">-</strong></span>
+                        <span>계산 시각 <strong id="market-regime-evaluated-at">-</strong></span>
+                        <span>출처 <strong id="market-regime-source">-</strong></span>
+                    </div>
+                    <div class="dashboard-two-column market-regime-columns">
+                      <section>
+                        <h3>KOSPI·KOSDAQ 상세</h3>
                         <div class="table-responsive"><table id="table-market-regime-indices">
                             <thead><tr><th>항목</th><th>KOSPI</th><th>KOSDAQ</th></tr></thead>
                             <tbody><tr><td colspan="3" class="table-message">시장 국면 탭을 열면 조회합니다.</td></tr></tbody>
                         </table></div>
-                    </section>
-                    <section class="card glass">
-                        <h2>시장 폭</h2>
-                        <div id="market-regime-breadth" class="market-regime-metric-list"></div>
+                      </section>
+                      <section>
+                        <h3>수집 상태</h3>
                         <details><summary>수집 실패 종목</summary><ul id="market-regime-failures" class="market-regime-list"></ul></details>
-                    </section>
-                </div>
-
-                <div class="dashboard-two-column market-regime-columns">
-                    <section class="card glass"><h2>판정 근거</h2><ul id="market-regime-reasons" class="market-regime-list"></ul></section>
-                    <section class="card glass"><h2>경고</h2><ul id="market-regime-warnings" class="market-regime-list warning-list"></ul></section>
-                </div>
-
-                <section class="card glass">
-                    <h2>자동 점검 체크리스트</h2>
-                    <div id="market-regime-checklist" class="market-regime-checklist"></div>
-                </section>
-                <section class="card glass">
+                        <h3>자동 점검</h3><div id="market-regime-checklist" class="market-regime-checklist"></div>
+                      </section>
+                    </div>
+                    <div class="dashboard-two-column market-regime-columns">
+                        <section><h3>판정 근거</h3><ul id="market-regime-reasons" class="market-regime-list"></ul></section>
+                        <section><h3>주의할 점</h3><ul id="market-regime-warnings" class="market-regime-list warning-list"></ul></section>
+                    </div>
+                </details>
+                <details class="card glass market-regime-details">
+                    <summary>최근 30거래일 변화 보기</summary>
                     <div class="panel-header split-header"><div><h2>최근 30거래일</h2><p class="section-help">국면 변경과 데이터 품질 저하 이력을 확인합니다.</p></div></div>
                     <div class="table-responsive"><table id="table-market-regime-history">
                         <thead><tr><th>기준일</th><th>국면</th><th>품질</th><th>신뢰도</th><th>신규 위험</th><th>공급자</th></tr></thead>
                         <tbody><tr><td colspan="6" class="table-message">이력을 불러오는 중...</td></tr></tbody>
                     </table></div>
-                </section>
+                </details>
             </section>
 
             <section class="dashboard-section" id="dashboard-tab-schedule">

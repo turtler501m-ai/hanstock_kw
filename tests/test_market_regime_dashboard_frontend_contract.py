@@ -14,6 +14,10 @@ class MarketRegimeDashboardFrontendContractTests(unittest.TestCase):
             'data-dashboard-tab="market-regime"',
             'id="dashboard-tab-market-regime"',
             'id="market-regime-summary"',
+            'id="market-regime-summary-text"',
+            'id="market-regime-action"',
+            'id="market-regime-quality-note"',
+            'id="market-regime-breadth-sentence"',
             'id="table-market-regime-indices"',
             'id="market-regime-breadth"',
             'id="market-regime-reasons"',
@@ -31,6 +35,15 @@ class MarketRegimeDashboardFrontendContractTests(unittest.TestCase):
         self.assertIn("fetchJson('/api/market-regime/diagnostics'", APP_JS)
         self.assertIn("postJson('/api/market-regime/refresh'", APP_JS)
         self.assertIn("Promise.all([", APP_JS)
+        self.assertIn("MARKET_REGIME_GUIDE", APP_JS)
+        self.assertIn("MARKET_REASON_LABELS", APP_JS)
+
+    def test_easy_summary_keeps_detailed_evidence_available(self):
+        self.assertIn("국내 시장, 지금 어떤 상태인가요?", TEMPLATE)
+        self.assertIn("오늘의 대응", TEMPLATE)
+        self.assertIn("상세 지표와 점검 결과 보기", TEMPLATE)
+        self.assertIn("KOSPI·KOSDAQ 상세", TEMPLATE)
+        self.assertIn("평소 대비 변동성 (1.0=평소)", APP_JS)
 
     def test_refresh_is_explicit_and_reports_busy_and_error_states(self):
         self.assertIn('id="btn-refresh-market-regime"', TEMPLATE)
