@@ -3,6 +3,7 @@ from __future__ import annotations
 import functools
 import hashlib
 import json
+import math
 import sqlite3
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -10,6 +11,11 @@ from pathlib import Path
 from src.config import config
 from src.utils.logger import logger
 from src.db import repository as _root
+from src.market_regime.policy import (
+    CANONICAL_REGIMES,
+    LEGACY_REGIME_ALIASES,
+    REGIME_RISK_CAPS,
+)
 
 KST = timezone(timedelta(hours=9))
 
@@ -116,6 +122,68 @@ def strategy_profile_hash(profile: dict) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
+def validate_market_regime_profile(profile: dict) -> None:
+    filters = profile.get("market_regime_filter")
+    if not isinstance(filters, (list, tuple)) or not filters:
+        raise ValueError("market_regime_filter must select at least one regime")
+    known = CANONICAL_REGIMES | frozenset(LEGACY_REGIME_ALIASES)
+    unknown = sorted({str(item).strip().lower() for item in filters} - known)
+    if unknown:
+        raise ValueError(f"unknown market regime: {', '.join(unknown)}")
+    blocked_filters = sorted(
+        {str(item).strip().lower() for item in filters} & {"bear", "crash", "bearish"}
+    )
+    if blocked_filters:
+        raise ValueError(
+            "bear and crash cannot allow new investment; remove them from market_regime_filter"
+        )
+    caps = profile.get("market_regime_max_pct")
+    if not isinstance(caps, dict):
+        raise ValueError("market_regime_max_pct must be an object")
+    unknown_caps = sorted(set(caps) - CANONICAL_REGIMES)
+    if unknown_caps:
+        raise ValueError(f"unknown market regime cap: {', '.join(unknown_caps)}")
+    for regime, system_cap in REGIME_RISK_CAPS.items():
+        try:
+            value = float(caps.get(regime, system_cap * 100.0))
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"{regime} max percent must be numeric") from exc
+        maximum = system_cap * 100.0
+        if not math.isfinite(value) or value < 0 or value > maximum:
+            raise ValueError(f"{regime} max percent must be between 0 and {maximum:g}")
+
+
+def _validate_market_regime_profile_input(profile: object) -> None:
+    if not isinstance(profile, dict):
+        return
+    if "market_regime_filter" in profile:
+        filters = profile["market_regime_filter"]
+        if not isinstance(filters, (list, tuple)) or not filters:
+            raise ValueError("market_regime_filter must select at least one regime")
+        known = CANONICAL_REGIMES | frozenset(LEGACY_REGIME_ALIASES)
+        selected = {str(item).strip().lower() for item in filters}
+        unknown = sorted(selected - known)
+        if unknown:
+            raise ValueError(f"unknown market regime: {', '.join(unknown)}")
+        if selected & {"bear", "crash", "bearish"}:
+            raise ValueError("bear and crash cannot allow new investment")
+    if "market_regime_max_pct" in profile:
+        caps = profile["market_regime_max_pct"]
+        if not isinstance(caps, dict):
+            raise ValueError("market_regime_max_pct must be an object")
+        unknown_caps = sorted(set(caps) - CANONICAL_REGIMES)
+        if unknown_caps:
+            raise ValueError(f"unknown market regime cap: {', '.join(unknown_caps)}")
+        for regime, raw_value in caps.items():
+            try:
+                value = float(raw_value)
+            except (TypeError, ValueError) as exc:
+                raise ValueError(f"{regime} max percent must be numeric") from exc
+            maximum = REGIME_RISK_CAPS[regime] * 100.0
+            if not math.isfinite(value) or value < 0 or value > maximum:
+                raise ValueError(f"{regime} max percent must be between 0 and {maximum:g}")
+
+
 def normalize_ai_strategy(strategy: dict) -> dict:
     item = dict(strategy)
     item["id"] = str(item.get("id") or "").strip()
@@ -201,7 +269,9 @@ def _insert_ai_strategy(conn, strategy: dict) -> None:
 
 
 def create_ai_strategy_record(strategy: dict) -> dict:
+    _validate_market_regime_profile_input(strategy.get("profile"))
     item = normalize_ai_strategy({**strategy, "status": "approved"})
+    validate_market_regime_profile(item["profile"])
     init_db()
     with connect_db() as conn:
         conn.row_factory = sqlite3.Row
@@ -241,6 +311,8 @@ def create_ai_strategy_record(strategy: dict) -> dict:
 
 
 def update_ai_strategy_record(strategy_id: str, changes: dict) -> dict:
+    if "profile" in changes:
+        _validate_market_regime_profile_input(changes.get("profile"))
     init_db()
     with connect_db() as conn:
         conn.row_factory = sqlite3.Row
@@ -261,6 +333,7 @@ def update_ai_strategy_record(strategy_id: str, changes: dict) -> dict:
         updated["status"] = "approved"
         updated["last_validation_result"] = None
         updated = normalize_ai_strategy(updated)
+        validate_market_regime_profile(updated["profile"])
         duplicate = conn.execute(
             "SELECT 1 FROM ai_strategies WHERE lower(name)=lower(?) AND id<>?",
             (updated["name"], str(strategy_id)),

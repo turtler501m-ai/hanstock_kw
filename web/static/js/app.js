@@ -2110,8 +2110,8 @@ function ensureStrategyRegimeEditor(form) {
     container.innerHTML = MARKET_REGIME_EDITOR_OPTIONS.map(([key, label, defaultPct]) => `
         <div class="strategy-regime-option">
             <label class="check-field">
-                <input type="checkbox" name="regime_enabled_${key}" value="${key}">
-                <span><strong>${label}</strong><small>${key}</small></span>
+                <input type="checkbox" name="regime_enabled_${key}" value="${key}" ${defaultPct === 0 ? 'disabled' : ''}>
+                <span><strong>${label}</strong><small>${key}${defaultPct === 0 ? ' · 신규매수 차단' : ''}</small></span>
             </label>
             <label class="strategy-regime-percent">
                 <span>최대</span>
@@ -2162,7 +2162,7 @@ function fillStrategyDetail(strategy) {
     const allowedRegimes = new Set(configuredRegimes.flatMap((key) => legacyRegimeAliases[key] || [key]));
     const regimeCaps = strategyProfileValue(strategy, 'market_regime_max_pct', {}) || {};
     MARKET_REGIME_EDITOR_OPTIONS.forEach(([key, _label, defaultPct]) => {
-        form.elements.namedItem(`regime_enabled_${key}`).checked = allowedRegimes.has(key);
+        form.elements.namedItem(`regime_enabled_${key}`).checked = defaultPct > 0 && allowedRegimes.has(key);
         setValue(`regime_max_${key}`, regimeCaps[key] ?? defaultPct);
     });
     setValue('profile_json', JSON.stringify(profile, null, 2));
@@ -3569,6 +3569,24 @@ const MARKET_REASON_LABELS = {
     breadth_coverage_degraded: '시장 표본 일부가 누락되어 보수적으로 판단',
     required_market_data_available: '필수 지수와 시장 표본 데이터가 모두 준비됨',
 };
+
+const MARKET_POLICY_REASON_LABELS = {
+    market_regime_allowed: '전략에서 허용한 국면입니다.',
+    market_regime_not_allowed: '이 전략에서 허용하지 않은 국면입니다.',
+    market_regime_missing: '저장된 시장 국면 자료가 없습니다.',
+    market_regime_insufficient: '시장 자료가 부족하여 신규매수를 차단했습니다.',
+    market_regime_invalid: '시장 국면 자료 형식이 올바르지 않습니다.',
+    market_regime_time_invalid: '시장 국면 계산 시각을 확인할 수 없습니다.',
+    market_regime_stale: '시장 국면 자료가 오래되어 신규매수를 차단했습니다.',
+    market_regime_zero_risk: '이 국면의 신규투자 한도가 0%입니다.',
+    market_regime_cap_invalid: '전략의 국면별 최대 비율 설정이 올바르지 않습니다.',
+    allowed_market_regime: '이 전략에서 허용하지 않은 국면입니다.',
+};
+
+function marketPolicyReasonLabel(value) {
+    const key = String(value || '');
+    return MARKET_POLICY_REASON_LABELS[key] || key.replace(/^market_regime:/, '') || '';
+}
 
 function marketRegimeLabel(value) {
     const key = String(value || 'unknown').toLowerCase();
@@ -6094,7 +6112,9 @@ async function renderScheduleInfo() {
                     scannedCount: Number(run.scanned_count || 0),
                     candidateCount: Number(run.candidate_count || 0),
                     conditionCounts: run.condition_counts || {},
-                    analysisRows: Array.isArray(run.analysis_rows) ? run.analysis_rows : []
+                    analysisRows: Array.isArray(run.analysis_rows) ? run.analysis_rows : [],
+                    marketRegimePolicy: run.market_regime_policy || {},
+                    blocked: Array.isArray(run.blocked) ? run.blocked : []
                 });
             });
             results.forEach(r => {
@@ -6159,9 +6179,19 @@ async function renderScheduleInfo() {
                         const approvedCount = roundData.approved.length + roundData.approvalErrors.length;
                         const successCount = roundData.approved.filter(a => a.status === 'executed').length;
                         const failedCount = roundData.approved.filter(a => a.status === 'failed').length + roundData.approvalErrors.length;
-                        const hasFailure = failedCount > 0;
+                        const hasFailure = failedCount > 0 || roundData.status === 'failed';
+                        const isBlocked = roundData.status === 'blocked';
                         const timeVal = roundData.time || '-';
                         const modeKor = roundData.mode === 'daily_auto' ? 'AI 자동매매' : (roundData.mode === 'execute' ? '주문 실행' : '분석 전용');
+                        const regimePolicy = roundData.marketRegimePolicy || {};
+                        const regimeAllowed = regimePolicy.allowed !== false;
+                        const sourceMultiplier = marketRegimePercent(regimePolicy.source_multiplier, 0);
+                        const configuredMaximum = marketRegimePercent(regimePolicy.configured_max_pct, 0);
+                        const regimeSummary = regimePolicy.regime
+                            ? `${marketRegimeLabel(regimePolicy.regime)} · 수집 ${sourceMultiplier} · 전략 상한 ${configuredMaximum} · 최종 ${marketRegimePercent(Number(regimePolicy.multiplier || 0), 0)} · ${regimeAllowed ? '신규매수 허용' : '신규매수 차단'}`
+                            : '실행 당시 시장 국면 기록 없음';
+                        const regimeReason = marketPolicyReasonLabel(regimePolicy.reason)
+                            || roundData.blocked.map(marketPolicyReasonLabel).join(', ');
                         
                         // Create card element
                         const card = document.createElement('div');
@@ -6189,8 +6219,8 @@ async function renderScheduleInfo() {
                                         성공 <strong style="color: var(--success);">${successCount}</strong>건 |
                                         실패 <strong style="color: var(--danger);">${failedCount}</strong>건
                                     </span>
-                                    <span class="badge" style="background: ${hasFailure ? 'rgba(var(--danger-rgb, 220, 53, 69), 0.1)' : 'rgba(var(--success-rgb, 40, 167, 69), 0.1)'}; color: ${hasFailure ? 'var(--danger)' : 'var(--success)'}; border: 1px solid ${hasFailure ? 'rgba(var(--danger-rgb), 0.2)' : 'rgba(var(--success-rgb), 0.2)'}; font-size: 0.8rem; padding: 0.2rem 0.5rem; border-radius: 4px;">
-                                        ${hasFailure ? '오류 발생' : '정상 완료'}
+                                    <span class="badge" style="background: ${hasFailure ? 'rgba(var(--danger-rgb, 220, 53, 69), 0.1)' : (isBlocked ? 'rgba(245, 158, 11, 0.12)' : 'rgba(var(--success-rgb, 40, 167, 69), 0.1)')}; color: ${hasFailure ? 'var(--danger)' : (isBlocked ? '#f59e0b' : 'var(--success)')}; border: 1px solid ${hasFailure ? 'rgba(var(--danger-rgb), 0.2)' : (isBlocked ? 'rgba(245, 158, 11, 0.3)' : 'rgba(var(--success-rgb), 0.2)')}; font-size: 0.8rem; padding: 0.2rem 0.5rem; border-radius: 4px;">
+                                        ${hasFailure ? '오류 발생' : (isBlocked ? '신규매수 차단' : '정상 완료')}
                                     </span>
                                     <i class="fas fa-chevron-down toggle-icon" id="toggle-icon-${round}" style="transition: transform 0.2s; color: var(--text-muted); transform: ${isExpanded ? 'rotate(180deg)' : 'rotate(0deg)'};"></i>
                                 </div>
@@ -6198,6 +6228,11 @@ async function renderScheduleInfo() {
                             
                             <!-- Card Body -->
                             <div class="round-body" id="round-body-${round}" style="display: ${isExpanded ? 'block' : 'none'}; padding: 1.25rem; border-top: 1px solid var(--border); background: rgba(0, 0, 0, 0.05);">
+                                <div class="scheduler-regime-policy ${regimeAllowed ? 'is-allowed' : 'is-blocked'}">
+                                    <strong>실행 적용 시장 국면</strong>
+                                    <span>${escapeHtml(regimeSummary)}</span>
+                                    ${regimeReason ? `<small>${escapeHtml(regimeReason)}</small>` : ''}
+                                </div>
                                 <div class="scheduler-analysis-summary" style="margin-bottom:1.5rem;"></div>
                                 <div class="scheduler-analysis-details" style="margin-bottom:1.5rem;"></div>
                                 <h4 style="margin-bottom: 0.75rem; font-size: 0.95rem; font-weight: 500; display: flex; align-items: center; gap: 0.5rem; color: var(--text);">

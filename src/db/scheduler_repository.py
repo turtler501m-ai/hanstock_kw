@@ -157,6 +157,15 @@ def load_recent_scheduler_results(days: int = 30) -> dict | None:
                     else None
                 )
                 scan_rows = candidate_scan.get("scan_summary") or [] if isinstance(candidate_scan, dict) else []
+                regime_policy = res_data.get("market_regime_policy") or {}
+                if not regime_policy and isinstance(res_data.get("by_market"), dict):
+                    for market_result in res_data["by_market"].values():
+                        if not isinstance(market_result, dict):
+                            continue
+                        autonomy = market_result.get("autonomy")
+                        if isinstance(autonomy, dict) and autonomy.get("market_regime_policy"):
+                            regime_policy = autonomy["market_regime_policy"]
+                            break
                 analysis_rows = []
                 condition_counts = {
                     "history_ready": 0,
@@ -220,8 +229,10 @@ def load_recent_scheduler_results(days: int = 30) -> dict | None:
                     "plan_count": len(res_data.get("results") or res_data.get("plan") or []),
                     "approved_count": len(res_data.get("auto_approved") or []),
                     "error_count": len(res_data.get("auto_approval_errors") or []) + len(run_errors),
-                    "status": "failed" if run_errors else "completed",
+                    "status": "failed" if run_errors else str(res_data.get("status") or "completed"),
                     "message": scan_error or (str(run_errors[0]) if run_errors else ""),
+                    "market_regime_policy": regime_policy,
+                    "blocked": res_data.get("blocked") or [],
                     "universe_count": int(candidate_scan.get("universe_size") or candidate_scan.get("scanned") or len(analysis_rows)) if isinstance(candidate_scan, dict) else 0,
                     "scanned_count": int(candidate_scan.get("scanned") or len(analysis_rows)) if isinstance(candidate_scan, dict) else 0,
                     "candidate_count": len(candidate_scan.get("candidates") or []) if isinstance(candidate_scan, dict) else 0,

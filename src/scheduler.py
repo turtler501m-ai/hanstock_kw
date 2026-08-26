@@ -17,7 +17,7 @@ if str(ROOT) not in sys.path:
 from src import trader
 from src.notifier.slack import send_slack
 from src.utils.market_calendar import is_market_session
-from src.market_regime.policy import evaluate_new_risk
+from src.market_regime.policy import REGIME_RISK_CAPS, evaluate_new_risk
 from src.market_regime.repository import MarketRegimeRepository
 
 
@@ -65,11 +65,24 @@ def _scheduled_market_regime_policy(strategy_id: str | None) -> dict:
             max_pct_by_regime = profile.get("market_regime_max_pct")
     except SchedulerOperationError:
         pass
+    snapshot = None
     try:
         snapshot = MarketRegimeRepository().current()
     except SchedulerOperationError:
         snapshot = None
-    return evaluate_new_risk(snapshot, allowed, max_pct_by_regime).to_dict()
+    policy = evaluate_new_risk(snapshot, allowed, max_pct_by_regime).to_dict()
+    regime = str(policy.get("regime") or "")
+    configured_pct = (
+        max_pct_by_regime.get(regime)
+        if isinstance(max_pct_by_regime, dict)
+        else None
+    )
+    policy.update({
+        "source_multiplier": (snapshot or {}).get("risk_multiplier"),
+        "configured_max_pct": configured_pct,
+        "system_max_pct": REGIME_RISK_CAPS.get(regime, 0.0) * 100.0,
+    })
+    return policy
 
 
 def _error_record(exc: Exception, *, attempt: int | None = None, approval_id: int | None = None) -> dict:

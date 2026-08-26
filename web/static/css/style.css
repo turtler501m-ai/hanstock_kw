@@ -2790,6 +2790,28 @@ tbody tr:hover {
     transform: none !important;
 }
 
+.scheduler-regime-policy {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 4px 12px;
+    align-items: center;
+    margin-bottom: 1rem;
+    padding: 12px 14px;
+    border: 1px solid rgba(34, 197, 94, 0.3);
+    border-radius: 8px;
+    background: rgba(34, 197, 94, 0.08);
+}
+
+.scheduler-regime-policy.is-blocked {
+    border-color: rgba(239, 68, 68, 0.35);
+    background: rgba(239, 68, 68, 0.08);
+}
+
+.scheduler-regime-policy small {
+    grid-column: 2;
+    color: var(--text-muted);
+}
+
 .schedule-card-heading {
     display: flex;
     align-items: flex-start;

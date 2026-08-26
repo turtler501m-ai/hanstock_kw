@@ -100,6 +100,15 @@ def _compact_scheduler_status_result(last_result: dict | None, item_limit: int =
                     if isinstance(run_result.get("autonomy"), dict)
                     else None
                 ),
+                "market_regime_policy": _json_safe(
+                    (
+                        (run_result.get("autonomy") or {}).get("market_regime_policy")
+                        if isinstance(run_result.get("autonomy"), dict)
+                        else None
+                    )
+                    or run_result.get("market_regime_policy")
+                    or {}
+                ),
             })
         errors = result.get("errors") if isinstance(result.get("errors"), list) else []
         compact = {key: value for key, value in last_result.items() if key != "result"}
@@ -165,6 +174,8 @@ def _compact_scheduler_status_result(last_result: dict | None, item_limit: int =
         "errors": [_trim_text(item) for item in _tail_items(run_errors, 50)],
         "status": result.get("status"),
         "ok": result.get("ok"),
+        "market_regime_policy": _json_safe(result.get("market_regime_policy") or {}),
+        "blocked": [_trim_text(item) for item in (result.get("blocked") or [])],
         "execution_runs": _json_safe(_tail_items(result.get("execution_runs") or [], 200)),
         "summary_counts": {
             "plan_count": len(plan_items),

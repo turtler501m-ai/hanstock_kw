@@ -52,7 +52,15 @@ class SchedulerPeriodViewTests(unittest.TestCase):
                     save_scheduler_result(
                         "execute",
                         recorded_at,
-                        {"results": [{"symbol": symbol}], "auto_approved": []},
+                        {
+                            "results": [{"symbol": symbol}],
+                            "auto_approved": [],
+                            "market_regime_policy": {
+                                "regime": "sideways_low_vol",
+                                "allowed": True,
+                                "multiplier": 0.5,
+                            },
+                        },
                     )
 
                 daily = get_scheduler_status(period="daily", compact=False)
@@ -64,6 +72,10 @@ class SchedulerPeriodViewTests(unittest.TestCase):
                 self.assertEqual(len(daily["last_result"]["result"]["execution_runs"]), 1)
                 self.assertEqual(len(weekly["last_result"]["result"]["execution_runs"]), 2)
                 self.assertEqual(len(monthly["last_result"]["result"]["execution_runs"]), 3)
+                self.assertEqual(
+                    daily["last_result"]["result"]["execution_runs"][0]["market_regime_policy"]["multiplier"],
+                    0.5,
+                )
         finally:
             config.trade_db_path = original_db_path
 

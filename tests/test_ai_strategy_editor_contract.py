@@ -23,6 +23,8 @@ class AiStrategyEditorContractTests(unittest.TestCase):
         self.assertIn("profile.risk[key]", script)
         self.assertIn("MARKET_REGIME_EDITOR_OPTIONS", script)
         self.assertIn("profile.market_regime_max_pct", script)
+        self.assertIn("신규매수 차단", script)
+        self.assertIn("scheduler-regime-policy", script)
         self.assertIn("method: 'PATCH'", script)
 
     def test_strategy_selection_supports_category_manual_schedule_apply_and_delete(self):

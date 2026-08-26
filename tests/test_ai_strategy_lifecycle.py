@@ -137,6 +137,25 @@ class AiStrategyLifecycleTests(unittest.TestCase):
         self.assertEqual(updated["status"], "approved")
         self.assertIsNone(updated["last_validation_result"])
 
+    def test_invalid_market_regime_profile_is_rejected_before_save(self):
+        strategy = self._create("Regime Validation")
+        profile = dict(strategy["profile"])
+        profile["market_regime_filter"] = ["bull", "crash"]
+        with self.assertRaisesRegex(ValueError, "bear and crash"):
+            repository.update_ai_strategy_record(
+                strategy["id"], {"profile": profile}
+            )
+
+        profile["market_regime_filter"] = ["sideways_high_vol"]
+        profile["market_regime_max_pct"] = {
+            **profile["market_regime_max_pct"],
+            "sideways_high_vol": 45,
+        }
+        with self.assertRaisesRegex(ValueError, "between 0 and 40"):
+            repository.update_ai_strategy_record(
+                strategy["id"], {"profile": profile}
+            )
+
     def test_delete_preserves_other_strategy_and_removes_target(self):
         first = self._create("Delete Me")
         second = self._create("Keep Me", selected=True)
