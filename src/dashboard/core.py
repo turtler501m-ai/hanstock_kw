@@ -2814,11 +2814,17 @@ def _run_scheduled_cycles_for_strategies(
     for strategy_id in requested_strategy_ids:
         if strategy_id in ISOLATED_STRATEGY_IDS:
             try:
+                isolated_categories = {"candidate"}
+                if (
+                    strategy_id == "heikin_ashi_scalping_strategy"
+                    and mode != "analysis_only"
+                ):
+                    isolated_categories.add("position")
                 cycle_kwargs = {
                     "include_ai_rebalance": False,
                     "auto_approve": auto_approve,
                     "force_strategy_id": strategy_id,
-                    "allowed_categories": {"candidate"},
+                    "allowed_categories": isolated_categories,
                 }
                 result = run_scheduled_cycle(mode, **cycle_kwargs)
                 if mode == "analysis_only":

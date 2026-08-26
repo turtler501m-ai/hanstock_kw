@@ -69,6 +69,28 @@ class SchedulerModeTests(unittest.TestCase):
         )
         mark_mock.assert_called_once_with("plunge_bounce_strategy")
 
+    def test_strategy_dispatch_allows_heikin_ashi_position_exits(self):
+        schedule = {
+            "strategy_id": "heikin_ashi_scalping_strategy",
+            "mode": "execute",
+            "auto_approve": True,
+        }
+
+        with patch.object(strategy_scheduler, "list_strategy_schedules", return_value=[schedule]), \
+                patch.object(strategy_scheduler, "is_schedule_due", return_value=True), \
+                patch.object(strategy_scheduler, "run_scheduled_cycle") as cycle_mock, \
+                patch.object(strategy_scheduler, "mark_strategy_schedule_run"):
+            ran = strategy_scheduler.dispatch_due_schedules()
+
+        self.assertEqual(ran, ["heikin_ashi_scalping_strategy"])
+        cycle_mock.assert_called_once_with(
+            "execute",
+            auto_approve=True,
+            force_strategy_id="heikin_ashi_scalping_strategy",
+            allowed_categories={"position", "candidate"},
+            persist_result=False,
+        )
+
     def test_strategy_dispatch_runs_narrative_momentum_cycle(self):
         schedule = {
             "strategy_id": "narrative_momentum_strategy",

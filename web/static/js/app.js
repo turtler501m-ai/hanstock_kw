@@ -126,6 +126,7 @@ const schedulerSkipReasonLabel = (row = {}) => {
 };
 
 const schedulerDecisionLabel = (decision, row = {}) => {
+    if (decision === 'skip' && row.action === 'hold' && !row.skip_reason) return '보유 유지';
     if (decision === 'skip') return `보류: ${schedulerSkipReasonLabel(row)}`;
     return toKorDecision(decision);
 };
@@ -140,6 +141,9 @@ const schedulerReasonText = (row = {}) => {
     }
     if ((row.decision || (row.approval_id ? 'approved' : 'skip')) !== 'skip') {
         return translateReason(cleanReason);
+    }
+    if (row.action === 'hold' && !row.skip_reason) {
+        return `[전략 판단: 보유 유지] ${translateReason(cleanReason)}`;
     }
     return `[보류 원인: ${schedulerSkipReasonLabel(row)}] ${translateReason(cleanReason)}`;
 };
