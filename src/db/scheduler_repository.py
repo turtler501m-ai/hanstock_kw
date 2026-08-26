@@ -220,6 +220,21 @@ def load_recent_scheduler_results(days: int = 30) -> dict | None:
                         "volume_ratio": risk.get("volume_ratio"),
                         "checks": checks,
                     })
+                run_status = normalize_scheduler_status(res_data)
+                blocked_reasons = res_data.get("blocked") or []
+                if not isinstance(blocked_reasons, list):
+                    blocked_reasons = [blocked_reasons] if blocked_reasons else []
+                skipped_reason = (
+                    res_data.get("skip_reason") or res_data.get("message")
+                    if run_status == "skipped"
+                    else None
+                )
+                status_message = (
+                    str(run_errors[0]) if run_errors
+                    else str(blocked_reasons[0]) if blocked_reasons
+                    else str(scan_error) if scan_error
+                    else str(skipped_reason or "")
+                )
                 merged_runs.append({
                     "round": round_num,
                     "recorded_at": recorded_at_str,
@@ -229,10 +244,10 @@ def load_recent_scheduler_results(days: int = 30) -> dict | None:
                     "plan_count": len(res_data.get("results") or res_data.get("plan") or []),
                     "approved_count": len(res_data.get("auto_approved") or []),
                     "error_count": len(res_data.get("auto_approval_errors") or []) + len(run_errors),
-                    "status": "failed" if run_errors else str(res_data.get("status") or "completed"),
-                    "message": scan_error or (str(run_errors[0]) if run_errors else ""),
+                    "status": run_status,
+                    "message": status_message,
                     "market_regime_policy": regime_policy,
-                    "blocked": res_data.get("blocked") or [],
+                    "blocked": blocked_reasons,
                     "universe_count": int(candidate_scan.get("universe_size") or candidate_scan.get("scanned") or len(analysis_rows)) if isinstance(candidate_scan, dict) else 0,
                     "scanned_count": int(candidate_scan.get("scanned") or len(analysis_rows)) if isinstance(candidate_scan, dict) else 0,
                     "candidate_count": len(candidate_scan.get("candidates") or []) if isinstance(candidate_scan, dict) else 0,
@@ -290,6 +305,19 @@ def load_recent_scheduler_results(days: int = 30) -> dict | None:
                 elif errors:
                     merged_run_errors.append(f"[{display_time}] {errors}")
                     
+            run_status_counts = {
+                status: sum(1 for run in merged_runs if run.get("status") == status)
+                for status in SCHEDULER_STATUSES
+            }
+            # This field drives the dashboard's "latest status" badge. Period
+            # totals are exposed separately so an older failure does not make
+            # a newer successful run look failed.
+            aggregate_status = (
+                str(merged_runs[-1].get("status") or "success")
+                if merged_runs
+                else "failed" if merged_run_errors or merged_approval_errors
+                else "success"
+            )
             return {
                 "mode": latest_mode,
                 "recorded_at": latest_recorded_at,
@@ -301,8 +329,10 @@ def load_recent_scheduler_results(days: int = 30) -> dict | None:
                     "auto_approval_errors": merged_approval_errors,
                     "errors": merged_run_errors,
                     "execution_runs": merged_runs,
-                    "status": "success" if not merged_approval_errors and not merged_run_errors else "failed",
-                    "ok": True
+                    "status": aggregate_status,
+                    "execution_status": aggregate_status,
+                    "run_status_counts": run_status_counts,
+                    "ok": aggregate_status not in {"failed", "partial"},
                 }
             }
     except (sqlite3.Error, OSError, ValueError, TypeError) as e:

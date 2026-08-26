@@ -207,6 +207,32 @@ class SchedulerApiTests(unittest.TestCase):
         self.assertEqual(status["last_result"]["range_days"], 30)
         self.assertIn("run_date", rows[0])
 
+    def test_scheduler_status_preserves_blocked_run_and_latest_success(self):
+        from datetime import datetime
+        from src.db.scheduler_repository import KST
+        from src.db.repository import save_scheduler_result
+
+        day = datetime.now(KST).strftime("%Y-%m-%d")
+        save_scheduler_result(
+            "execute",
+            f"{day}T09:00:00+09:00",
+            {"status": "blocked", "ok": True, "blocked": ["market regime not allowed"]},
+        )
+        save_scheduler_result(
+            "execute",
+            f"{day}T09:20:00+09:00",
+            {"status": "completed", "ok": True, "results": []},
+        )
+
+        result = get_scheduler_status(period="daily")["last_result"]["result"]
+        runs = result["execution_runs"]
+
+        self.assertEqual([run["status"] for run in runs], ["blocked", "success"])
+        self.assertEqual(runs[0]["message"], "market regime not allowed")
+        self.assertEqual(result["execution_status"], "success")
+        self.assertEqual(result["summary_counts"]["run_success_count"], 1)
+        self.assertEqual(result["summary_counts"]["run_blocked_count"], 1)
+
     def test_scheduler_status_keeps_candidate_rejection_checks_for_zero_candidate_run(self):
         from datetime import datetime
         from src.db.scheduler_repository import KST

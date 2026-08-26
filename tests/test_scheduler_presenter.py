@@ -65,6 +65,27 @@ class SchedulerPresenterTests(unittest.TestCase):
         self.assertEqual(compact["result"]["market_regime_policy"]["regime"], "bear")
         self.assertEqual(len(compact["result"]["blocked"]), 1)
 
+    def test_compaction_counts_scheduler_run_outcomes_separately_from_orders(self):
+        payload = {"result": {
+            "status": "blocked",
+            "execution_status": "blocked",
+            "results": [{"decision": "skip"}],
+            "execution_runs": [
+                {"status": "success"},
+                {"status": "blocked", "message": "market regime not allowed"},
+                {"status": "failed", "message": "quote unavailable"},
+            ],
+        }}
+
+        compact = _compact_scheduler_status_result(payload)
+        counts = compact["result"]["summary_counts"]
+
+        self.assertEqual(compact["result"]["execution_status"], "blocked")
+        self.assertEqual(counts["run_count"], 3)
+        self.assertEqual(counts["run_success_count"], 1)
+        self.assertEqual(counts["run_blocked_count"], 1)
+        self.assertEqual(counts["run_failed_count"], 1)
+
 
 if __name__ == "__main__":
     unittest.main()

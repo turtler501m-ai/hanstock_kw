@@ -145,6 +145,13 @@ def _compact_scheduler_status_result(last_result: dict | None, item_limit: int =
     queued_created = sum(1 for item in plan_items if isinstance(item, dict) and item.get("decision") == "queue")
     approved_executed = sum(1 for item in approved_items if isinstance(item, dict) and item.get("status") == "executed")
     approved_failed = sum(1 for item in approved_items if isinstance(item, dict) and item.get("status") == "failed")
+    execution_runs = result.get("execution_runs") if isinstance(result.get("execution_runs"), list) else []
+    run_status_counts = result.get("run_status_counts") if isinstance(result.get("run_status_counts"), dict) else {}
+    if not run_status_counts:
+        run_status_counts = {
+            status: sum(1 for run in execution_runs if isinstance(run, dict) and run.get("status") == status)
+            for status in ("success", "partial", "blocked", "failed", "skipped")
+        }
 
     plan_keys = {
         "symbol", "name", "category", "decision", "approval_id", "action",
@@ -173,16 +180,24 @@ def _compact_scheduler_status_result(last_result: dict | None, item_limit: int =
         ],
         "errors": [_trim_text(item) for item in _tail_items(run_errors, 50)],
         "status": result.get("status"),
+        "execution_status": result.get("execution_status") or result.get("status"),
         "ok": result.get("ok"),
         "market_regime_policy": _json_safe(result.get("market_regime_policy") or {}),
         "blocked": [_trim_text(item) for item in (result.get("blocked") or [])],
-        "execution_runs": _json_safe(_tail_items(result.get("execution_runs") or [], 200)),
+        "execution_runs": _json_safe(_tail_items(execution_runs, 200)),
+        "run_status_counts": _json_safe(run_status_counts),
         "summary_counts": {
             "plan_count": len(plan_items),
             "queue_count": max(0, queued_created - len(approved_items) - len(approval_errors)),
             "approved_count": len(approved_items) + len(approval_errors),
             "success_count": approved_executed,
             "failed_count": approved_failed + len(approval_errors) + len(run_errors),
+            "run_count": len(execution_runs),
+            "run_success_count": int(run_status_counts.get("success") or 0),
+            "run_partial_count": int(run_status_counts.get("partial") or 0),
+            "run_blocked_count": int(run_status_counts.get("blocked") or 0),
+            "run_failed_count": int(run_status_counts.get("failed") or 0),
+            "run_skipped_count": int(run_status_counts.get("skipped") or 0),
             "shown_plan_count": min(len(plan_items), item_limit),
             "shown_approved_count": min(len(approved_items), item_limit),
             "shown_approval_error_count": min(len(approval_errors), 50),

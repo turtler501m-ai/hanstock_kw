@@ -6070,6 +6070,20 @@ async function renderScheduleInfo() {
             const totalApprovedCount = summaryCounts.approved_count ?? approved.length + approvalErrors.length;
             const totalSuccessCount = summaryCounts.success_count ?? approved.filter(a => a.status === 'executed').length;
             const totalFailedCount = summaryCounts.failed_count ?? approved.filter(a => a.status === 'failed').length + approvalErrors.length + runErrors.length;
+            const runSuccessCount = Number(summaryCounts.run_success_count ?? schedulerRuns.filter(run => run.status === 'success').length);
+            const runPartialCount = Number(summaryCounts.run_partial_count ?? schedulerRuns.filter(run => run.status === 'partial').length);
+            const runFailedCount = Number(summaryCounts.run_failed_count ?? schedulerRuns.filter(run => run.status === 'failed').length);
+            const runBlockedCount = Number(summaryCounts.run_blocked_count ?? schedulerRuns.filter(run => run.status === 'blocked').length);
+            const runSkippedCount = Number(summaryCounts.run_skipped_count ?? schedulerRuns.filter(run => run.status === 'skipped').length);
+
+            const runSuccessEl = document.getElementById('sched-run-success-cnt');
+            if (runSuccessEl) runSuccessEl.textContent = `${runSuccessCount}건`;
+            const runFailedEl = document.getElementById('sched-run-failed-cnt');
+            if (runFailedEl) runFailedEl.textContent = `${runFailedCount + runPartialCount}건`;
+            const runBlockedEl = document.getElementById('sched-run-blocked-cnt');
+            if (runBlockedEl) runBlockedEl.textContent = `${runBlockedCount}건`;
+            const runSkippedEl = document.getElementById('sched-run-skipped-cnt');
+            if (runSkippedEl) runSkippedEl.textContent = `${runSkippedCount}건`;
             
             const planCntEl = document.getElementById('sched-result-plan-cnt');
             if (planCntEl) planCntEl.textContent = `${totalPlanCount}건`;
@@ -6087,12 +6101,15 @@ async function renderScheduleInfo() {
             if (failedCntEl) failedCntEl.textContent = `${totalFailedCount}건`;
             
             // Update Daily Status Badge at the top
-            const totalFailed = totalFailedCount > 0;
+            const aggregateStatus = String(lastResult.result.execution_status || lastResult.result.status || 'success');
             const statusEl = document.getElementById('sched-result-status');
             if (statusEl) {
-                statusEl.textContent = totalFailed ? '오류 발생' : '정상 완료';
-                statusEl.className = totalFailed ? 'badge badge-danger' : 'badge badge-success';
-                statusEl.style.color = totalFailed ? 'var(--danger)' : 'var(--success)';
+                const statusLabels = { success: '정상 완료', partial: '일부 실패', failed: '실패', blocked: '실행 차단', skipped: '건너뜀' };
+                const isFailure = aggregateStatus === 'failed' || aggregateStatus === 'partial';
+                const isWarning = aggregateStatus === 'blocked' || aggregateStatus === 'skipped';
+                statusEl.textContent = statusLabels[aggregateStatus] || aggregateStatus;
+                statusEl.className = isFailure ? 'badge badge-danger' : (isWarning ? 'badge badge-warning' : 'badge badge-success');
+                statusEl.style.color = isFailure ? 'var(--danger)' : (isWarning ? '#f59e0b' : 'var(--success)');
             }
             
             // Build groups dynamically by round
@@ -6179,8 +6196,10 @@ async function renderScheduleInfo() {
                         const approvedCount = roundData.approved.length + roundData.approvalErrors.length;
                         const successCount = roundData.approved.filter(a => a.status === 'executed').length;
                         const failedCount = roundData.approved.filter(a => a.status === 'failed').length + roundData.approvalErrors.length;
-                        const hasFailure = failedCount > 0 || roundData.status === 'failed';
+                        const hasFailure = failedCount > 0 || roundData.status === 'failed' || roundData.status === 'partial';
                         const isBlocked = roundData.status === 'blocked';
+                        const runStatusLabels = { success: '성공', partial: '일부 실패', failed: '실패', blocked: '차단', skipped: '건너뜀' };
+                        const runStatusText = runStatusLabels[roundData.status] || roundData.status || '상태 미확인';
                         const timeVal = roundData.time || '-';
                         const modeKor = roundData.mode === 'daily_auto' ? 'AI 자동매매' : (roundData.mode === 'execute' ? '주문 실행' : '분석 전용');
                         const regimePolicy = roundData.marketRegimePolicy || {};
@@ -6220,7 +6239,7 @@ async function renderScheduleInfo() {
                                         실패 <strong style="color: var(--danger);">${failedCount}</strong>건
                                     </span>
                                     <span class="badge" style="background: ${hasFailure ? 'rgba(var(--danger-rgb, 220, 53, 69), 0.1)' : (isBlocked ? 'rgba(245, 158, 11, 0.12)' : 'rgba(var(--success-rgb, 40, 167, 69), 0.1)')}; color: ${hasFailure ? 'var(--danger)' : (isBlocked ? '#f59e0b' : 'var(--success)')}; border: 1px solid ${hasFailure ? 'rgba(var(--danger-rgb), 0.2)' : (isBlocked ? 'rgba(245, 158, 11, 0.3)' : 'rgba(var(--success-rgb), 0.2)')}; font-size: 0.8rem; padding: 0.2rem 0.5rem; border-radius: 4px;">
-                                        ${hasFailure ? '오류 발생' : (isBlocked ? '신규매수 차단' : '정상 완료')}
+                                        ${escapeHtml(runStatusText)}
                                     </span>
                                     <i class="fas fa-chevron-down toggle-icon" id="toggle-icon-${round}" style="transition: transform 0.2s; color: var(--text-muted); transform: ${isExpanded ? 'rotate(180deg)' : 'rotate(0deg)'};"></i>
                                 </div>
@@ -6233,6 +6252,7 @@ async function renderScheduleInfo() {
                                     <span>${escapeHtml(regimeSummary)}</span>
                                     ${regimeReason ? `<small>${escapeHtml(regimeReason)}</small>` : ''}
                                 </div>
+                                ${roundData.message ? `<div class="scheduler-status-message"><strong>상태 메시지</strong><span>${escapeHtml(roundData.message)}</span></div>` : ''}
                                 <div class="scheduler-analysis-summary" style="margin-bottom:1.5rem;"></div>
                                 <div class="scheduler-analysis-details" style="margin-bottom:1.5rem;"></div>
                                 <h4 style="margin-bottom: 0.75rem; font-size: 0.95rem; font-weight: 500; display: flex; align-items: center; gap: 0.5rem; color: var(--text);">
