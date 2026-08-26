@@ -37,8 +37,8 @@ class FakeKiwoomClient:
             return FakePage({"stk_cd": f"A{symbol}", "cur_prc": "-71,000", "sel_fpr_bid": "+71,100", "buy_fpr_bid": "70,900", "mac": "424,000"})
         raise AssertionError(api_id)
 
-    def post_all_pages(self, path, *, api_id, body=None, request_kind="query", max_pages=100):
-        self.last_pages = (path, api_id, body, request_kind)
+    def post_all_pages(self, path, *, api_id, body=None, request_kind="query", max_pages=100, allow_partial=False):
+        self.last_pages = (path, api_id, body, request_kind, max_pages, allow_partial)
         self.page_calls.append(self.last_pages)
         if api_id == "kt00018":
             return [self.post(path, api_id=api_id, body=body, request_kind=request_kind)]
@@ -145,6 +145,8 @@ class KiwoomBrokerAdapterTests(unittest.TestCase):
         result = self.adapter.fetch_daily_bars("005930", count=1)
         self.assertEqual(self.client.last_pages[0:2], ("/api/dostk/chart", "ka10081"))
         self.assertEqual(self.client.last_pages[2]["stk_cd"], "005930")
+        self.assertEqual(self.client.last_pages[4], 1)
+        self.assertTrue(self.client.last_pages[5])
         self.assertEqual(result[0].date, "20260814")
         self.assertEqual(result[0].low_price, 69500)
         self.assertEqual(result[0].volume, 12345)
@@ -160,6 +162,8 @@ class KiwoomBrokerAdapterTests(unittest.TestCase):
 
         self.assertEqual(self.client.last_pages[0:2], ("/api/dostk/chart", "ka20006"))
         self.assertEqual(self.client.last_pages[2]["inds_cd"], "001")
+        self.assertEqual(self.client.last_pages[4], 1)
+        self.assertTrue(self.client.last_pages[5])
         self.assertEqual(result[0]["date"], "20260821")
         self.assertEqual(result[0]["close"], 6784.99)
         self.assertEqual(result[0]["low"], 6742.44)

@@ -223,6 +223,7 @@ class KiwoomRestClient:
         body: Mapping[str, Any] | None = None,
         request_kind: str = "query",
         max_pages: int = 100,
+        allow_partial: bool = False,
     ) -> list[KiwoomPage]:
         pages: list[KiwoomPage] = []
         continuation: tuple[str, str] | None = None
@@ -232,6 +233,8 @@ class KiwoomRestClient:
             if page.cont_yn.upper() != "Y" or not page.next_key:
                 return pages
             continuation = ("Y", page.next_key)
+        if allow_partial:
+            return pages
         raise KiwoomApiError(f"{api_id} continuation exceeded {max_pages} pages")
 
     def _parse_expiry(self, payload: Mapping[str, Any]) -> datetime:

@@ -176,6 +176,10 @@ class KiwoomBrokerAdapter:
             "/api/dostk/chart",
             api_id="ka10081",
             body={"stk_cd": symbol, "base_dt": date.today().strftime("%Y%m%d"), "upd_stkpc_tp": "1"},
+            # Chart pages contain up to 100 observations. Do not download the
+            # instrument's complete history when a bounded window was asked for.
+            max_pages=max(1, (max(0, count) + 99) // 100),
+            allow_partial=True,
         )
         rows = [
             row
@@ -389,6 +393,8 @@ class KiwoomBrokerAdapter:
                 "inds_cd": kiwoom_code,
                 "base_dt": date.today().strftime("%Y%m%d"),
             },
+            max_pages=max(1, (max(0, n) + 99) // 100),
+            allow_partial=True,
         )
         rows = [
             row
