@@ -146,7 +146,9 @@ def build_managed_approval_bridge(
             else None
         )
     )
-    snapshot_provider = snapshots or OperationalSnapshotProvider()
+    snapshot_provider = snapshots or OperationalSnapshotProvider(
+        require_persisted_kr_regime=True
+    )
     protection = HardStopProtectionService(repo=ai_stock_repository)
     bridge = ManagedApprovalBridge(
         ApprovalService(ApprovalRepository(connect_db)),
@@ -353,7 +355,9 @@ def run_ai_stock_autonomy_cycle(
     policy = ai_stock_repository.get_policy(strategy_id, market)
     if not policy or not int(policy.get("enabled", 0)):
         raise RuntimeConfigurationError("enabled automation policy is required")
-    snapshot_provider = snapshots or OperationalSnapshotProvider()
+    snapshot_provider = snapshots or OperationalSnapshotProvider(
+        require_persisted_kr_regime=True
+    )
     engine = runtime or AutonomyRuntime()
     current = snapshot_provider.snapshot(market, strategy_id)
     cycle_key = (
@@ -388,11 +392,45 @@ def run_ai_stock_autonomy_cycle(
                 approve_managed_ai_stock_order(int(item.approval_id))
             )
     statuses: dict[str, int] = {}
+    regime_rejections: list[str] = []
     for item in result.cycle.results:
         statuses[item.status] = statuses.get(item.status, 0) + 1
+        for reason in item.reasons:
+            if reason in {"allowed_market_regime", "market_risk_multiplier_valid"}:
+                regime_rejections.append(reason)
+    from src.db.strategy_repository import load_ai_strategies
+    from src.market_regime.policy import REGIME_RISK_CAPS, expand_allowed_regimes
+
+    strategy = next(
+        (row for row in load_ai_strategies() if str(row.get("id")) == str(strategy_id)),
+        {},
+    )
+    profile = strategy.get("profile") if isinstance(strategy, dict) else {}
+    allowed_regimes = expand_allowed_regimes(
+        profile.get("market_regime_filter") if isinstance(profile, dict) else ()
+    )
+    current_regime = str(current.market.get("regime") or "")
+    regime_allowed = (
+        current_regime in allowed_regimes
+        and REGIME_RISK_CAPS.get(current_regime, 0.0) > 0
+        and not regime_rejections
+    )
+    regime_reason = (
+        "market_regime_allowed" if regime_allowed
+        else (regime_rejections[0] if regime_rejections else "allowed_market_regime")
+    )
     return {
         "enabled": True,
         "cycle_key": result.cycle.cycle_key,
+        "market_regime_policy": {
+            "regime": current.market.get("regime"),
+            "quality": current.market.get("regime_quality"),
+            "multiplier": current.market.get("risk_multiplier", 1.0),
+            "snapshot_id": current.market.get("snapshot_id"),
+            "session_date": current.market.get("session_date"),
+            "allowed": regime_allowed,
+            "reason": regime_reason,
+        },
         "scanned_intents": result.cycle.scanned_intents,
         "managed_positions": result.cycle.managed_positions,
         "result_counts": statuses,

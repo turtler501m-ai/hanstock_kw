@@ -327,6 +327,11 @@ def run_strategy(*, market: str, strategy_id: str = "ai_stock_default_v1",
             )
             summary["planned"] = len(autonomy["managed_orders"])
             summary["approved"] = len(autonomy["approvals"])
+            regime_policy = autonomy.get("market_regime_policy") or {}
+            if regime_policy.get("allowed") is False:
+                summary["blocked"].append(
+                    f"market_regime:{regime_policy.get('reason') or 'not_allowed'}"
+                )
             repo.log_execution_run({
                 "strategy_id": strategy_id,
                 "market": market,

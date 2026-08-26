@@ -51,6 +51,7 @@ class OperationalSnapshotProvider:
         account_id: str | None = None,
         kill_switch_reader: Callable[[], bool] | None = None,
         market_regime_reader: Callable[[], Mapping[str, Any] | None] | None = None,
+        require_persisted_kr_regime: bool = False,
         clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
         max_age_seconds: int = 300,
     ):
@@ -65,6 +66,7 @@ class OperationalSnapshotProvider:
         ).strip()
         self.kill_switch_reader = kill_switch_reader or _default_kill_switch_reader
         self.market_regime_reader = market_regime_reader or _default_market_regime_reader
+        self.require_persisted_kr_regime = bool(require_persisted_kr_regime)
         self.daily_equity = daily_equity or DailyEquityService(
             repo=candidate_repository,
             external_reconciliation=lambda _account, _market, _date: (
@@ -214,6 +216,8 @@ class OperationalSnapshotProvider:
             return self._persisted_kr_market_snapshot(
                 persisted, market, strategy_id, candidates, instruments
             )
+        if market == "KR" and self.require_persisted_kr_regime:
+            raise RuntimeConfigurationError("persisted KR market regime snapshot is required")
         index_map = self.market_data.index_series(market)
         if not index_map:
             raise RuntimeConfigurationError("market index series is required")
@@ -274,13 +278,17 @@ class OperationalSnapshotProvider:
         age_days = (evaluated_at.date() - session_date).days
         if age_days < 0 or age_days > 4:
             raise RuntimeConfigurationError("KR market regime snapshot is stale")
+        source_time = _parse_time(
+            persisted.get("evaluated_at"), "KR market regime evaluated_at"
+        )
         return {
             "snapshot_id": str(
                 persisted.get("snapshot_id")
                 or f"kr-regime:{session_text}:{persisted.get('evaluated_at', '')}"
             ),
             "evaluated_at": evaluated_at.isoformat(),
-            "data_as_of": session_text,
+            "data_as_of": source_time.isoformat(),
+            "session_date": session_text,
             "regime": regime,
             "regime_quality": quality,
             "regime_confidence": float(persisted.get("confidence") or 0.0),

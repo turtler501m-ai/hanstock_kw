@@ -61,6 +61,7 @@ class RiskSnapshot:
     data_as_of: datetime
     evaluated_at: datetime
     kill_switch_active: bool
+    market_risk_multiplier: float = 1.0
     account_snapshot_available: bool = True
     current_price: float | None = None
     protection_global_block: bool = False
@@ -212,6 +213,11 @@ class RiskEnvelope:
         )
         check("limits_valid", self._limits_valid())
         check("allowed_market_regime", snapshot.market_regime in self.limits.allowed_regimes)
+        regime_multiplier = _positive_float(snapshot.market_risk_multiplier)
+        check(
+            "market_risk_multiplier_valid",
+            regime_multiplier is not None and regime_multiplier <= 1.0,
+        )
         check("fresh_data", self._fresh(snapshot))
         check("daily_loss_limit", self._within_daily_loss(snapshot))
         daily_orders = _valid_nonnegative_int(snapshot.daily_new_risk_orders)
@@ -277,6 +283,11 @@ class RiskEnvelope:
         }
         if requested is not None:
             rooms["requested"] = float(requested)
+        assert regime_multiplier is not None
+        rooms = {
+            name: value * regime_multiplier
+            for name, value in rooms.items()
+        }
         caps = {name: max(0, math.floor(value)) for name, value in rooms.items()}
         quantity = min(caps.values())
         binding = min(caps, key=caps.get)
@@ -289,7 +300,7 @@ class RiskEnvelope:
             action=action,
             quantity=quantity,
             approved_price=entry,
-            risk_budget=round(risk_budget, 2),
+            risk_budget=round(risk_budget * regime_multiplier, 2),
             risk_amount=round((entry - stop) * quantity, 2),
             account_risk_reservation_limit=round(account_reservation_limit, 2),
             exposure_reservation_limits={

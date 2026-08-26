@@ -266,6 +266,10 @@ class MarketRegimeClassificationTests(unittest.TestCase):
         self.assertEqual(result["regime"], "bear_rally")
         self.assertEqual(result["regime_quality"], "good")
         self.assertEqual(result["snapshot_id"], "91")
+        self.assertEqual(
+            datetime.fromisoformat(result["data_as_of"]),
+            now,
+        )
 
     def test_insufficient_persisted_kr_regime_fails_closed(self):
         now = datetime(2026, 7, 23, 3, tzinfo=timezone.utc)
@@ -278,6 +282,17 @@ class MarketRegimeClassificationTests(unittest.TestCase):
             },
         )
         with self.assertRaisesRegex(RuntimeConfigurationError, "insufficient"):
+            provider.snapshot("KR", "s1")
+
+    def test_required_persisted_kr_regime_does_not_fall_back(self):
+        now = datetime(2026, 7, 23, 3, tzinfo=timezone.utc)
+        provider = OperationalSnapshotProvider(
+            kr_broker=_KR(), market_data=_Market(now),
+            candidate_repository=_Repo(now), clock=lambda: now,
+            account_id="acct", market_regime_reader=lambda: None,
+            require_persisted_kr_regime=True,
+        )
+        with self.assertRaisesRegex(RuntimeConfigurationError, "persisted KR"):
             provider.snapshot("KR", "s1")
 
 

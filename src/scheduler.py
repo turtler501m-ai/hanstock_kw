@@ -17,6 +17,8 @@ if str(ROOT) not in sys.path:
 from src import trader
 from src.notifier.slack import send_slack
 from src.utils.market_calendar import is_market_session
+from src.market_regime.policy import evaluate_new_risk
+from src.market_regime.repository import MarketRegimeRepository
 
 
 SchedulerOperationError = (
@@ -41,6 +43,31 @@ def _env_float(name: str, default: float, *, minimum: float = 0.0) -> float:
         return max(minimum, float(os.environ.get(name, str(default))))
     except ValueError:
         return default
+
+
+def _scheduled_market_regime_policy(strategy_id: str | None) -> dict:
+    allowed = ["bull", "bull_pullback", "sideways_low_vol"]
+    try:
+        from src.db.repository import load_ai_strategies
+
+        strategy = next(
+            (
+                item for item in load_ai_strategies()
+                if str(item.get("id") or "") == str(strategy_id or "")
+                or str(item.get("model") or "") == str(strategy_id or "")
+            ),
+            None,
+        )
+        profile = strategy.get("profile") if isinstance(strategy, dict) else None
+        if isinstance(profile, dict) and profile.get("market_regime_filter"):
+            allowed = profile["market_regime_filter"]
+    except SchedulerOperationError:
+        pass
+    try:
+        snapshot = MarketRegimeRepository().current()
+    except SchedulerOperationError:
+        snapshot = None
+    return evaluate_new_risk(snapshot, allowed).to_dict()
 
 
 def _error_record(exc: Exception, *, attempt: int | None = None, approval_id: int | None = None) -> dict:
@@ -298,6 +325,13 @@ def run_scheduled_cycle(
         except SchedulerOperationError:
             force_strategy_id = None
 
+    regime_policy = _scheduled_market_regime_policy(force_strategy_id)
+    regime_kwargs = {
+        "new_risk_multiplier": regime_policy["multiplier"],
+        "new_risk_block_reason": None if regime_policy["allowed"] else regime_policy["reason"],
+        "market_regime_policy": regime_policy,
+    }
+
     if mode == "daily_auto":
         include_ai_rebalance = True
         auto_approve = True
@@ -322,6 +356,7 @@ def run_scheduled_cycle(
             "mode": run_mode,
             "include_ai_rebalance": True,
             "execution_categories": execution_categories,
+            **regime_kwargs,
         }
         if force_strategy_id is not None:
             trader_kwargs["force_strategy_id"] = force_strategy_id
@@ -332,6 +367,7 @@ def run_scheduled_cycle(
         )
     else:
         trader_kwargs = {"mode": run_mode}
+        trader_kwargs.update(regime_kwargs)
         if execution_categories is not None:
             trader_kwargs["execution_categories"] = execution_categories
         if force_strategy_id is not None:
@@ -355,6 +391,17 @@ def run_scheduled_cycle(
         }
     if pre_order_status_sync is not None:
         result["pre_order_status_sync"] = pre_order_status_sync
+    if (
+        not regime_policy["allowed"]
+        and result.get("status") != "failed"
+        and result.get("ok") is not False
+    ):
+        result["status"] = "blocked"
+        result["ok"] = True
+        result["blocked"] = [
+            *(result.get("blocked") or []),
+            f"market_regime:{regime_policy['reason']}",
+        ]
     result["strategy_id"] = force_strategy_id or "seven_split"
     if persist_result and (mode == "daily_auto" or force_strategy_id):
         _write_cycle_result(result, mode=mode, strategy_id=force_strategy_id)

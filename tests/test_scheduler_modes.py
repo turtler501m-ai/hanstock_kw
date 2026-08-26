@@ -363,7 +363,8 @@ class SchedulerModeTests(unittest.TestCase):
             result = scheduler.run_scheduled_cycle(mode="execute")
 
         self.assertEqual(result, expected)
-        run_mock.assert_called_once_with(mode="execute")
+        self.assertEqual(run_mock.call_args.kwargs["mode"], "execute")
+        self.assertIn("market_regime_policy", run_mock.call_args.kwargs)
 
     def test_run_scheduled_cycle_delegates_analysis_only_mode(self):
         expected = {"mode": "analysis_only", "results": []}
@@ -372,7 +373,8 @@ class SchedulerModeTests(unittest.TestCase):
             result = scheduler.run_scheduled_cycle(mode="analysis_only")
 
         self.assertEqual(result, expected)
-        run_mock.assert_called_once_with(mode="analysis_only")
+        self.assertEqual(run_mock.call_args.kwargs["mode"], "analysis_only")
+        self.assertIn("market_regime_policy", run_mock.call_args.kwargs)
 
     def test_main_uses_default_execute_mode(self):
         with patch.object(sys, "argv", ["scheduler"]), patch.object(
@@ -428,11 +430,10 @@ class SchedulerModeTests(unittest.TestCase):
         ) as approve_mock, patch.object(scheduler.time, "sleep") as sleep_mock:
             result = scheduler.run_scheduled_cycle(mode="daily_auto")
 
-        run_mock.assert_called_once_with(
-            mode="analysis_only",
-            include_ai_rebalance=True,
-            execution_categories={"ai_rebalance"},
-        )
+        self.assertEqual(run_mock.call_args.kwargs["mode"], "analysis_only")
+        self.assertTrue(run_mock.call_args.kwargs["include_ai_rebalance"])
+        self.assertEqual(run_mock.call_args.kwargs["execution_categories"], {"ai_rebalance"})
+        self.assertIn("market_regime_policy", run_mock.call_args.kwargs)
         approve_mock.assert_called_once_with(123, "scheduled auto approval")
         sleep_mock.assert_called_once()
         self.assertEqual(result["auto_approved"], [{"id": 123, "status": "executed"}])

@@ -497,6 +497,31 @@ def build_ai_rebalance_rows(api, balance_data: dict, total_eval: int) -> list[di
     return rows
 
 
+def apply_market_regime_sizing(
+    plan: list[dict],
+    *,
+    multiplier: float,
+    block_reason: str | None = None,
+) -> list[dict]:
+    """Scale only new-risk rows; reductions and exits remain untouched."""
+    normalized = max(0.0, min(1.0, float(multiplier)))
+    for row in plan:
+        if str(row.get("action") or "").lower() != "buy":
+            continue
+        original_qty = int(float(row.get("qty") or 0))
+        scaled_qty = int(original_qty * normalized)
+        row["qty"] = scaled_qty
+        if row.get("estimated_cost") is not None and original_qty > 0:
+            row["estimated_cost"] = float(row["estimated_cost"]) * scaled_qty / original_qty
+        row.setdefault("metadata", {})["market_regime_sizing"] = {
+            "original_qty": original_qty,
+            "multiplier": normalized,
+            "scaled_qty": scaled_qty,
+            "block_reason": block_reason,
+        }
+    return plan
+
+
 def build_runtime_plan(
     api,
     balance_data: dict,
@@ -506,6 +531,9 @@ def build_runtime_plan(
     force_strategy_id: str | None = None,
     candidate_scan_override: dict | None = None,
     runtime: TraderRuntimeContext | None = None,
+    new_risk_multiplier: float = 1.0,
+    new_risk_block_reason: str | None = None,
+    market_regime_policy: dict | None = None,
 ) -> dict:
     api_runtime = getattr(api, "runtime", None)
     if runtime is None and isinstance(api_runtime, TraderRuntimeContext):
@@ -922,6 +950,12 @@ def build_runtime_plan(
         ai_rebalance_rows = build_ai_rebalance_rows(api, balance_data, capital)
         plan.extend(ai_rebalance_rows)
 
+    apply_market_regime_sizing(
+        plan,
+        multiplier=new_risk_multiplier,
+        block_reason=new_risk_block_reason,
+    )
+
     return {
         "plan": plan,
         "position_plan_rows": position_rows,
@@ -937,6 +971,7 @@ def build_runtime_plan(
         "locked_holding_symbols": sorted(locked_holding_symbols),
         "retryable_sell_symbols": sorted(retryable_sell_symbols),
         "held_symbols": {s.get("pdno", "") for s in stocks},
+        "market_regime_policy": dict(market_regime_policy or {}),
     }
 
 
@@ -947,6 +982,9 @@ def run(
     execution_categories: set[str] | None = None,
     force_strategy_id: str | None = None,
     runtime: TraderRuntimeContext | None = None,
+    new_risk_multiplier: float = 1.0,
+    new_risk_block_reason: str | None = None,
+    market_regime_policy: dict | None = None,
 ) -> dict:
     runtime = runtime or TraderRuntimeContext.capture()
     settings = runtime.settings
@@ -1049,7 +1087,14 @@ def run(
     if force_strategy_id is not None:
         bp_kwargs["force_strategy_id"] = force_strategy_id
 
-    runtime_bundle = build_runtime_plan(market_data_api, balance, **bp_kwargs)
+    runtime_bundle = build_runtime_plan(
+        market_data_api,
+        balance,
+        new_risk_multiplier=new_risk_multiplier,
+        new_risk_block_reason=new_risk_block_reason,
+        market_regime_policy=market_regime_policy,
+        **bp_kwargs,
+    )
     daily_loss_halted = daily_loss_halted or bool(runtime_bundle.get("daily_loss_halt"))
 
     candidates = runtime_bundle.get("candidate_scan", {}).get("candidates", [])
@@ -1065,6 +1110,16 @@ def run(
     for row in runtime_bundle["plan"]:
         if execution_categories is not None and row.get("category") not in execution_categories:
             results.append({**row, "decision": "skip", "ok": True, "skip_reason": "category filtered"})
+            continue
+        if row.get("action") == "buy" and (
+            new_risk_block_reason or int(float(row.get("qty") or 0)) <= 0
+        ):
+            results.append({
+                **row,
+                "decision": "skip",
+                "ok": True,
+                "skip_reason": new_risk_block_reason or "market regime sizing below one share",
+            })
             continue
         if daily_loss_halted and row.get("action") == "buy":
             results.append({

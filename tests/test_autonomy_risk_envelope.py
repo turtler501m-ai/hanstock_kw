@@ -63,6 +63,24 @@ class RiskEnvelopeTests(unittest.TestCase):
         self.assertEqual(decision.quantity, 100)
         self.assertEqual(decision.binding_cap, "risk")
 
+    def test_market_regime_multiplier_scales_new_risk_but_not_exit(self):
+        buy = self.gate.evaluate(
+            {"action": "enter_long", "entry_price": 1000, "stop_price": 900, "quantity": 999},
+            self.snapshot(market_risk_multiplier=0.5),
+        )
+        exit_decision = self.gate.evaluate(
+            {"action": "exit", "entry_price": 950, "reduce_pct": 100},
+            self.snapshot(
+                market_risk_multiplier=0.0,
+                kill_switch_active=True,
+                current_position_qty=12,
+            ),
+        )
+        self.assertTrue(buy.approved)
+        self.assertEqual(buy.quantity, 50)
+        self.assertTrue(exit_decision.approved)
+        self.assertEqual(exit_decision.quantity, 12)
+
     def test_trade_action_enum_is_supported(self):
         decision = self.gate.evaluate(
             {

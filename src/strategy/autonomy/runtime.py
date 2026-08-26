@@ -13,6 +13,7 @@ from typing import Any, Mapping
 
 from src.db.strategy_repository import load_ai_strategies
 from src.config import config
+from src.market_regime.policy import REGIME_RISK_CAPS, expand_allowed_regimes
 
 # Preserve the historical patch seam while sourcing every operation from its
 # bounded repository. Production code no longer imports the monolithic facade.
@@ -305,6 +306,10 @@ def build_runtime_contexts(
             open_position_risk_amount_excluding_reservations=open_position_risk,
             current_position_qty=int(_nonnegative(holding, "quantity", default=0)),
             market_regime=regime,
+            market_risk_multiplier=min(
+                float(snapshot.get("risk_multiplier", 1.0)),
+                REGIME_RISK_CAPS.get(regime, 0.0),
+            ),
             data_as_of=_aware_time(instrument.get("data_as_of"), f"{symbol} data_as_of"),
             evaluated_at=evaluated_at,
             kill_switch_active=bool(account.get("kill_switch_active", False)),
@@ -415,7 +420,7 @@ def _risk_limits(policy, profile, risk) -> RiskLimits:
         max_strategy_exposure_pct=float(risk["max_strategy_exposure_pct"]),
         max_total_open_risk_pct=float(risk["max_total_open_risk_pct"]),
         max_data_age_seconds=int(risk["max_data_age_seconds"]),
-        allowed_regimes=frozenset(str(item) for item in regimes),
+        allowed_regimes=expand_allowed_regimes(regimes),
         min_cash_reserve_pct=float(risk["min_cash_reserve_pct"]),
     )
 
