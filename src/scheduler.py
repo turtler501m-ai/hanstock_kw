@@ -47,6 +47,7 @@ def _env_float(name: str, default: float, *, minimum: float = 0.0) -> float:
 
 def _scheduled_market_regime_policy(strategy_id: str | None) -> dict:
     allowed = ["bull", "bull_pullback", "sideways_low_vol"]
+    max_pct_by_regime = None
     try:
         from src.db.repository import load_ai_strategies
 
@@ -61,13 +62,14 @@ def _scheduled_market_regime_policy(strategy_id: str | None) -> dict:
         profile = strategy.get("profile") if isinstance(strategy, dict) else None
         if isinstance(profile, dict) and profile.get("market_regime_filter"):
             allowed = profile["market_regime_filter"]
+            max_pct_by_regime = profile.get("market_regime_max_pct")
     except SchedulerOperationError:
         pass
     try:
         snapshot = MarketRegimeRepository().current()
     except SchedulerOperationError:
         snapshot = None
-    return evaluate_new_risk(snapshot, allowed).to_dict()
+    return evaluate_new_risk(snapshot, allowed, max_pct_by_regime).to_dict()
 
 
 def _error_record(exc: Exception, *, attempt: int | None = None, approval_id: int | None = None) -> dict:

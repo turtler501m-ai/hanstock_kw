@@ -48,6 +48,26 @@ class MarketRegimePolicyTests(unittest.TestCase):
         self.assertFalse(bear.allowed)
         self.assertEqual(bear.reason, "market_regime_zero_risk")
 
+    def test_strategy_configured_max_percent_is_applied(self):
+        current = snapshot(
+            regime="sideways_high_vol", quality="good", risk_multiplier=0.9
+        )
+        result = evaluate_new_risk(
+            current,
+            ["sideways_high_vol"],
+            {"sideways_high_vol": 25},
+        )
+        self.assertTrue(result.allowed)
+        self.assertEqual(result.multiplier, 0.25)
+
+        blocked = evaluate_new_risk(
+            current,
+            ["sideways_high_vol"],
+            {"sideways_high_vol": 0},
+        )
+        self.assertFalse(blocked.allowed)
+        self.assertEqual(blocked.reason, "market_regime_zero_risk")
+
     def test_missing_insufficient_and_stale_snapshots_fail_closed(self):
         stale = snapshot(evaluated_at="2020-01-01T00:00:00+00:00")
         insufficient = snapshot(quality="insufficient", new_risk_allowed=False)

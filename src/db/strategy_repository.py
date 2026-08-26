@@ -39,6 +39,15 @@ def _default_strategy_profile(strategy: dict) -> dict:
         "focus": ["rsi2_oversold", "bollinger_lower_band", "volume_recovery"],
         "avoid": ["high_volatility_breakdown", "overheated_rsi", "weak_liquidity"],
         "market_regime_filter": ["neutral", "bull", "low_volatility"],
+        "market_regime_max_pct": {
+            "bull": 100,
+            "bull_pullback": 80,
+            "sideways_low_vol": 60,
+            "sideways_high_vol": 40,
+            "bear_rally": 30,
+            "bear": 0,
+            "crash": 0,
+        },
         "risk": {
             "max_ai_weight": weight,
             "max_risk_per_trade_pct": 0.5,
@@ -83,6 +92,18 @@ def _parse_strategy_profile(strategy: dict) -> dict:
         per_trade, total_open = 0.5, 2.0
     risk["max_risk_per_trade_pct"] = per_trade
     risk["max_total_open_risk_pct"] = max(per_trade, total_open)
+    default_caps = _default_strategy_profile(strategy)["market_regime_max_pct"]
+    raw_caps = raw_profile.get("market_regime_max_pct")
+    if not isinstance(raw_caps, dict):
+        raw_caps = {}
+    normalized_caps = {}
+    for regime, default_pct in default_caps.items():
+        try:
+            value = float(raw_caps.get(regime, default_pct))
+        except (TypeError, ValueError):
+            value = float(default_pct)
+        normalized_caps[regime] = max(0.0, min(100.0, value))
+    profile["market_regime_max_pct"] = normalized_caps
     profile.pop("backtest", None)
     profile["risk"].pop("paper_trading_required_days", None)
     profile["model"] = str(profile.get("model") or strategy.get("model") or "none")

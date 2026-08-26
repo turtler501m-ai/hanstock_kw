@@ -92,6 +92,7 @@ class AutonomyRuntime:
             strategy_id=strategy_id,
             account_snapshot=account_snapshot,
             market_snapshot=market_snapshot,
+            market_risk_cap=_strategy_regime_cap(profile, market_snapshot),
         )
         limits = _risk_limits(policy, profile, risk_config)
         if self.planner_provider is not None:
@@ -173,6 +174,7 @@ def build_runtime_contexts(
     account_snapshot: Mapping[str, Any],
     market_snapshot: Mapping[str, Any],
     exclude_reservation_id: int | None = None,
+    market_risk_cap: float = 1.0,
 ) -> tuple[MarketContext, PortfolioContext]:
     """Copy caller data into immutable, validated cycle snapshots."""
     market = str(market).strip().upper()
@@ -309,6 +311,7 @@ def build_runtime_contexts(
             market_risk_multiplier=min(
                 float(snapshot.get("risk_multiplier", 1.0)),
                 REGIME_RISK_CAPS.get(regime, 0.0),
+                max(0.0, min(1.0, float(market_risk_cap))),
             ),
             data_as_of=_aware_time(instrument.get("data_as_of"), f"{symbol} data_as_of"),
             evaluated_at=evaluated_at,
@@ -382,6 +385,19 @@ def _require_runtime_mode() -> None:
             raise RuntimeConfigurationError(
                 "real autonomy requires explicit local and global live-trading opt-in"
             )
+
+
+def _strategy_regime_cap(
+    profile: Mapping[str, Any], market_snapshot: Mapping[str, Any]
+) -> float:
+    regime = str(market_snapshot.get("regime") or "").strip()
+    caps = profile.get("market_regime_max_pct")
+    if not isinstance(caps, Mapping) or regime not in caps:
+        return 1.0
+    try:
+        return max(0.0, min(1.0, float(caps[regime]) / 100.0))
+    except (TypeError, ValueError) as exc:
+        raise RuntimeConfigurationError("market regime max percent is invalid") from exc
 
 
 def _risk_limits(policy, profile, risk) -> RiskLimits:

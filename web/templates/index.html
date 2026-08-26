@@ -1255,7 +1255,11 @@
                                 <label><span>일일 최대 주문</span><input name="max_daily_ai_orders" type="number" min="1" max="100" step="1"></label>
                             </div>
                             <label class="check-field"><input name="allow_candidate_promotion" type="checkbox"><span>AI 점수로 규칙 미달 후보 승격 허용</span></label>
-                            <label><span>허용 시장 국면 (쉼표 구분)</span><input name="market_regime_filter" placeholder="bull, neutral, high_volatility"></label>
+                            <fieldset class="strategy-regime-settings">
+                                <legend>시장 국면별 신규투자 설정</legend>
+                                <p class="section-help">체크한 국면에서만 신규매수합니다. 최대 비율은 안전 상한 안에서 원래 주문 수량에 적용되며 매도·축소에는 적용되지 않습니다.</p>
+                                <div id="strategy-regime-options" class="strategy-regime-options"></div>
+                            </fieldset>
                             <details class="strategy-profile-advanced">
                                 <summary>전체 세부 프로필 JSON</summary>
                                 <p class="section-help">화면에 없는 focus, avoid, 데이터 신선도 등 모든 기준을 직접 편집할 수 있습니다.</p>

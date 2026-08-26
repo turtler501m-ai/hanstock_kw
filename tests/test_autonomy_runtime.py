@@ -68,7 +68,8 @@ class AutonomyRuntimeTests(unittest.TestCase):
     ):
         market_context, portfolio_context = build_runtime_contexts(
             market="KR", strategy_id="s1",
-            account_snapshot=account(), market_snapshot=market()
+            account_snapshot=account(), market_snapshot=market(),
+            market_risk_cap=0.25,
         )
 
         self.assertEqual(market_context.regime, "bull")
@@ -81,6 +82,10 @@ class AutonomyRuntimeTests(unittest.TestCase):
         reservations.assert_called_once_with(account_id="account-1", market="KR")
         self.assertEqual(
             portfolio_context.risk_snapshots["005930"].daily_new_risk_orders, 0
+        )
+        self.assertEqual(
+            portfolio_context.risk_snapshots["005930"].market_risk_multiplier,
+            0.25,
         )
         with self.assertRaises(TypeError):
             market_context.features["new"] = "unsafe"

@@ -3763,6 +3763,53 @@ th,
     width: auto;
 }
 
+.strategy-regime-settings {
+    margin: 0;
+    padding: 14px;
+    border: 1px solid rgba(148, 163, 184, 0.25);
+    border-radius: 10px;
+}
+
+.strategy-regime-settings legend {
+    padding: 0 6px;
+    font-weight: 700;
+}
+
+.strategy-regime-options {
+    display: grid;
+    gap: 8px;
+    margin-top: 12px;
+}
+
+.strategy-regime-option {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    background: rgba(15, 23, 42, 0.35);
+}
+
+.strategy-regime-option .check-field span {
+    display: grid;
+    gap: 2px;
+}
+
+.strategy-regime-option small {
+    color: var(--text-muted, #94a3b8);
+}
+
+.strategy-regime-percent {
+    display: flex !important;
+    align-items: center;
+    gap: 6px;
+}
+
+.strategy-regime-percent input {
+    width: 82px;
+}
+
 .strategy-profile-advanced {
     border: 1px solid rgba(255, 255, 255, 0.1);
     border-radius: 7px;

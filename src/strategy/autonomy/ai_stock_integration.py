@@ -410,9 +410,19 @@ def run_ai_stock_autonomy_cycle(
         profile.get("market_regime_filter") if isinstance(profile, dict) else ()
     )
     current_regime = str(current.market.get("regime") or "")
+    configured_caps = profile.get("market_regime_max_pct", {}) if isinstance(profile, dict) else {}
+    try:
+        configured_cap = max(0.0, min(1.0, float(configured_caps.get(current_regime, 100)) / 100.0))
+    except (TypeError, ValueError):
+        configured_cap = 0.0
+    effective_multiplier = min(
+        float(current.market.get("risk_multiplier", 1.0)),
+        REGIME_RISK_CAPS.get(current_regime, 0.0),
+        configured_cap,
+    )
     regime_allowed = (
         current_regime in allowed_regimes
-        and REGIME_RISK_CAPS.get(current_regime, 0.0) > 0
+        and effective_multiplier > 0
         and not regime_rejections
     )
     regime_reason = (
@@ -425,7 +435,8 @@ def run_ai_stock_autonomy_cycle(
         "market_regime_policy": {
             "regime": current.market.get("regime"),
             "quality": current.market.get("regime_quality"),
-            "multiplier": current.market.get("risk_multiplier", 1.0),
+            "multiplier": effective_multiplier,
+            "configured_max_pct": configured_cap * 100.0,
             "snapshot_id": current.market.get("snapshot_id"),
             "session_date": current.market.get("session_date"),
             "allowed": regime_allowed,

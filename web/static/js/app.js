@@ -2094,10 +2094,39 @@ function strategyRiskValue(strategy, key, fallback = '') {
     return Object.prototype.hasOwnProperty.call(risk, key) ? risk[key] : fallback;
 }
 
+const MARKET_REGIME_EDITOR_OPTIONS = [
+    ['bull', '강한 상승장', 100],
+    ['bull_pullback', '상승 중 조정', 80],
+    ['sideways_low_vol', '안정적인 횡보장', 60],
+    ['sideways_high_vol', '변동성 큰 횡보장', 40],
+    ['bear_rally', '하락 중 반등', 30],
+    ['bear', '하락장', 0],
+    ['crash', '급락장', 0],
+];
+
+function ensureStrategyRegimeEditor(form) {
+    const container = form?.querySelector('#strategy-regime-options');
+    if (!container || container.childElementCount) return;
+    container.innerHTML = MARKET_REGIME_EDITOR_OPTIONS.map(([key, label, defaultPct]) => `
+        <div class="strategy-regime-option">
+            <label class="check-field">
+                <input type="checkbox" name="regime_enabled_${key}" value="${key}">
+                <span><strong>${label}</strong><small>${key}</small></span>
+            </label>
+            <label class="strategy-regime-percent">
+                <span>최대</span>
+                <input type="number" name="regime_max_${key}" min="0" max="${defaultPct}" step="5" value="${defaultPct}">
+                <span>%</span>
+            </label>
+        </div>
+    `).join('');
+}
+
 function fillStrategyDetail(strategy) {
     const form = document.getElementById('form-edit-ai-strategy');
     if (!form || !strategy) return;
     const profile = structuredClone(strategy.profile || {});
+    ensureStrategyRegimeEditor(form);
     const setValue = (name, value) => {
         const field = form.elements.namedItem(name);
         if (field) field.value = value == null ? '' : value;
@@ -2121,7 +2150,21 @@ function fillStrategyDetail(strategy) {
     setValue('max_strategy_exposure_pct', strategyRiskValue(strategy, 'max_strategy_exposure_pct', 30));
     setValue('min_cash_reserve_pct', strategyRiskValue(strategy, 'min_cash_reserve_pct', 20));
     setValue('max_daily_ai_orders', strategyRiskValue(strategy, 'max_daily_ai_orders', 3));
-    setValue('market_regime_filter', (strategyProfileValue(strategy, 'market_regime_filter', []) || []).join(', '));
+    const configuredRegimes = strategyProfileValue(strategy, 'market_regime_filter', []) || [];
+    const legacyRegimeAliases = {
+        neutral: ['sideways_low_vol', 'sideways_high_vol'],
+        low_volatility: ['bull', 'bull_pullback', 'sideways_low_vol'],
+        high_volatility: ['sideways_high_vol'],
+        bullish: ['bull', 'bull_pullback'],
+        bearish: ['bear', 'crash'],
+        sideways: ['sideways_low_vol', 'sideways_high_vol'],
+    };
+    const allowedRegimes = new Set(configuredRegimes.flatMap((key) => legacyRegimeAliases[key] || [key]));
+    const regimeCaps = strategyProfileValue(strategy, 'market_regime_max_pct', {}) || {};
+    MARKET_REGIME_EDITOR_OPTIONS.forEach(([key, _label, defaultPct]) => {
+        form.elements.namedItem(`regime_enabled_${key}`).checked = allowedRegimes.has(key);
+        setValue(`regime_max_${key}`, regimeCaps[key] ?? defaultPct);
+    });
     setValue('profile_json', JSON.stringify(profile, null, 2));
     form.elements.namedItem('allow_candidate_promotion').checked =
         Boolean(strategyProfileValue(strategy, 'allow_candidate_promotion', false));
@@ -2152,8 +2195,22 @@ function bindStrategyDetailForm() {
             profile.min_rule_score_for_ai = Number(form.elements.namedItem('min_rule_score_for_ai').value || 0);
             profile.min_ai_confidence = Number(form.elements.namedItem('min_ai_confidence').value || 0);
             profile.allow_candidate_promotion = form.elements.namedItem('allow_candidate_promotion').checked;
-            profile.market_regime_filter = form.elements.namedItem('market_regime_filter').value
-                .split(',').map((value) => value.trim()).filter(Boolean);
+            profile.market_regime_filter = MARKET_REGIME_EDITOR_OPTIONS
+                .filter(([key]) => form.elements.namedItem(`regime_enabled_${key}`).checked)
+                .map(([key]) => key);
+            if (!profile.market_regime_filter.length) {
+                throw new Error('신규매수를 허용할 시장 국면을 하나 이상 선택해 주세요.');
+            }
+            profile.market_regime_max_pct = Object.fromEntries(
+                MARKET_REGIME_EDITOR_OPTIONS.map(([key]) => {
+                    const value = Number(form.elements.namedItem(`regime_max_${key}`).value);
+                    const systemMax = MARKET_REGIME_EDITOR_OPTIONS.find(([item]) => item === key)[2];
+                    if (!Number.isFinite(value) || value < 0 || value > systemMax) {
+                        throw new Error(`${key} 최대 비율은 0~${systemMax}%로 입력해 주세요.`);
+                    }
+                    return [key, value];
+                })
+            );
             profile.risk = profile.risk || {};
             ['max_risk_per_trade_pct', 'max_total_open_risk_pct', 'max_strategy_exposure_pct', 'min_cash_reserve_pct', 'max_daily_ai_orders']
                 .forEach((key) => {

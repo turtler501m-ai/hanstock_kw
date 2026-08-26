@@ -61,6 +61,7 @@ def expand_allowed_regimes(values: Iterable[Any] | None) -> frozenset[str]:
 def evaluate_new_risk(
     snapshot: Mapping[str, Any] | None,
     allowed_regimes: Iterable[Any] | None,
+    max_pct_by_regime: Mapping[str, Any] | None = None,
 ) -> NewRiskPolicy:
     if not isinstance(snapshot, Mapping):
         return NewRiskPolicy(False, "unknown", "insufficient", 0.0, "market_regime_missing")
@@ -88,7 +89,16 @@ def evaluate_new_risk(
     allowed = expand_allowed_regimes(allowed_regimes)
     if regime not in allowed:
         return NewRiskPolicy(False, regime, quality, 0.0, "market_regime_not_allowed")
-    multiplier = min(multiplier, REGIME_RISK_CAPS[regime])
+    configured_cap = 1.0
+    if isinstance(max_pct_by_regime, Mapping) and regime in max_pct_by_regime:
+        try:
+            configured_cap = max(
+                0.0,
+                min(1.0, float(max_pct_by_regime[regime]) / 100.0),
+            )
+        except (TypeError, ValueError):
+            return NewRiskPolicy(False, regime, quality, 0.0, "market_regime_cap_invalid")
+    multiplier = min(multiplier, REGIME_RISK_CAPS[regime], configured_cap)
     if multiplier <= 0:
         return NewRiskPolicy(False, regime, quality, 0.0, "market_regime_zero_risk")
     return NewRiskPolicy(True, regime, quality, multiplier, "market_regime_allowed")
