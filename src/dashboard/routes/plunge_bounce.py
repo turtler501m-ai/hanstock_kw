@@ -725,6 +725,8 @@ def get_heikin_ashi_settings():
                 "ALPHA_HA_ADX_MIN": float(get_watchlist_setting("ALPHA_HA_ADX_MIN", "20")),
                 "ALPHA_HA_ATR_PCT_MIN": float(get_watchlist_setting("ALPHA_HA_ATR_PCT_MIN", "0.5")),
                 "ALPHA_HA_ATR_PCT_MAX": float(get_watchlist_setting("ALPHA_HA_ATR_PCT_MAX", "5.0")),
+                "ALPHA_HA_MAX_STOP_DISTANCE_PCT": float(get_watchlist_setting("ALPHA_HA_MAX_STOP_DISTANCE_PCT", "8.0")),
+                "ALPHA_HA_MAX_ENTRY_PREMIUM_PCT": float(get_watchlist_setting("ALPHA_HA_MAX_ENTRY_PREMIUM_PCT", "2.0")),
                 "effective_config": AlphaHeikinAshiScalpingStrategy().effective_config(),
             },
         }
@@ -749,6 +751,8 @@ def save_heikin_ashi_settings(payload: dict = Body(...)):
             "ALPHA_HA_ADX_MIN": float,
             "ALPHA_HA_ATR_PCT_MIN": float,
             "ALPHA_HA_ATR_PCT_MAX": float,
+            "ALPHA_HA_MAX_STOP_DISTANCE_PCT": float,
+            "ALPHA_HA_MAX_ENTRY_PREMIUM_PCT": float,
         }
         for key, caster in numeric_keys.items():
             if key in payload and payload[key] is not None:

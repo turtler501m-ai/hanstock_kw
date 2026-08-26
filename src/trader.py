@@ -1114,11 +1114,16 @@ def run(
         if row.get("action") == "buy" and (
             new_risk_block_reason or int(float(row.get("qty") or 0)) <= 0
         ):
+            skip_reason = (
+                new_risk_block_reason
+                or row.get("skip_reason")
+                or "market regime sizing below one share"
+            )
             results.append({
                 **row,
                 "decision": "skip",
                 "ok": True,
-                "skip_reason": new_risk_block_reason or "market regime sizing below one share",
+                "skip_reason": skip_reason,
             })
             continue
         if daily_loss_halted and row.get("action") == "buy":

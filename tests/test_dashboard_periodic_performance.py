@@ -179,6 +179,34 @@ class DashboardPeriodicPerformanceTests(unittest.TestCase):
         self.assertEqual(sell_detail["realized_pnl"], 35000)
         self.assertEqual(sell_detail["realized_pnl_rate"], 10.0)
 
+    def test_realized_pnl_matches_symbol_when_exit_strategy_differs(self):
+        trader.config.dry_run = True
+        trades = [
+            {
+                "ok": 1, "dry_run": 1,
+                "strategy_id": "heikin_ashi_scalping_strategy",
+                "symbol": "000810", "name": "Samsung Fire",
+                "action": "buy", "qty": 7, "price": 640_286,
+                "ts": "2026-08-25 11:00:44",
+            },
+            {
+                "ok": 1, "dry_run": 1,
+                "strategy_id": "ai_rebalance",
+                "symbol": "000810", "name": "Samsung Fire",
+                "action": "sell", "qty": 7, "price": 648_000,
+                "ts": "2026-08-26 09:08:45",
+            },
+        ]
+
+        with patch("src.dashboard.core._load_index_rows", return_value={}):
+            perf = _build_periodic_performance(trades)
+
+        today = next(row for row in perf["daily"] if row["period"] == "2026-08-26")
+        self.assertEqual(today["cost_of_sold"], 4_482_002)
+        self.assertEqual(today["realized_pnl"], 53_998)
+        self.assertEqual(today["realized_pnl_rate"], 1.2)
+        self.assertEqual(today["details"][0]["strategy_id"], "ai_rebalance")
+
     def test_build_periodic_performance_ignores_implausible_partial_fill_price(self):
         trader.config.dry_run = False
         trader.config.trading_env = "real"

@@ -1336,18 +1336,69 @@ def _apply_strategy_risk_sizing(orders: list[dict], candidates: list[dict], cash
     result = []
     for order in orders:
         candidate = candidate_map.get(str(order.get("ticker")), {})
+        candidate.pop("order_rejection", None)
         strategy_id = str(candidate.get("strategy_id") or "")
         if strategy_id not in {"rsi_limit_strategy", "heikin_ashi_scalping_strategy"}:
             result.append(order)
             continue
         risk = candidate.get("strategy_risk") or {}
         entry = float(order.get("limit_price") or candidate.get("current_price") or 0)
+        signal_price = float(candidate.get("current_price") or risk.get("entry") or 0)
         stop = float(risk.get("stop") or 0)
         risk_per_share = entry - stop
         if entry <= 0 or stop <= 0 or risk_per_share <= 0:
+            candidate["order_rejection"] = {
+                "code": "invalid_initial_stop_risk",
+                "reason": "initial stop risk is invalid",
+                "entry_price": entry,
+                "stop_price": stop,
+                "risk_per_share": risk_per_share,
+            }
             continue
-        max_stop_pct = 5.0 if strategy_id == "rsi_limit_strategy" else 8.0
-        if risk_per_share / entry * 100 > max_stop_pct:
+        effective = dict(risk.get("effective_parameters") or {})
+        max_stop_pct = (
+            5.0
+            if strategy_id == "rsi_limit_strategy"
+            else float(effective.get("max_stop_distance_pct") or 8.0)
+        )
+        max_entry_premium_pct = (
+            float(effective.get("max_entry_premium_pct") or 2.0)
+            if strategy_id == "heikin_ashi_scalping_strategy"
+            else 0.0
+        )
+        entry_premium_pct = (
+            (entry / signal_price - 1.0) * 100
+            if signal_price > 0 and entry > signal_price
+            else 0.0
+        )
+        if max_entry_premium_pct > 0 and entry_premium_pct > max_entry_premium_pct:
+            candidate["order_rejection"] = {
+                "code": "entry_price_premium_exceeded",
+                "reason": (
+                    f"entry price premium {entry_premium_pct:.2f}% exceeds "
+                    f"{max_entry_premium_pct:.2f}% limit"
+                ),
+                "signal_price": signal_price,
+                "entry_price": entry,
+                "entry_premium_pct": round(entry_premium_pct, 4),
+                "max_entry_premium_pct": max_entry_premium_pct,
+                "stop_price": stop,
+            }
+            continue
+        stop_pct = risk_per_share / entry * 100
+        if stop_pct > max_stop_pct:
+            candidate["order_rejection"] = {
+                "code": "initial_stop_distance_exceeded",
+                "reason": (
+                    f"initial stop distance {stop_pct:.2f}% exceeds "
+                    f"{max_stop_pct:.2f}% limit"
+                ),
+                "entry_price": entry,
+                "stop_price": stop,
+                "risk_per_share": risk_per_share,
+                "stop_distance_pct": round(stop_pct, 4),
+                "max_stop_distance_pct": max_stop_pct,
+            }
             continue
         risk_pct = (
             float(config.rsi_risk_per_trade_pct)
@@ -1363,6 +1414,16 @@ def _apply_strategy_risk_sizing(orders: list[dict], candidates: list[dict], cash
         cash_qty = math.floor(float(cash) / (entry * 1.001))
         quantity = min(int(order.get("quantity") or 0), risk_qty, exposure_qty, cash_qty)
         if quantity <= 0:
+            candidate["order_rejection"] = {
+                "code": "risk_sizing_below_one_share",
+                "reason": "strategy risk sizing is below one share",
+                "allocator_qty": int(order.get("quantity") or 0),
+                "risk_qty": risk_qty,
+                "exposure_qty": exposure_qty,
+                "cash_qty": cash_qty,
+                "risk_budget": round(risk_budget, 4),
+                "risk_per_share": round(risk_per_share, 4),
+            }
             continue
         allocated_risk = quantity * risk_per_share
         total_risk_remaining[strategy_id] = max(

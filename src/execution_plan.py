@@ -75,22 +75,29 @@ def candidate_order_to_plan_row(
     reasons = list(order.get("reasons") or candidate.get("reasons") or [])
     reason = f"new buy score={score} ({', '.join(reasons)})" if reasons else f"new buy score={score}"
 
+    rejection = dict(candidate.get("order_rejection") or {})
     row = PlanRow(
         symbol=str(order.get("ticker", candidate.get("ticker", ""))),
         name=str(candidate.get("name") or order.get("ticker", candidate.get("ticker", ""))),
         action="buy",
         qty=_plan_number(order.get("quantity", 0)),
-        price=_plan_number(order.get("limit_price", 0)),
+        price=_plan_number(order.get("limit_price") or candidate.get("limit_price", 0)),
         reason=reason,
         source=source,
         category="candidate",
         score=score,
         reasons=reasons,
         estimated_cost=float(order.get("estimated_cost", 0) or 0),
-        metadata=dict(metadata or {}),
+        metadata={
+            **dict(metadata or {}),
+            **({"order_rejection": rejection} if rejection else {}),
+        },
         strategy_id=strategy_id,
     )
-    return row.to_dict()
+    result = row.to_dict()
+    if rejection:
+        result["skip_reason"] = str(rejection.get("reason") or rejection.get("code") or "order rejected")
+    return result
 
 
 def build_execution_plan(

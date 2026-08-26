@@ -1998,6 +1998,16 @@
                                     <span style="font-size:0.75rem; color:rgba(255,255,255,0.4); display:block; margin-bottom:4px;">ATR% 최대값</span>
                                     <input type="number" step="0.1" id="ha-input-atr-max" value="5.0" min="0.1" style="width:100%; padding: 6px; border-radius: 4px; border:1px solid rgba(255,255,255,0.1); background:rgba(0,0,0,0.3); color:white; font-family:'JetBrains Mono';">
                                 </div>
+                                <div>
+                                    <span style="font-size:0.75rem; color:rgba(255,255,255,0.4); display:block; margin-bottom:4px;">최대 손절폭 (%)</span>
+                                    <input type="number" step="0.1" id="ha-input-max-stop-distance" value="8.0" min="0.1" max="30" style="width:100%; padding: 6px; border-radius: 4px; border:1px solid rgba(255,255,255,0.1); background:rgba(0,0,0,0.3); color:white; font-family:'JetBrains Mono';">
+                                    <small style="color:rgba(255,255,255,0.45);">실제 주문가에서 손절가까지 허용할 최대 거리</small>
+                                </div>
+                                <div>
+                                    <span style="font-size:0.75rem; color:rgba(255,255,255,0.4); display:block; margin-bottom:4px;">최대 추격 진입폭 (%)</span>
+                                    <input type="number" step="0.1" id="ha-input-max-entry-premium" value="2.0" min="0.1" max="20" style="width:100%; padding: 6px; border-radius: 4px; border:1px solid rgba(255,255,255,0.1); background:rgba(0,0,0,0.3); color:white; font-family:'JetBrains Mono';">
+                                    <small style="color:rgba(255,255,255,0.45);">신호가보다 주문가가 높아질 때 허용할 최대 상승폭</small>
+                                </div>
                             </div>
                         </section>
                     </div>
@@ -2871,6 +2881,8 @@
                     document.getElementById('ha-input-adx-min').value = s.ALPHA_HA_ADX_MIN;
                     document.getElementById('ha-input-atr-min').value = s.ALPHA_HA_ATR_PCT_MIN;
                     document.getElementById('ha-input-atr-max').value = s.ALPHA_HA_ATR_PCT_MAX;
+                    document.getElementById('ha-input-max-stop-distance').value = s.ALPHA_HA_MAX_STOP_DISTANCE_PCT;
+                    document.getElementById('ha-input-max-entry-premium').value = s.ALPHA_HA_MAX_ENTRY_PREMIUM_PCT;
                 }
                 await loadHeikinAshiScheduleHistory();
                 await loadHeikinAshiScanHistory();
@@ -2886,6 +2898,8 @@
                 ALPHA_HA_ADX_MIN: Number(document.getElementById('ha-input-adx-min').value),
                 ALPHA_HA_ATR_PCT_MIN: Number(document.getElementById('ha-input-atr-min').value),
                 ALPHA_HA_ATR_PCT_MAX: Number(document.getElementById('ha-input-atr-max').value),
+                ALPHA_HA_MAX_STOP_DISTANCE_PCT: Number(document.getElementById('ha-input-max-stop-distance').value),
+                ALPHA_HA_MAX_ENTRY_PREMIUM_PCT: Number(document.getElementById('ha-input-max-entry-premium').value),
             };
             const res = await postJson('/api/strategy/heikin_ashi_scalping/settings', payload);
             if (!res.ok) {

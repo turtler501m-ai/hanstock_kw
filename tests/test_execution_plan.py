@@ -8,6 +8,35 @@ from src.execution_plan import (
 
 
 class ExecutionPlanTests(unittest.TestCase):
+
+    def test_candidate_rejection_preserves_reason_and_limit_price(self):
+        row = candidate_order_to_plan_row(
+            {
+                "ticker": "000810",
+                "name": "삼성화재해상보험",
+                "score": 3.75,
+                "limit_price": 683_000,
+                "order_rejection": {
+                    "code": "initial_stop_distance_exceeded",
+                    "reason": "initial stop distance 12.01% exceeds 8.00% limit",
+                    "stop_distance_pct": 12.0059,
+                    "max_stop_distance_pct": 8.0,
+                },
+            },
+            {},
+        )
+
+        self.assertEqual(row["qty"], 0)
+        self.assertEqual(row["price"], 683_000)
+        self.assertEqual(
+            row["skip_reason"],
+            "initial stop distance 12.01% exceeds 8.00% limit",
+        )
+        self.assertEqual(
+            row["metadata"]["order_rejection"]["code"],
+            "initial_stop_distance_exceeded",
+        )
+
     def test_signal_to_plan_row_skips_hold_by_default(self):
         row = signal_to_plan_row(
             "005930",

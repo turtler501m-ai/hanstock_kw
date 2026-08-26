@@ -96,6 +96,67 @@ class TraderCoreTests(unittest.TestCase):
         self.assertEqual(orders[0]["risk_budget"], 10_000)
         self.assertEqual(orders[0]["initial_r"], 5)
 
+    def test_heikin_order_records_rejection_when_entry_premium_exceeds_limit(self):
+        candidate = {
+            "ticker": "000810",
+            "score": 3.75,
+            "volatility": 0.0453,
+            "current_price": 648_000,
+            "reasons": ["alpha reversal"],
+            "strategy_id": "heikin_ashi_scalping_strategy",
+            "strategy_risk": {"stop": 601_000},
+        }
+        with patch("src.strategy.seven_split.config.total_capital", 100_000_000), \
+                patch("src.strategy.seven_split.config.max_single_weight", 0.10), \
+                patch("src.strategy.seven_split.config.cash_buffer", 0.10), \
+                patch("src.strategy.seven_split.config.alpha_ha_risk_per_trade_pct", 10.0), \
+                patch("src.strategy.seven_split.config.alpha_ha_max_total_open_risk_pct", 50.0), \
+                patch("src.strategy.seven_split.strategy_open_risk", return_value=0):
+            orders = build_orders(
+                [candidate],
+                lambda _symbol: {"ask1": 683_000, "current": 648_000},
+                held_count=0,
+                cash=34_132_826,
+            )
+
+        self.assertEqual(orders, [])
+        rejection = candidate["order_rejection"]
+        self.assertEqual(rejection["code"], "entry_price_premium_exceeded")
+        self.assertAlmostEqual(rejection["entry_premium_pct"], 5.4012, places=4)
+        self.assertEqual(rejection["max_entry_premium_pct"], 2.0)
+
+    def test_heikin_order_uses_effective_stop_distance_setting(self):
+        candidate = {
+            "ticker": "000810",
+            "score": 3.75,
+            "volatility": 0.0453,
+            "reasons": [],
+            "current_price": 683_000,
+            "strategy_id": "heikin_ashi_scalping_strategy",
+            "strategy_risk": {
+                "stop": 601_000,
+                "effective_parameters": {
+                    "max_stop_distance_pct": 13.0,
+                    "max_entry_premium_pct": 2.0,
+                },
+            },
+        }
+        with patch("src.strategy.seven_split.config.total_capital", 100_000_000), \
+                patch("src.strategy.seven_split.config.max_single_weight", 0.10), \
+                patch("src.strategy.seven_split.config.cash_buffer", 0.10), \
+                patch("src.strategy.seven_split.config.alpha_ha_risk_per_trade_pct", 10.0), \
+                patch("src.strategy.seven_split.config.alpha_ha_max_total_open_risk_pct", 50.0), \
+                patch("src.strategy.seven_split.strategy_open_risk", return_value=0):
+            orders = build_orders(
+                [candidate],
+                lambda _symbol: {"ask1": 683_000, "current": 683_000},
+                held_count=0,
+                cash=34_132_826,
+            )
+
+        self.assertGreater(orders[0]["quantity"], 0)
+        self.assertNotIn("order_rejection", candidate)
+
     def test_build_orders_excludes_configured_symbols(self):
         with patch("src.strategy.seven_split.config.hanstock_excluded_symbols", "252670"):
             orders = build_orders(

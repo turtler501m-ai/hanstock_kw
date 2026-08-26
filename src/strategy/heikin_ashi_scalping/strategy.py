@@ -26,6 +26,8 @@ class HeikinAshiScalpingStrategy:
         min_adx: float | None = None,
         min_atr_pct: float | None = None,
         max_atr_pct: float | None = None,
+        max_stop_distance_pct: float | None = None,
+        max_entry_premium_pct: float | None = None,
         ema_slope_lookback: int | None = None,
         trigger_window: int = 7,
     ) -> None:
@@ -40,6 +42,16 @@ class HeikinAshiScalpingStrategy:
         self.min_adx = float(min_adx if min_adx is not None else v2["min_adx"])
         self.min_atr_pct = float(min_atr_pct if min_atr_pct is not None else v2["min_atr_pct"])
         self.max_atr_pct = float(max_atr_pct if max_atr_pct is not None else v2["max_atr_pct"])
+        self.max_stop_distance_pct = float(
+            max_stop_distance_pct
+            if max_stop_distance_pct is not None
+            else v2["max_stop_distance_pct"]
+        )
+        self.max_entry_premium_pct = float(
+            max_entry_premium_pct
+            if max_entry_premium_pct is not None
+            else v2["max_entry_premium_pct"]
+        )
         self.ema_slope_lookback = int(ema_slope_lookback if ema_slope_lookback is not None else v2["ema_slope_lookback"])
         self.trigger_window = int(trigger_window)
 
@@ -65,6 +77,7 @@ class HeikinAshiScalpingStrategy:
         defaults = {
             "trend_ema": 200.0, "ema_slope_lookback": 20.0,
             "min_adx": 20.0, "min_atr_pct": 0.5, "max_atr_pct": 5.0,
+            "max_stop_distance_pct": 8.0, "max_entry_premium_pct": 2.0,
         }
         try:
             from src.db.repository import get_watchlist_setting
@@ -76,6 +89,8 @@ class HeikinAshiScalpingStrategy:
                     "min_adx": "ALPHA_HA_ADX_MIN",
                     "min_atr_pct": "ALPHA_HA_ATR_PCT_MIN",
                     "max_atr_pct": "ALPHA_HA_ATR_PCT_MAX",
+                    "max_stop_distance_pct": "ALPHA_HA_MAX_STOP_DISTANCE_PCT",
+                    "max_entry_premium_pct": "ALPHA_HA_MAX_ENTRY_PREMIUM_PCT",
                 }.items()
             }
         except Exception:
@@ -118,7 +133,7 @@ class HeikinAshiScalpingStrategy:
         trend_ok = current > ema_now and ema_now > ema_previous
         risk = self._risk_plan(prices, candles)
         stop_distance_pct = (current - risk["stop"]) / current * 100 if current > 0 else 100.0
-        risk_acceptable = 0 < stop_distance_pct <= 8.0
+        risk_acceptable = 0 < stop_distance_pct <= self.max_stop_distance_pct
         gap_pct = (candles[-1].open / prices[-2] - 1) * 100 if prices[-2] else 0.0
         event_risk = gap_pct <= -5.0 or (
             current < candles[-1].open and current_volume_ratio >= 1.5 and
@@ -229,6 +244,8 @@ class HeikinAshiScalpingStrategy:
             "atr_period": 14,
             "atr_pct_min": self.min_atr_pct,
             "atr_pct_max": self.max_atr_pct,
+            "max_stop_distance_pct": self.max_stop_distance_pct,
+            "max_entry_premium_pct": self.max_entry_premium_pct,
         }
 
     def _confirmed_reversal_index(self, colors: list[str], direction: str) -> int | None:

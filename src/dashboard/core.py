@@ -2457,10 +2457,13 @@ def _build_periodic_performance(trades: list[dict]) -> dict:
                 bucket["sell_count"] += 1
                 bucket["sell_amount"] += amount
 
-        holding_key = (strategy_id, symbol)
-        if holding_key not in holdings:
-            holdings[holding_key] = {"qty": 0, "avg_cost": 0.0}
-        holding = holdings[holding_key]
+        # Realized PnL is an account-level fact. The strategy that closes a
+        # position can differ from the strategy that opened it (for example,
+        # an AI rebalance closing a Heikin-Ashi entry), so cost basis must be
+        # matched by symbol rather than by (execution strategy, symbol).
+        if symbol not in holdings:
+            holdings[symbol] = {"qty": 0, "avg_cost": 0.0}
+        holding = holdings[symbol]
         stats = strategy_stats.setdefault(strategy_id, {
             "order_count": 0, "buy_count": 0, "sell_count": 0,
             "realized_pnl": 0, "_pnls": [],
