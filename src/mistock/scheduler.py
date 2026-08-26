@@ -222,6 +222,58 @@ def _build_risk_rebalance_sells(balance: dict) -> list[dict]:
     return list(orders.values())
 
 
+def _reserved_sell_quantities() -> dict[str, float]:
+    """Return quantities already reserved by accepted broker sell orders.
+
+    Kiwoom's demo balance can continue to report the original ``poss_qty``
+    while a limit sell is open.  Managed orders are therefore the local
+    source of truth for reservations until a later successful buy starts a
+    new position lifecycle.
+    """
+    rows = mistock_db.rows(
+        """
+        SELECT mo.symbol,
+               SUM(MAX(0, mo.requested_qty - COALESCE(mo.filled_qty, 0))) AS qty
+        FROM managed_orders mo
+        WHERE mo.action = 'sell'
+          AND mo.status IN ('accepted', 'submitted', 'open', 'partial')
+          AND NOT EXISTS (
+              SELECT 1
+              FROM trades t
+              WHERE t.symbol = mo.symbol
+                AND t.action = 'buy'
+                AND t.ok = 1
+                AND t.ts > mo.created_at
+          )
+        GROUP BY mo.symbol
+        """
+    )
+    return {
+        str(row["symbol"]): float(row.get("qty") or 0)
+        for row in rows
+        if float(row.get("qty") or 0) > 0
+    }
+
+
+def _subtract_reserved_sells(signals: list[dict]) -> list[dict]:
+    reserved = _reserved_sell_quantities()
+    available_signals = []
+    for signal in signals:
+        item = dict(signal)
+        symbol = str(item.get("symbol") or "")
+        qty = max(0.0, float(item.get("signal_qty") or 0) - reserved.get(symbol, 0.0))
+        if qty <= 0:
+            if reserved.get(symbol, 0) > 0:
+                logger.info(
+                    f"[MISTOCK SCHEDULER] Skipping duplicate sell for {symbol}; "
+                    f"reserved_qty={reserved[symbol]}"
+                )
+            continue
+        item["signal_qty"] = qty
+        available_signals.append(item)
+    return available_signals
+
+
 def _execute_pending_scheduler_approvals(strategy_id: str | None = None) -> list[dict]:
     pending = mistock_db.rows(
         """
@@ -334,6 +386,7 @@ def run_mistock_scheduled_cycle(mode: str = "execute", strategy_id: str | None =
         sig for sig in mistock_trader.signals()
         if sig["action"] == "sell" and float(sig["signal_qty"]) > 0 and sig["symbol"] not in rebalance_symbols
     )
+    sell_sigs = _subtract_reserved_sells(sell_sigs)
     sold_items = []
     for idx, sig in enumerate(sell_sigs):
         qty = float(sig["signal_qty"])

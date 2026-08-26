@@ -1097,6 +1097,55 @@ class MistockDashboardTests(unittest.TestCase):
         self.assertEqual(orders[0]["symbol"], "AAPL")
         self.assertEqual(orders[0]["qty"], 2)
 
+    def test_scheduler_subtracts_accepted_sell_reservations(self):
+        mistock_db.execute("DELETE FROM managed_orders")
+        mistock_db.execute("DELETE FROM trades")
+        mistock_db.execute(
+            """
+            INSERT INTO managed_orders
+                (client_order_key, symbol, action, requested_qty, requested_price,
+                 filled_qty, status, created_at, updated_at)
+            VALUES ('sell-aapl', 'AAPL', 'sell', 8, 100, 2, 'accepted',
+                    '2026-08-26 01:00:00', '2026-08-26 01:00:00')
+            """
+        )
+
+        signals = mistock_scheduler._subtract_reserved_sells([
+            {"symbol": "AAPL", "signal_qty": 10, "signal_price": 100, "reason": "exit"},
+            {"symbol": "MSFT", "signal_qty": 3, "signal_price": 200, "reason": "exit"},
+        ])
+
+        self.assertEqual([(item["symbol"], item["signal_qty"]) for item in signals], [
+            ("AAPL", 4.0),
+            ("MSFT", 3.0),
+        ])
+
+    def test_scheduler_ignores_sell_reservation_before_new_buy(self):
+        mistock_db.execute("DELETE FROM managed_orders")
+        mistock_db.execute("DELETE FROM trades")
+        mistock_db.execute(
+            """
+            INSERT INTO managed_orders
+                (client_order_key, symbol, action, requested_qty, requested_price,
+                 filled_qty, status, created_at, updated_at)
+            VALUES ('old-sell', 'AAPL', 'sell', 5, 100, 0, 'accepted',
+                    '2026-08-25 01:00:00', '2026-08-25 01:00:00')
+            """
+        )
+        mistock_db.execute(
+            """
+            INSERT INTO trades
+                (ts, symbol, name, action, qty, price, ok, response_msg)
+            VALUES ('2026-08-26 01:00:00', 'AAPL', 'Apple', 'buy', 5, 101, 1, 'accepted')
+            """
+        )
+
+        signals = mistock_scheduler._subtract_reserved_sells([
+            {"symbol": "AAPL", "signal_qty": 5, "signal_price": 102, "reason": "exit"},
+        ])
+
+        self.assertEqual(signals[0]["signal_qty"], 5.0)
+
     def test_create_approval_does_not_auto_execute_when_broker_balance_is_fallback(self):
         mistock_db.set_setting("auto_approval", "true")
 
