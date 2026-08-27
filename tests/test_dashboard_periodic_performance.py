@@ -68,6 +68,12 @@ class DashboardPeriodicPerformanceTests(unittest.TestCase):
         self.assertNotIn("069500", _INDEX_SYMBOL_ALIASES["KOSPI"])
         self.assertNotIn("229200", _INDEX_SYMBOL_ALIASES["KOSDAQ"])
         self.assertEqual(_INDEX_SYMBOL_ALIASES["KOSPI"][0], "^KS11")
+
+    def test_local_index_fallback_prefers_fresh_kiwoom_series(self):
+        from src.dashboard.core import _INDEX_DB_SYMBOL_ALIASES
+
+        self.assertEqual(_INDEX_DB_SYMBOL_ALIASES["KOSPI"][0], "0001")
+        self.assertEqual(_INDEX_DB_SYMBOL_ALIASES["KOSDAQ"][0], "1001")
         self.assertEqual(_INDEX_SYMBOL_ALIASES["KOSDAQ"][0], "^KQ11")
 
     def test_legacy_ai_rebalance_trade_recovers_strategy_attribution(self):

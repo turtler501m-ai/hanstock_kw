@@ -2030,6 +2030,10 @@ _INDEX_SYMBOL_ALIASES = {
     "KOSPI": ("^KS11", "KOSPI", "0001"),
     "KOSDAQ": ("^KQ11", "KOSDAQ", "1001"),
 }
+_INDEX_DB_SYMBOL_ALIASES = {
+    "KOSPI": ("0001", "^KS11", "KOSPI"),
+    "KOSDAQ": ("1001", "^KQ11", "KOSDAQ"),
+}
 _KIWOOM_INDEX_CODES = {"KOSPI": "0001", "KOSDAQ": "1001"}
 
 
@@ -2082,7 +2086,7 @@ def _load_index_rows() -> dict[str, list[dict]]:
 
         with connect_db() as conn:
             conn.row_factory = sqlite3.Row
-            for name, symbols in _INDEX_SYMBOL_ALIASES.items():
+            for name, symbols in _INDEX_DB_SYMBOL_ALIASES.items():
                 if name in series:
                     continue
                 for symbol in symbols:
