@@ -727,6 +727,64 @@ class MistockDashboardTests(unittest.TestCase):
         self.assertEqual(pending, [])
         self.assertTrue(build_orders.call_args.kwargs["validate_broker_exchange"])
 
+    def test_prior_us_session_managed_orders_expire_without_expiring_same_session(self):
+        old_id = mistock_db.create_managed_order({
+            "client_order_key": "old-order",
+            "symbol": "AAPL",
+            "action": "sell",
+            "requested_qty": 1,
+            "requested_price": 100,
+            "status": "accepted",
+            "created_at": "2026-08-26 22:00:00",
+            "updated_at": "2026-08-26 22:00:00",
+        })
+        same_session_id = mistock_db.create_managed_order({
+            "client_order_key": "same-session-order",
+            "symbol": "MSFT",
+            "action": "buy",
+            "requested_qty": 1,
+            "requested_price": 200,
+            "status": "accepted",
+            "created_at": "2026-08-27 22:00:00",
+            "updated_at": "2026-08-27 22:00:00",
+        })
+
+        expired = mistock_scheduler._expire_prior_us_session_orders(
+            datetime.fromisoformat("2026-08-28T01:00:00+09:00")
+        )
+
+        self.assertEqual(expired, 1)
+        self.assertEqual(mistock_db.row("SELECT status FROM managed_orders WHERE id=?", (old_id,))["status"], "expired")
+        self.assertEqual(mistock_db.row("SELECT status FROM managed_orders WHERE id=?", (same_session_id,))["status"], "accepted")
+
+    def test_active_managed_buy_is_excluded_from_new_schedule_orders(self):
+        mistock_db.create_managed_order({
+            "client_order_key": "active-buy",
+            "symbol": "AAPL",
+            "action": "buy",
+            "requested_qty": 1,
+            "requested_price": 100,
+            "status": "accepted",
+            "created_at": mistock_db.now_text(),
+        })
+        candidates = [
+            {"symbol": "AAPL", "name": "Apple", "price": 100, "score": 5, "reasons": []},
+            {"symbol": "MSFT", "name": "Microsoft", "price": 200, "score": 5, "reasons": []},
+        ]
+
+        with patch.object(mistock_scheduler, "_expire_prior_us_session_orders", return_value=0), \
+                patch.object(mistock_trader, "scan_candidates", return_value={"scanned": 2, "candidates": candidates}), \
+                patch.object(mistock_trader, "get_balance", return_value={"cash": 1000.0, "total_eval": 1000.0, "stock_eval": 0.0, "holdings": []}), \
+                patch.object(mistock_trader, "signals", return_value=[]), \
+                patch.object(mistock_trader, "build_orders", return_value=[]) as build_orders, \
+                patch.object(mistock_scheduler, "is_us_market_open", return_value=False), \
+                patch("src.mistock.scheduler.Path.write_text"), \
+                patch("src.mistock.scheduler.send_mistock_slack"):
+            mistock_scheduler.run_mistock_scheduled_cycle(mode="analysis_only")
+
+        passed_candidates = build_orders.call_args.args[0]
+        self.assertEqual([item["symbol"] for item in passed_candidates], ["MSFT"])
+
     def test_mistock_scheduler_does_not_duplicate_pending_sell_approval(self):
         object.__setattr__(mistock_config, "trading_env", "demo")
         now = mistock_db.now_text()

@@ -26,6 +26,7 @@ from src.utils.logger import logger
 from src.mistock.strategy import symbol_name
 
 KST = timezone(timedelta(hours=9))
+US_EASTERN = ZoneInfo("America/New_York")
 
 
 def _weekday_matches(spec: str, weekday: int) -> bool:
@@ -142,6 +143,38 @@ def _place_order(symbol: str, action: str, qty: float, price: float, reason: str
 def _available_position_slots(held_symbols: set[str], pending_buy_symbols: set[str]) -> int:
     reserved = held_symbols | pending_buy_symbols
     return max(0, max(0, mistock_config.max_positions) - len(reserved))
+
+
+def _expire_prior_us_session_orders(now: datetime | None = None) -> int:
+    """Release day-order reservations after their US trading date has ended."""
+    current = now or datetime.now(KST)
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=KST)
+    current_us_date = current.astimezone(US_EASTERN).date()
+    active = mistock_db.rows(
+        """
+        SELECT id, created_at
+        FROM managed_orders
+        WHERE status IN ('created', 'accepted', 'submitted', 'open', 'partial', 'cancel_requested')
+        """
+    )
+    expired_ids: list[int] = []
+    for item in active:
+        try:
+            created = datetime.fromisoformat(str(item.get("created_at") or ""))
+        except ValueError:
+            continue
+        if created.tzinfo is None:
+            created = created.replace(tzinfo=KST)
+        if created.astimezone(US_EASTERN).date() < current_us_date:
+            expired_ids.append(int(item["id"]))
+    for order_id in expired_ids:
+        mistock_db.update_managed_order(
+            order_id,
+            status="expired",
+            last_error="day order expired without broker fill reconciliation",
+        )
+    return len(expired_ids)
 
 
 def _maintain_scheduler_approvals(strategy_id: str | None = None, now: datetime | None = None) -> dict:
@@ -343,6 +376,7 @@ def run_mistock_scheduled_cycle(mode: str = "execute", strategy_id: str | None =
     """
     logger.info(f"[MISTOCK SCHEDULER] Starting scheduled cycle. Mode={mode}")
     approval_maintenance = _maintain_scheduler_approvals(strategy_id)
+    approval_maintenance["expired_orders"] = _expire_prior_us_session_orders()
     
     # 1. 시세 조회 및 후보 종목 스캔
     min_score = (
@@ -428,6 +462,16 @@ def run_mistock_scheduled_cycle(mode: str = "execute", strategy_id: str | None =
         row["symbol"]
         for row in mistock_db.rows("SELECT symbol FROM approvals WHERE status = 'pending' AND action = 'buy'")
     }
+    active_buy_symbols = {
+        row["symbol"]
+        for row in mistock_db.rows(
+            """
+            SELECT DISTINCT symbol FROM managed_orders
+            WHERE action = 'buy'
+              AND status IN ('created', 'accepted', 'submitted', 'open', 'partial', 'cancel_requested')
+            """
+        )
+    }
     
     # A successful exit starts a per-symbol re-entry cooldown.
     cooldown_cutoff = (datetime.now(KST) - timedelta(hours=max(0, mistock_config.rebuy_cooldown_hours))).strftime("%Y-%m-%d %H:%M:%S")
@@ -440,8 +484,10 @@ def run_mistock_scheduled_cycle(mode: str = "execute", strategy_id: str | None =
     }
     
     # Exclude held, pending, and recently exited symbols.
-    exclude_symbols = held_symbols | pending_symbols | recent_exits
-    available_position_slots = _available_position_slots(held_symbols, pending_buy_symbols)
+    exclude_symbols = held_symbols | pending_symbols | active_buy_symbols | recent_exits
+    available_position_slots = _available_position_slots(
+        held_symbols, pending_buy_symbols | active_buy_symbols
+    )
     buy_candidates = [c for c in candidates if c.get("symbol") not in exclude_symbols][:available_position_slots]
     
     # Keep account values and configured capital in USD before applying the buffer.
