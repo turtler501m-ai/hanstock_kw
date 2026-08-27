@@ -1046,7 +1046,7 @@ class DashboardCoreTests(unittest.TestCase):
                     True,
                     True,
                     broker_result={"odno": "0001"},
-                    order_status="partial",
+                    order_status="failed",
                     filled_qty=4,
                     filled_price=1780,
                     source_approval_id=approval_id,
@@ -1082,6 +1082,43 @@ class DashboardCoreTests(unittest.TestCase):
             dashboard.trader.config.trade_db_path = original_db_path
             dashboard._get_api = original_get_api
             dashboard._get_balance_data = original_get_balance_data
+
+    def test_retry_approval_blocks_duplicate_sell_while_partial_order_is_open(self):
+        original_db_path = dashboard.trader.config.trade_db_path
+        original_get_api = dashboard._get_api
+        try:
+            with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+                dashboard.trader.config.trade_db_path = f"{tmpdir}/trades.db"
+                dashboard.trader.init_db()
+                dashboard._get_api = lambda: object()
+                approval_id = dashboard._create_approval_row({
+                    "symbol": "005360",
+                    "name": "Monami",
+                    "action": "sell",
+                    "qty": 10,
+                    "price": 1782,
+                    "reason": "sell all",
+                    "source": "dashboard_sell_all",
+                })
+                with dashboard.trader.connect_db() as conn:
+                    conn.execute(
+                        "UPDATE approvals SET status = 'executed' WHERE id = ?",
+                        (approval_id,),
+                    )
+                dashboard.trader.save_trade(
+                    "005360", "Monami", "sell", 10, 1782, "sell all",
+                    True, True, broker_order_id="B123", order_status="partial",
+                    filled_qty=4, filled_price=1780, source_approval_id=approval_id,
+                )
+
+                with self.assertRaises(dashboard.HTTPException) as raised:
+                    dashboard.retry_approval_order(approval_id)
+
+                self.assertEqual(raised.exception.status_code, 409)
+                self.assertIn("cancel-retry", str(raised.exception.detail))
+        finally:
+            dashboard.trader.config.trade_db_path = original_db_path
+            dashboard._get_api = original_get_api
 
     def test_start_approval_batch_returns_immediately_and_tracks_progress(self):
         original_thread = dashboard.threading.Thread

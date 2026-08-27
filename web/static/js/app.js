@@ -4130,9 +4130,21 @@ async function renderApprovals() {
         const tbody = document.querySelector('#table-approvals tbody');
         if (!tbody) return;
         tbody.innerHTML = '';
+        const directRetryCount = data.approvals.filter((row) => row.direct_retry_eligible).length;
+        const cancelRetryCount = data.approvals.filter((row) => row.cancel_retry_eligible).length;
+        const retryBatchButton = document.getElementById('btn-retry-approvals-batch');
+        const cancelRetryBatchButton = document.getElementById('btn-cancel-retry-approvals-batch');
+        if (retryBatchButton) {
+            retryBatchButton.disabled = directRetryCount === 0;
+            retryBatchButton.textContent = `재처리 일괄 (${directRetryCount})`;
+        }
+        if (cancelRetryBatchButton) {
+            cancelRetryBatchButton.disabled = cancelRetryCount === 0;
+            cancelRetryBatchButton.textContent = `미체결 취소 후 재처리 (${cancelRetryCount})`;
+        }
         const summary = document.getElementById('approval-queue-summary');
         if (summary) {
-            summary.textContent = `표시 ${data.approvals.length}건 · 처리 필요 ${Number(data.actionable_count || 0)}건 · 주문 접수는 체결이 아닙니다.`;
+            summary.textContent = `표시 ${data.approvals.length}건 · 처리 필요 ${Number(data.actionable_count || 0)}건 · 일반 재처리 ${directRetryCount}건 · 미체결 취소 필요 ${cancelRetryCount}건 · 주문 접수는 체결이 아닙니다.`;
         }
         if (!data.approvals.length) {
             setTableMessage('#table-approvals tbody', 10, '승인 대기 주문이 없습니다');
@@ -4149,10 +4161,14 @@ async function renderApprovals() {
             const approvalLabel = status === 'executed' ? '주문 접수' : toKorStatus(status);
             const orderLabel = orderStatus ? orderStatusLabel(orderStatus) : (status === 'pending' ? '미제출' : '-');
             const autoApprovalInProgress = Boolean(row.auto_approval_in_progress);
-            const retryButton = row.retry_eligible
-                ? `<button type="button" class="retry-approval" data-id="${row.id}" data-symbol="${escapeHtml(row.symbol)}">재처리</button>
-                   <button type="button" class="button-danger cancel-retry-approval" data-id="${row.id}" data-symbol="${escapeHtml(row.symbol)}">취소후재처리</button>`
-                : '';
+            const retryButton = [
+                row.direct_retry_eligible
+                    ? `<button type="button" class="retry-approval" data-id="${row.id}" data-symbol="${escapeHtml(row.symbol)}">재처리</button>`
+                    : '',
+                row.cancel_retry_eligible
+                    ? `<button type="button" class="button-danger cancel-retry-approval" data-id="${row.id}" data-symbol="${escapeHtml(row.symbol)}">미체결 취소 후 재처리</button>`
+                    : '',
+            ].filter(Boolean).join('');
             const blockingText = Number(row.blocking_remaining_qty || 0) > 0
                 ? ` · 증권사 미체결 ${Number(row.blocking_remaining_qty).toLocaleString()}주 (#${escapeHtml(row.blocking_order_id || '-')})`
                 : '';

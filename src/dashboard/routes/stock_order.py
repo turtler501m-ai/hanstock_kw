@@ -238,6 +238,9 @@ def get_approvals(limit: int = 50, strategy_id: str | None = None):
                 0,
                 _to_int(blocking_sell.get("qty")) - _to_int(blocking_sell.get("filled_qty")),
             )
+        has_blocking_order = _to_int(item.get("blocking_remaining_qty")) > 0
+        item["direct_retry_eligible"] = bool(item["retry_eligible"] and not has_blocking_order)
+        item["cancel_retry_eligible"] = bool(item["retry_eligible"] and has_blocking_order)
         item["auto_approval_in_progress"] = (
             auto_approval_enabled
             and item.get("status") == "pending"
@@ -512,6 +515,32 @@ def retry_approval_order(approval_id: int):
         raise HTTPException(status_code=409, detail="approval is not retryable")
 
     symbol = str(item.get("symbol") or "").strip()
+    trade_status = str((trade or {}).get("order_status") or "").lower()
+    blocking_order = None
+    if trade_status in {"submitted", "open", "partial"}:
+        blocking_order = trade
+    else:
+        api = _get_api()
+        if hasattr(api, "get_trade_history"):
+            blocking_order = _open_sell_order_from_history(api, symbol)
+    blocking_remaining_qty = (
+        max(0, _to_int(blocking_order.get("qty")) - _to_int(blocking_order.get("filled_qty")))
+        if blocking_order is trade
+        else _history_remaining_qty(blocking_order) if blocking_order else 0
+    )
+    if blocking_order and blocking_remaining_qty > 0:
+        order_no = (
+            str(blocking_order.get("broker_order_id") or "")
+            if blocking_order is trade
+            else _broker_order_id_from_history(blocking_order)
+        ) or "-"
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "an open broker sell order still exists "
+                f"(order {order_no}); use cancel-retry to prevent a duplicate sell"
+            ),
+        )
     sellable_qty = _current_sellable_qty(symbol)
     if sellable_qty <= 0:
         raise HTTPException(
