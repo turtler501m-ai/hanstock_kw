@@ -60,6 +60,33 @@ class MistockIndicatorStrategyTests(unittest.TestCase):
         self.assertEqual(result["min_score"], 5)
         self.assertEqual(result["candidates"], [])
 
+    def test_scan_candidates_keeps_default_strategy_candidate_without_strategy_risk(self):
+        config.strategy_model = "macd_rsi_momentum"
+        config.indicator_min_score = 4
+
+        with patch("src.mistock.trader._get_broker_client", side_effect=RuntimeError("offline")), \
+                patch("src.mistock.strategy.build_scan_universe", return_value=["AAPL"]), \
+                patch("src.mistock.trader.get_watchlist", return_value=[]), \
+                patch("src.mistock.trader.fetch_history", return_value={"close": [1.0] * 80, "high": [1.0] * 80, "volume": [1.0] * 80}), \
+                patch("src.mistock.trader.strategy_profile", return_value={
+                    "score": 4,
+                    "reasons": ["qualified"],
+                    "price": 1.0,
+                    "rsi": 55.0,
+                    "rsi2": 50.0,
+                    "macd_hist": 0.1,
+                    "sma20": 1.0,
+                    "sma60": 1.0,
+                }), \
+                patch("src.mistock.trader.symbol_name", return_value="Apple"), \
+                patch("src.mistock.db.execute"):
+            result = trader.scan_candidates(limit=1)
+
+        self.assertEqual(result["scanned"], 1)
+        self.assertEqual(len(result["candidates"]), 1)
+        self.assertEqual(result["candidates"][0]["strategy_risk"], {})
+        self.assertEqual(result["scan_error"], "")
+
     def test_fetch_history_converts_broker_share_class_symbol_for_yahoo(self):
         empty = MagicMock()
         empty.empty = True

@@ -663,6 +663,7 @@ def scan_candidates(
     scan_error = ""
     for symbol in universe:
         try:
+            strategy_risk: dict[str, Any] = {}
             history_period = "3y" if strategy_id in {
                 "rsi_limit_strategy",
                 "heikin_ashi_scalping_strategy",
