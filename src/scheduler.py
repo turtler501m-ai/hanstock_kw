@@ -66,11 +66,25 @@ def _scheduled_market_regime_policy(strategy_id: str | None) -> dict:
     except SchedulerOperationError:
         pass
     snapshot = None
+    snapshot_lookup_failed = False
     try:
         snapshot = MarketRegimeRepository().current()
     except SchedulerOperationError:
-        snapshot = None
-    policy = evaluate_new_risk(snapshot, allowed, max_pct_by_regime).to_dict()
+        snapshot_lookup_failed = True
+    if snapshot is None and not snapshot_lookup_failed:
+        fallback_multiplier = min(
+            1.0,
+            _env_float("HANSTOCK_MISSING_REGIME_MULTIPLIER", 0.5),
+        )
+        policy = {
+            "allowed": fallback_multiplier > 0,
+            "regime": "unknown",
+            "quality": "missing_fallback",
+            "multiplier": fallback_multiplier,
+            "reason": "market_regime_missing_default_sizing",
+        }
+    else:
+        policy = evaluate_new_risk(snapshot, allowed, max_pct_by_regime).to_dict()
     regime = str(policy.get("regime") or "")
     configured_pct = (
         max_pct_by_regime.get(regime)
@@ -80,7 +94,11 @@ def _scheduled_market_regime_policy(strategy_id: str | None) -> dict:
     policy.update({
         "source_multiplier": (snapshot or {}).get("risk_multiplier"),
         "configured_max_pct": configured_pct,
-        "system_max_pct": REGIME_RISK_CAPS.get(regime, 0.0) * 100.0,
+        "system_max_pct": (
+            policy["multiplier"] * 100.0
+            if snapshot is None and not snapshot_lookup_failed
+            else REGIME_RISK_CAPS.get(regime, 0.0) * 100.0
+        ),
     })
     return policy
 

@@ -28,6 +28,38 @@ class SchedulerModeTests(unittest.TestCase):
         self.approval_lookup.stop()
         self.ai_strategy_lookup.stop()
 
+    def test_missing_market_regime_defaults_scheduled_new_risk_to_half_size(self):
+        with patch.object(scheduler.MarketRegimeRepository, "current", return_value=None), \
+                patch.dict("os.environ", {"HANSTOCK_MISSING_REGIME_MULTIPLIER": "0.5"}):
+            policy = scheduler._scheduled_market_regime_policy(None)
+
+        self.assertTrue(policy["allowed"])
+        self.assertEqual(policy["regime"], "unknown")
+        self.assertEqual(policy["quality"], "missing_fallback")
+        self.assertEqual(policy["multiplier"], 0.5)
+        self.assertEqual(policy["system_max_pct"], 50.0)
+        self.assertEqual(policy["reason"], "market_regime_missing_default_sizing")
+
+    def test_missing_market_regime_fallback_can_be_overridden(self):
+        with patch.object(scheduler.MarketRegimeRepository, "current", return_value=None), \
+                patch.dict("os.environ", {"HANSTOCK_MISSING_REGIME_MULTIPLIER": "0.25"}):
+            policy = scheduler._scheduled_market_regime_policy(None)
+
+        self.assertTrue(policy["allowed"])
+        self.assertEqual(policy["multiplier"], 0.25)
+
+    def test_market_regime_lookup_error_remains_blocked(self):
+        with patch.object(
+            scheduler.MarketRegimeRepository,
+            "current",
+            side_effect=RuntimeError("database unavailable"),
+        ):
+            policy = scheduler._scheduled_market_regime_policy(None)
+
+        self.assertFalse(policy["allowed"])
+        self.assertEqual(policy["multiplier"], 0.0)
+        self.assertEqual(policy["reason"], "market_regime_missing")
+
     def test_daily_auto_result_uses_dashboard_path_with_active_isolated_strategy(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             result_path = Path(temp_dir) / "daily_auto_last_result.json"
@@ -387,6 +419,18 @@ class SchedulerModeTests(unittest.TestCase):
         self.assertEqual(result, expected)
         self.assertEqual(run_mock.call_args.kwargs["mode"], "execute")
         self.assertIn("market_regime_policy", run_mock.call_args.kwargs)
+
+    def test_run_scheduled_cycle_passes_half_sizing_when_market_regime_is_missing(self):
+        expected = {"mode": "execute", "results": []}
+
+        with patch.object(
+            scheduler.MarketRegimeRepository, "current", return_value=None
+        ), patch.object(scheduler.trader, "run", return_value=expected) as run_mock:
+            result = scheduler.run_scheduled_cycle(mode="execute")
+
+        self.assertEqual(run_mock.call_args.kwargs["new_risk_multiplier"], 0.5)
+        self.assertIsNone(run_mock.call_args.kwargs["new_risk_block_reason"])
+        self.assertNotEqual(result.get("status"), "blocked")
 
     def test_run_scheduled_cycle_delegates_analysis_only_mode(self):
         expected = {"mode": "analysis_only", "results": []}
