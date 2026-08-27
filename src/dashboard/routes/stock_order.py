@@ -173,7 +173,9 @@ def get_approvals(limit: int = 50, strategy_id: str | None = None):
             ).fetchall()
         rows_by_id = {int(row["id"]): row for row in recent_rows}
         rows_by_id.update({int(row["id"]): row for row in actionable_rows})
-        rows = sorted(rows_by_id.values(), key=lambda row: int(row["id"]), reverse=True)
+        rows = sorted(
+            rows_by_id.values(), key=lambda row: int(row["id"]), reverse=True
+        )[:limit]
     try:
         from src.db.repository import load_ai_strategies
 
@@ -193,6 +195,7 @@ def get_approvals(limit: int = 50, strategy_id: str | None = None):
     open_sells = _latest_open_sell_trades_by_symbols([str(row["symbol"]) for row in rows])
     for row in rows:
         item = _approval_row(row)
+        item["price"] = _to_int(item.get("price"))
         strategy_id_value = str(item.get("strategy_id") or "").strip()
         strategy_name_value = (
 
@@ -213,10 +216,21 @@ def get_approvals(limit: int = 50, strategy_id: str | None = None):
             item["broker_order_id"] = trade.get("broker_order_id")
             item["order_status"] = trade.get("order_status")
             item["filled_qty"] = _to_int(trade.get("filled_qty"))
+            item["filled_price"] = _to_int(trade.get("filled_price"))
             item["pre_order_qty"] = _to_int(trade.get("pre_order_qty"))
             item["retry_eligible"] = _approval_retry_eligible(item, trade)
         else:
+            item["filled_qty"] = 0
+            item["filled_price"] = 0
             item["retry_eligible"] = _approval_retry_eligible(item, None)
+        item["remaining_qty"] = max(
+            0, _to_int(item.get("qty")) - _to_int(item.get("filled_qty"))
+        )
+        item["stale"] = bool(
+            str(item.get("created_at") or "")[:10]
+            and str(item.get("created_at") or "")[:10]
+            != trader.datetime.now(trader.KST).strftime("%Y-%m-%d")
+        )
         blocking_sell = open_sells.get(str(item.get("symbol") or "").strip())
         if blocking_sell:
             item["blocking_order_id"] = blocking_sell.get("broker_order_id")
@@ -237,7 +251,15 @@ def get_approvals(limit: int = 50, strategy_id: str | None = None):
         approvals.append(item)
     return {
         "approvals": approvals,
-        "actionable_count": len(actionable_rows),
+        "actionable_count": sum(
+            1
+            for item in approvals
+            if (
+                item.get("status") in {"pending", "executing"}
+                and not bool(item.get("stale"))
+            )
+            or bool(item.get("retry_eligible"))
+        ),
         "recent_limit": limit,
     }
 
@@ -306,6 +328,11 @@ def _latest_trade_by_approval_id(approval_id: int) -> dict | None:
 def _approval_retry_eligible(item: dict, trade: dict | None) -> bool:
     if str(item.get("action") or "").lower() != "sell":
         return False
+    created_at = str(item.get("created_at") or "").strip()
+    if created_at:
+        today = trader.datetime.now(trader.KST).strftime("%Y-%m-%d")
+        if created_at[:10] != today:
+            return False
     if str(item.get("status") or "") == "pending":
         return False
     trade_status = str((trade or {}).get("order_status") or "").lower()

@@ -84,6 +84,18 @@ class DashboardCoreTests(unittest.TestCase):
 
         self.assertTrue(stock_order._approval_retry_eligible(item, trade))
 
+    def test_prior_session_approval_is_not_retryable(self):
+        import src.dashboard.routes.stock_order as stock_order
+
+        item = {
+            "action": "sell",
+            "status": "failed",
+            "created_at": "2000-01-01 09:00:00",
+        }
+        trade = {"order_status": "open"}
+
+        self.assertFalse(stock_order._approval_retry_eligible(item, trade))
+
     def test_sell_all_batch_treats_already_executed_approval_as_debug_skip(self):
         from fastapi import HTTPException
         import src.dashboard.routes.stock_order as stock_order

@@ -241,6 +241,20 @@ def _approve_pending_approval_serialized(
     pending = approval or _dependency(
         "_load_pending_approval", _load_pending_approval
     )(approval_id)
+    created_at = str(pending.get("created_at") or "").strip()
+    today = trader.datetime.now(trader.KST).strftime("%Y-%m-%d")
+    if created_at and created_at[:10] != today:
+        now = trader.datetime.now(trader.KST).strftime("%Y-%m-%d %H:%M:%S")
+        with trader.connect_db() as conn:
+            conn.execute(
+                "UPDATE approvals SET status='expired', response_msg=?, updated_at=? "
+                "WHERE id=? AND status='pending'",
+                ("Approval expired at the end of its trading day", now, approval_id),
+            )
+        raise HTTPException(
+            status_code=409,
+            detail="Approval expired at the end of its trading day. Create a fresh order.",
+        )
     if (
         str(pending.get("action") or "").lower() == "buy"
         and Path(".runtime/kill_switch.json").exists()

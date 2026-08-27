@@ -4130,6 +4130,10 @@ async function renderApprovals() {
         const tbody = document.querySelector('#table-approvals tbody');
         if (!tbody) return;
         tbody.innerHTML = '';
+        const summary = document.getElementById('approval-queue-summary');
+        if (summary) {
+            summary.textContent = `표시 ${data.approvals.length}건 · 처리 필요 ${Number(data.actionable_count || 0)}건 · 주문 접수는 체결이 아닙니다.`;
+        }
         if (!data.approvals.length) {
             setTableMessage('#table-approvals tbody', 10, '승인 대기 주문이 없습니다');
             return;
@@ -4139,6 +4143,11 @@ async function renderApprovals() {
             const status = String(row.status || '');
             const statusKind = status === 'pending' ? 'warn' : (status === 'executed' ? 'buy' : (status === 'failed' ? 'sell' : 'hold'));
             const estimatedCost = Number(row.qty || 0) * Number(row.price || 0);
+            const filledQty = Number(row.filled_qty || 0);
+            const remainingQty = Number(row.remaining_qty ?? Math.max(0, Number(row.qty || 0) - filledQty));
+            const orderStatus = String(row.order_status || '');
+            const approvalLabel = status === 'executed' ? '주문 접수' : toKorStatus(status);
+            const orderLabel = orderStatus ? orderStatusLabel(orderStatus) : (status === 'pending' ? '미제출' : '-');
             const autoApprovalInProgress = Boolean(row.auto_approval_in_progress);
             const retryButton = row.retry_eligible
                 ? `<button type="button" class="retry-approval" data-id="${row.id}" data-symbol="${escapeHtml(row.symbol)}">재처리</button>
@@ -4158,7 +4167,9 @@ async function renderApprovals() {
                 || (row.strategy_id
                     ? `전략 주문 · ${row.strategy_id}`
                     : (row.source ? `출처: ${row.source}` : '출처 미기록 · 수동 처리'));
-            const controls = status === 'pending' && autoApprovalInProgress
+            const controls = status === 'pending' && row.stale
+                ? `<span class="time-muted text-danger">거래일 만료 · 새 주문을 생성하세요</span>`
+                : status === 'pending' && autoApprovalInProgress
                 ? `<span class="time-muted">자동승인 진행중</span>`
                 : status === 'pending'
                 ? `<div class="button-row">
@@ -4188,10 +4199,20 @@ async function renderApprovals() {
                     <div class="symbol-name">${escapeHtml(row.name || row.symbol)}</div>
                     <div class="symbol-code">${escapeHtml(row.symbol)}</div>
                 </td>
-                <td>${Number(row.qty || 0).toLocaleString()}</td>
-                <td>${formatCurrency(row.price)}</td>
+                <td>
+                    <div>${Number(row.qty || 0).toLocaleString()} / ${filledQty.toLocaleString()} / ${remainingQty.toLocaleString()}</div>
+                    <small class="time-muted">요청 / 체결 / 잔여</small>
+                </td>
+                <td>
+                    <div>${Number(row.price || 0) > 0 ? formatCurrency(row.price) : '시장가'} / ${Number(row.filled_price || 0) > 0 ? formatCurrency(row.filled_price) : '-'}</div>
+                    <small class="time-muted">주문가 / 평균체결가</small>
+                </td>
                 <td>${formatCurrency(estimatedCost)}</td>
-                <td>${pill(toKorStatus(status), statusKind)}</td>
+                <td>
+                    <div>${pill(approvalLabel, statusKind)} ${pill(orderLabel, orderStatus === 'filled' ? 'buy' : orderStatus === 'partial' ? 'warn' : 'hold')}</div>
+                    ${row.broker_order_id ? `<small class="time-muted">주문번호 #${escapeHtml(row.broker_order_id)}</small>` : ''}
+                    ${row.stale ? '<small class="time-muted text-danger">거래일 만료 · 재실행 불가</small>' : ''}
+                </td>
                 <td>${controls}</td>
             `;
             tbody.appendChild(tr);
@@ -4210,7 +4231,7 @@ async function renderApprovals() {
             button.addEventListener('click', () => executeApprovalAction(button, 'cancel-retry'));
         });
     } catch (err) {
-        setTableMessage('#table-approvals tbody', 9, err.message);
+        setTableMessage('#table-approvals tbody', 10, err.message);
     }
 }
 
@@ -4289,6 +4310,13 @@ async function executeApprovalBatch(action) {
 }
 
 async function handleApprovalAction(button, action) {
+    if (action === 'approve') {
+        const row = button.closest('tr');
+        const details = row ? row.innerText.replace(/\s+/g, ' ').trim() : `승인 #${button.dataset.id}`;
+        if (!window.confirm(`주문을 제출하시겠습니까?\n\n${details}\n\n주문 접수는 체결 완료가 아닙니다.`)) {
+            return;
+        }
+    }
     // 안드로이드 하이브리드 앱 내부이며 승인(approve)을 시도할 경우, 네이티브 생체 인식 요구
     if (typeof window.androidApp !== 'undefined' && action === 'approve') {
         button.disabled = true;
@@ -5759,7 +5787,7 @@ document.addEventListener('DOMContentLoaded', () => {
     setTableMessage('#table-signals tbody', 7, '진단하기를 누르면 보유 종목 신호를 확인합니다');
     setTableMessage('#table-candidates tbody', 9, '찾기를 누르면 관심종목에서 매수 후보를 검색합니다');
     setTableMessage('#table-execution-plan tbody', 8, '불러오기를 누르면 다음 사이클 실행 계획을 표시합니다');
-    setTableMessage('#table-approvals tbody', 9, '승인 대기 주문이 없습니다');
+    setTableMessage('#table-approvals tbody', 10, '승인 대기 주문이 없습니다');
     setTableMessage('#table-ai-allocation tbody', 8, '계산을 누르면 AI 목표 비중을 확인합니다');
     setTableMessage('#table-optimizer tbody', 7, '최적화를 누르면 리스크 기반 목표 비중을 확인합니다');
     
