@@ -58,6 +58,8 @@ const STATUS_LABELS = {
     executed: '처리완료',
     failed: '실패',
     rejected: '거절',
+    broker_unknown: '증권사 확인 필요',
+    expired: '거래일 만료',
 };
 
 const toKorAction = (value) => {
@@ -77,6 +79,7 @@ const ORDER_STATUS_LABELS = {
     filled: 'Filled',
     simulated: 'Simulated',
     failed: 'Failed',
+    broker_unknown: '증권사 확인 필요',
 };
 
 const orderStatusLabel = (value) => {
@@ -4144,7 +4147,7 @@ async function renderApprovals() {
         }
         const summary = document.getElementById('approval-queue-summary');
         if (summary) {
-            summary.textContent = `표시 ${data.approvals.length}건 · 처리 필요 ${Number(data.actionable_count || 0)}건 · 일반 재처리 ${directRetryCount}건 · 미체결 취소 필요 ${cancelRetryCount}건 · 주문 접수는 체결이 아닙니다.`;
+            summary.textContent = `표시 ${data.approvals.length}건 · 처리 필요 ${Number(data.actionable_count || 0)}건 · 증권사 확인 필요 ${Number(data.verification_required_count || 0)}건 · 일반 재처리 ${directRetryCount}건 · 미체결 취소 필요 ${cancelRetryCount}건 · 주문 접수는 체결이 아닙니다.`;
         }
         if (!data.approvals.length) {
             setTableMessage('#table-approvals tbody', 10, '승인 대기 주문이 없습니다');
@@ -4153,7 +4156,7 @@ async function renderApprovals() {
 
         data.approvals.forEach((row) => {
             const status = String(row.status || '');
-            const statusKind = status === 'pending' ? 'warn' : (status === 'executed' ? 'buy' : (status === 'failed' ? 'sell' : 'hold'));
+            const statusKind = ['pending', 'broker_unknown'].includes(status) ? 'warn' : (status === 'executed' ? 'buy' : (status === 'failed' ? 'sell' : 'hold'));
             const estimatedCost = Number(row.qty || 0) * Number(row.price || 0);
             const filledQty = Number(row.filled_qty || 0);
             const remainingQty = Number(row.remaining_qty ?? Math.max(0, Number(row.qty || 0) - filledQty));

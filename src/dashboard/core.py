@@ -482,7 +482,7 @@ def _reclaim_stale_executing_approvals(max_age_seconds: int | None = None) -> in
             cursor = conn.execute(
                 """
                 UPDATE approvals
-                SET status = 'failed',
+                SET status = 'broker_unknown',
                     response_msg = 'Order submission was interrupted or the broker did not respond before timeout. Check Kiwoom order history before retrying.',
                     updated_at = ?
                 WHERE status = 'executing' AND updated_at < ?

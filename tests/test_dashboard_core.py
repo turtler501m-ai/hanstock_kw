@@ -84,6 +84,18 @@ class DashboardCoreTests(unittest.TestCase):
 
         self.assertTrue(stock_order._approval_retry_eligible(item, trade))
 
+    def test_submission_timeout_is_classified_as_ambiguous(self):
+        self.assertTrue(
+            approval_service._is_ambiguous_submission_exception(
+                TimeoutError("broker request timed out")
+            )
+        )
+        self.assertFalse(
+            approval_service._is_ambiguous_submission_exception(
+                RuntimeError("broker rejected invalid quantity")
+            )
+        )
+
     def test_prior_session_approval_is_not_retryable(self):
         import src.dashboard.routes.stock_order as stock_order
 
@@ -1009,11 +1021,56 @@ class DashboardCoreTests(unittest.TestCase):
                 approvals = dashboard.get_approvals()["approvals"]
 
                 row = next(item for item in approvals if item["id"] == approval_id)
-                self.assertEqual(row["status"], "failed")
+                self.assertEqual(row["status"], "broker_unknown")
                 self.assertIn("Order submission was interrupted", row["response_msg"])
         finally:
             dashboard.trader.config.trade_db_path = original_db_path
             dashboard.AUTO_APPROVAL_STALE_EXECUTING_SECONDS = original_stale_seconds
+
+    def test_approval_timeout_persists_broker_unknown_trade_for_reconciliation(self):
+        original_db_path = dashboard.trader.config.trade_db_path
+        original_get_api = dashboard._get_api
+        original_get_balance_data = dashboard._get_balance_data
+        original_slack_order = dashboard._slack_order
+
+        class TimeoutAPI:
+            def place_order(self, symbol, action, price, qty):
+                raise TimeoutError("Kiwoom order request timed out")
+
+        try:
+            with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+                dashboard.trader.config.trade_db_path = f"{tmpdir}/trades.sqlite"
+                dashboard._get_api = lambda: TimeoutAPI()
+                dashboard._get_balance_data = lambda api, allow_cache=True: {
+                    "output1": [{"pdno": "005930", "hldg_qty": "10"}],
+                    "output2": [{}],
+                }
+                dashboard._slack_order = lambda *args, **kwargs: None
+                approval_id = dashboard._create_approval_row({
+                    "symbol": "005930", "name": "Samsung", "action": "sell",
+                    "qty": 1, "price": 0, "reason": "timeout test", "source": "test",
+                })
+
+                result = dashboard.approve_order(approval_id)
+
+                self.assertEqual(result["status"], "broker_unknown")
+                with dashboard.trader.connect_db() as conn:
+                    conn.row_factory = sqlite3.Row
+                    approval = conn.execute(
+                        "SELECT status FROM approvals WHERE id = ?", (approval_id,)
+                    ).fetchone()
+                    trade = conn.execute(
+                        "SELECT * FROM trades WHERE source_approval_id = ?", (approval_id,)
+                    ).fetchone()
+                self.assertEqual(approval["status"], "broker_unknown")
+                self.assertEqual(trade["order_status"], "broker_unknown")
+                self.assertEqual(trade["filled_qty"], 0)
+                self.assertIn("verify Kiwoom order history", trade["response_msg"])
+        finally:
+            dashboard.trader.config.trade_db_path = original_db_path
+            dashboard._get_api = original_get_api
+            dashboard._get_balance_data = original_get_balance_data
+            dashboard._slack_order = original_slack_order
 
     def test_retry_approval_creates_pending_sell_for_remaining_sellable_qty(self):
         original_db_path = dashboard.trader.config.trade_db_path

@@ -154,7 +154,7 @@ def get_approvals(limit: int = 50, strategy_id: str | None = None):
             actionable_rows = conn.execute(
                 """
                 SELECT * FROM approvals
-                WHERE strategy_id = ? AND status IN ('pending', 'executing', 'failed')
+                WHERE strategy_id = ? AND status IN ('pending', 'executing', 'failed', 'broker_unknown')
                 ORDER BY id DESC
                 """,
                 (strategy_id,),
@@ -167,7 +167,7 @@ def get_approvals(limit: int = 50, strategy_id: str | None = None):
             actionable_rows = conn.execute(
                 """
                 SELECT * FROM approvals
-                WHERE status IN ('pending', 'executing', 'failed')
+                WHERE status IN ('pending', 'executing', 'failed', 'broker_unknown')
                 ORDER BY id DESC
                 """
             ).fetchall()
@@ -254,6 +254,11 @@ def get_approvals(limit: int = 50, strategy_id: str | None = None):
         approvals.append(item)
     return {
         "approvals": approvals,
+        "verification_required_count": sum(
+            1 for item in approvals
+            if item.get("status") == "broker_unknown"
+            or item.get("order_status") == "broker_unknown"
+        ),
         "actionable_count": sum(
             1
             for item in approvals
@@ -262,6 +267,8 @@ def get_approvals(limit: int = 50, strategy_id: str | None = None):
                 and not bool(item.get("stale"))
             )
             or bool(item.get("retry_eligible"))
+            or item.get("status") == "broker_unknown"
+            or item.get("order_status") == "broker_unknown"
         ),
         "recent_limit": limit,
     }

@@ -26,6 +26,20 @@ def _is_tick_size_error(result: dict) -> bool:
     return "호가단위" in message
 
 
+_AMBIGUOUS_SUBMISSION_MARKERS = (
+    "connection aborted", "connection reset", "remote disconnected",
+    "remotedisconnected", "remote end closed", "readtimeout",
+    "connecttimeout", "timed out", "timeout", "시간 초과",
+)
+
+
+def _is_ambiguous_submission_exception(exc: Exception) -> bool:
+    if isinstance(exc, TimeoutError):
+        return True
+    normalized = f"{type(exc).__name__}: {exc}".lower()
+    return any(marker in normalized for marker in _AMBIGUOUS_SUBMISSION_MARKERS)
+
+
 def _load_pending_approval(approval_id: int) -> dict:
     item = _approval_by_id(approval_id)
     if not item:
@@ -281,11 +295,14 @@ def _approve_pending_approval_serialized(
     result: dict = {}
     status = "failed"
     response_msg = "Order submission did not complete"
+    submission_started = False
+    pre_order_qty = 0
     try:
         api = _get_api()
         pre_order_qty = _dependency(
             "_current_holding_qty_from_balance", _current_holding_qty_from_balance
         )(api, item["symbol"])
+        submission_started = True
         result = api.place_order(item["symbol"], item["action"], item["price"], item["qty"])
         if result.get("rt_cd") != "0" and _is_tick_size_error(result):
             from src.strategy.seven_split import adjust_tick_size
@@ -332,8 +349,24 @@ def _approve_pending_approval_serialized(
             source_approval_id=approval_id,
         )
     except Exception as e:
-        status = "failed"
-        response_msg = str(e)
+        ambiguous = submission_started and _is_ambiguous_submission_exception(e)
+        status = "broker_unknown" if ambiguous else "failed"
+        response_msg = (
+            f"Broker response was not received; verify Kiwoom order history before any retry. ({e})"
+            if ambiguous
+            else str(e)
+        )
+        if ambiguous:
+            trader.save_trade(
+                item["symbol"], item["name"], item["action"], item["qty"],
+                item["price"], item["reason"], False,
+                trader.runtime_flags().order_submission_enabled,
+                broker_result={}, order_status="broker_unknown",
+                response_msg=response_msg, filled_qty=0, filled_price=0,
+                pre_order_qty=pre_order_qty, strategy_id=item.get("strategy_id"),
+                strategy_version=_to_int(item.get("strategy_version")) or None,
+                profile_hash=item.get("profile_hash"), source_approval_id=approval_id,
+            )
         logger.warning(f"approval order submission failed approval_id={approval_id}: {e}")
 
     now = trader.datetime.now(trader.KST).strftime("%Y-%m-%d %H:%M:%S")
