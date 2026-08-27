@@ -2556,6 +2556,11 @@ def _build_periodic_performance(trades: list[dict]) -> dict:
             or int(holding_context.get("holding_change_missing_count") or 0) > 0
         ):
             daily[day] = _period_bucket()
+    # Keep the latest market session visible even when there were no orders
+    # and the live holding row is added later by the performance route.
+    if market_context:
+        latest_market_day = max(market_context)
+        daily.setdefault(latest_market_day, _period_bucket())
     daily_rows = [
         {
             "period": key,

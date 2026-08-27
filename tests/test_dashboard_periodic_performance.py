@@ -99,6 +99,28 @@ class DashboardPeriodicPerformanceTests(unittest.TestCase):
 
         self.assertEqual(rows, [{"date": "2026-08-27", "close": 6868.86}])
 
+    def test_latest_market_session_is_visible_without_orders(self):
+        index_rows = {
+            "KOSPI": [
+                {"date": "2026-08-26", "close": 6808.21},
+                {"date": "2026-08-27", "close": 6897.12},
+            ],
+            "KOSDAQ": [
+                {"date": "2026-08-26", "close": 826.87},
+                {"date": "2026-08-27", "close": 828.49},
+            ],
+        }
+
+        with patch("src.dashboard.core._load_index_rows", return_value=index_rows), \
+                patch("src.dashboard.core._daily_holding_change_context", return_value={}):
+            performance = _build_periodic_performance([])
+
+        self.assertEqual(len(performance["daily"]), 1)
+        row = performance["daily"][0]
+        self.assertEqual(row["period"], "2026-08-27")
+        self.assertEqual(row["kospi_change_pct"], 1.31)
+        self.assertEqual(row["kosdaq_change_pct"], 0.2)
+
     @patch("src.dashboard.core.time.sleep")
     @patch("src.dashboard.core._get_api")
     def test_index_refresh_retries_each_market_without_dropping_the_other(self, get_api, sleep):
