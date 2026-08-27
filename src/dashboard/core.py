@@ -2042,6 +2042,8 @@ def _safe_index_rows(rows: list[dict]) -> list[dict]:
         except (TypeError, ValueError):
             continue
         date = str(row.get("date") or "")[:10]
+        if len(date) == 8 and date.isdigit():
+            date = f"{date[:4]}-{date[4:6]}-{date[6:8]}"
         if len(date) != 10 or close <= 0:
             continue
         result.append({"date": date, "close": close})

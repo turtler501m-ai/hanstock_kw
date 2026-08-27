@@ -86,6 +86,13 @@ class DashboardPeriodicPerformanceTests(unittest.TestCase):
 
         self.assertEqual(len(rows), 2)
 
+    def test_index_rows_normalize_compact_kiwoom_date(self):
+        rows = _safe_index_rows([
+            {"date": "20260827", "close": 6868.86},
+        ])
+
+        self.assertEqual(rows, [{"date": "2026-08-27", "close": 6868.86}])
+
     @patch("src.dashboard.core.time.sleep")
     @patch("src.dashboard.core._get_api")
     def test_index_refresh_retries_each_market_without_dropping_the_other(self, get_api, sleep):
