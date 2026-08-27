@@ -375,7 +375,15 @@ class OperationalSnapshotProvider:
                 raise RuntimeConfigurationError(
                     f"unsupported active position side for {symbol}"
                 )
-            qty = _positive(position.get("remaining_qty"), f"{symbol} remaining_qty")
+            # ``pending_entry`` is an active lifecycle state even before a fill,
+            # so the repository can legitimately return a zero-quantity shell.
+            # It has no exposure or open risk yet and must not block the next
+            # scheduled cycle.
+            qty = _nonnegative(
+                position.get("remaining_qty"), f"{symbol} remaining_qty"
+            )
+            if qty == 0:
+                continue
             owned_qty[symbol] = owned_qty.get(symbol, 0.0) + qty
             average = _positive(position.get("average_price"), f"{symbol} average_price")
             stop = _positive(
