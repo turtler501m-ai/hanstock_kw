@@ -249,7 +249,7 @@ def update_trade_order_status(
     response_msg: str = "",
     broker_result: dict | None = None,
 ) -> int:
-    if not broker_order_id:
+    if not broker_order_id and trade_id is None:
         return 0
     init_db()
     broker_result_json = json.dumps(
@@ -263,7 +263,8 @@ def update_trade_order_status(
         existing = conn.execute(
             f"""
             SELECT id, symbol, action, qty, order_status,
-                   filled_qty, filled_price, response_msg, broker_result
+                   filled_qty, filled_price, response_msg, broker_result,
+                   source_approval_id
             FROM trades
             WHERE {where_sql}
             ORDER BY id DESC
@@ -297,28 +298,53 @@ def update_trade_order_status(
             str(current[7] or ""),
             current_broker_result,
         )
-        if current_state == requested_state:
-            return 0
-        cursor = conn.execute(
-            f"""
-            UPDATE trades
-            SET order_status = ?,
-                filled_qty = ?,
-                filled_price = ?,
-                response_msg = ?,
-                broker_result = ?
-            WHERE {where_sql}
-            """,
-            (
-                order_status,
-                int(filled_qty or 0),
-                int(filled_price or 0),
-                response_msg,
-                broker_result_json,
-                where_value,
-            ),
-        )
-        updated_count = int(cursor.rowcount)
+        updated_count = 0
+        if current_state != requested_state:
+            cursor = conn.execute(
+                f"""
+                UPDATE trades
+                SET order_status = ?,
+                    filled_qty = ?,
+                    filled_price = ?,
+                    response_msg = ?,
+                    broker_result = ?
+                WHERE {where_sql}
+                """,
+                (
+                    order_status,
+                    int(filled_qty or 0),
+                    int(filled_price or 0),
+                    response_msg,
+                    broker_result_json,
+                    where_value,
+                ),
+            )
+            updated_count = int(cursor.rowcount)
+
+        approval_status = {
+            "submitted": "executed", "open": "executed", "partial": "executed",
+            "filled": "executed", "reconciled": "executed", "simulated": "executed",
+            "failed": "failed", "rejected": "rejected", "canceled": "canceled",
+            "expired": "expired",
+        }.get(str(order_status or "").lower())
+        source_approval_id = int(current[9] or 0)
+        approvals_exist = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='approvals'"
+        ).fetchone()
+        if approval_status and source_approval_id > 0 and approvals_exist:
+            conn.execute(
+                """
+                UPDATE approvals
+                SET status = ?, response_msg = ?, updated_at = ?
+                WHERE id = ? AND status IN ('broker_unknown', 'executing')
+                """,
+                (
+                    approval_status,
+                    response_msg,
+                    datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S"),
+                    source_approval_id,
+                ),
+            )
 
     return updated_count
 

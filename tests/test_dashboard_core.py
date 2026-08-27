@@ -1066,6 +1066,24 @@ class DashboardCoreTests(unittest.TestCase):
                 self.assertEqual(trade["order_status"], "broker_unknown")
                 self.assertEqual(trade["filled_qty"], 0)
                 self.assertIn("verify Kiwoom order history", trade["response_msg"])
+
+                updated = dashboard.trader.update_trade_order_status(
+                    "",
+                    trade_id=int(trade["id"]),
+                    order_status="reconciled",
+                    filled_qty=1,
+                    filled_price=70000,
+                    response_msg="Balance reconciliation confirmed fill",
+                )
+                self.assertEqual(updated, 1)
+                with dashboard.trader.connect_db() as conn:
+                    conn.row_factory = sqlite3.Row
+                    resolved_approval = conn.execute(
+                        "SELECT status, response_msg FROM approvals WHERE id = ?",
+                        (approval_id,),
+                    ).fetchone()
+                self.assertEqual(resolved_approval["status"], "executed")
+                self.assertIn("confirmed fill", resolved_approval["response_msg"])
         finally:
             dashboard.trader.config.trade_db_path = original_db_path
             dashboard._get_api = original_get_api

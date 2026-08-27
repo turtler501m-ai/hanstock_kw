@@ -1265,6 +1265,20 @@ def _reconcile_ambiguous_orders_from_balance(current_holdings: dict) -> dict:
                     """,
                     (qty, price, price, message, int(row["id"])),
                 )
+                source_approval_id = _to_int(row.get("source_approval_id"))
+                if source_approval_id > 0:
+                    conn.execute(
+                        """
+                        UPDATE approvals
+                        SET status = 'executed', response_msg = ?, updated_at = ?
+                        WHERE id = ? AND status = 'broker_unknown'
+                        """,
+                        (
+                            message,
+                            trader.datetime.now(trader.KST).strftime("%Y-%m-%d %H:%M:%S"),
+                            source_approval_id,
+                        ),
+                    )
                 reconciled_items.append({
                     "sync_type": "balance",
                     "sync_result": "response_loss_reconciled",
