@@ -109,13 +109,22 @@ class MistockIndicatorStrategyTests(unittest.TestCase):
 
     def test_kiwoom_exchange_lookup_converts_share_class_symbol(self):
         ticker = MagicMock()
-        ticker.fast_info = {"exchange": "NYQ"}
+        ticker.get_info.return_value = {"exchange": "NYQ"}
         trader._kiwoom_us_exchange.cache_clear()
         with patch("yfinance.Ticker", return_value=ticker) as ticker_type:
             exchange = trader._kiwoom_us_exchange("BF.B")
 
         self.assertEqual(exchange, "NY")
         ticker_type.assert_called_once_with("BF-B")
+
+    def test_kiwoom_exchange_lookup_rejects_unsupported_cboe_exchange(self):
+        ticker = MagicMock()
+        ticker.get_info.return_value = {"exchange": "BTS"}
+        trader._kiwoom_us_exchange.cache_clear()
+
+        with patch("yfinance.Ticker", return_value=ticker):
+            with self.assertRaisesRegex(RuntimeError, "CBOE"):
+                trader._kiwoom_us_exchange("CBOE")
 
     def test_build_orders_skips_unsupported_exchange_and_uses_next_candidate(self):
         candidates = [

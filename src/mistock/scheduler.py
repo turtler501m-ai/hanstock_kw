@@ -455,7 +455,9 @@ def run_mistock_scheduled_cycle(mode: str = "execute", strategy_id: str | None =
     orders = mistock_trader.build_orders(
         buy_candidates,
         available_cash / buffer_factor,
-        validate_broker_exchange=(mode == "execute"),
+        # Analysis output must remain executable: do not show symbols that the
+        # configured Kiwoom broker cannot route when the schedule turns live.
+        validate_broker_exchange=(mistock_config.stock_broker == "kiwoom"),
     )
     bought_items = []
     

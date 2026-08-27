@@ -716,6 +716,7 @@ class MistockDashboardTests(unittest.TestCase):
                     return_value={"cash": 1000.0, "total_eval": 1000.0, "holdings": [], "stock_eval": 0.0},
                 ), \
                 patch.object(mistock_trader, "signals", return_value=[signal]), \
+                patch.object(mistock_trader, "build_orders", return_value=[]) as build_orders, \
                 patch.object(mistock_scheduler, "is_us_market_open", return_value=False), \
                 patch("src.mistock.scheduler.Path.write_text"), \
                 patch("src.mistock.scheduler.send_mistock_slack"):
@@ -724,6 +725,7 @@ class MistockDashboardTests(unittest.TestCase):
         pending = mistock_db.rows("SELECT * FROM approvals WHERE status = 'pending'")
         self.assertTrue(result["ok"])
         self.assertEqual(pending, [])
+        self.assertTrue(build_orders.call_args.kwargs["validate_broker_exchange"])
 
     def test_mistock_scheduler_does_not_duplicate_pending_sell_approval(self):
         object.__setattr__(mistock_config, "trading_env", "demo")

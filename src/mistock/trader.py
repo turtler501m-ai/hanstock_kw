@@ -35,7 +35,11 @@ def _kiwoom_us_exchange(symbol: str) -> str:
 
     # Yahoo uses a dash for US share classes while Kiwoom keeps the dot.
     yahoo_symbol = str(symbol or "").upper().replace(".", "-")
-    exchange = str(yf.Ticker(yahoo_symbol).fast_info.get("exchange") or "").upper()
+    ticker = yf.Ticker(yahoo_symbol)
+    metadata = ticker.get_info()
+    exchange = str(metadata.get("exchange") or "").upper() if isinstance(metadata, dict) else ""
+    if not exchange:
+        exchange = str(ticker.fast_info.get("exchange") or "").upper()
     if exchange in {"NMS", "NGM", "NCM", "NAS", "NASDAQ"}:
         return "ND"
     if exchange in {"NYQ", "NYSE"}:
