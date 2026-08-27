@@ -395,7 +395,7 @@ def run_ai_stock_autonomy_cycle(
     regime_rejections: list[str] = []
     for item in result.cycle.results:
         statuses[item.status] = statuses.get(item.status, 0) + 1
-        for reason in item.reasons:
+        for reason in getattr(item, "reasons", ()) or ():
             if reason in {"allowed_market_regime", "market_risk_multiplier_valid"}:
                 regime_rejections.append(reason)
     from src.db.strategy_repository import load_ai_strategies

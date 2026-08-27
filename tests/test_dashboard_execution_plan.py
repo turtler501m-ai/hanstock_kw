@@ -1,5 +1,6 @@
 import unittest
 import asyncio
+import inspect
 from contextlib import ExitStack
 from unittest.mock import MagicMock, patch
 
@@ -28,7 +29,8 @@ class DashboardExecutionPlanApiTests(unittest.TestCase):
 
     def _call_route(self):
         endpoint = self.route.endpoint
-        return asyncio.run(endpoint())
+        result = endpoint()
+        return asyncio.run(result) if inspect.isawaitable(result) else result
 
     def _expected_plan(self):
         return [
@@ -56,7 +58,15 @@ class DashboardExecutionPlanApiTests(unittest.TestCase):
                 "score": 4,
                 "reasons": ["rsi", "macd"],
                 "indicators": {"rsi": 33},
-                "metadata": {"scan_rank": 1},
+                "metadata": {
+                    "scan_rank": 1,
+                    "market_regime_sizing": {
+                        "original_qty": 2,
+                        "multiplier": 1.0,
+                        "scaled_qty": 2,
+                        "block_reason": None,
+                    },
+                },
             },
         ]
 

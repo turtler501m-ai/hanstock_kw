@@ -1,4 +1,5 @@
 import asyncio
+import inspect
 import unittest
 from contextlib import ExitStack
 from unittest.mock import MagicMock, call, patch
@@ -116,26 +117,35 @@ class CommonTabStrategyFlowTests(unittest.TestCase):
                 )
             )
 
-            signals = asyncio.run(
-                signals_route.endpoint(
-                    strategy_id=COMMON_STRATEGY_ID,
-                    cycle_id=cycle["id"],
-                )
+            signals_result = signals_route.endpoint(
+                strategy_id=COMMON_STRATEGY_ID,
+                cycle_id=cycle["id"],
             )
-            candidates = asyncio.run(
-                candidates_route.endpoint(
-                    min_score=2,
-                    ranker="gpt_5_mini",
-                    optimizer="score_tilted_inverse_vol",
-                    strategy_id=COMMON_STRATEGY_ID,
-                    cycle_id=cycle["id"],
-                )
+            signals = (
+                asyncio.run(signals_result)
+                if inspect.isawaitable(signals_result)
+                else signals_result
             )
-            plan = asyncio.run(
-                execution_plan_route.endpoint(
-                    strategy_id=COMMON_STRATEGY_ID,
-                    cycle_id=cycle["id"],
-                )
+            candidates_result = candidates_route.endpoint(
+                min_score=2,
+                ranker="gpt_5_mini",
+                optimizer="score_tilted_inverse_vol",
+                strategy_id=COMMON_STRATEGY_ID,
+                cycle_id=cycle["id"],
+            )
+            candidates = (
+                asyncio.run(candidates_result)
+                if inspect.isawaitable(candidates_result)
+                else candidates_result
+            )
+            plan_result = execution_plan_route.endpoint(
+                strategy_id=COMMON_STRATEGY_ID,
+                cycle_id=cycle["id"],
+            )
+            plan = (
+                asyncio.run(plan_result)
+                if inspect.isawaitable(plan_result)
+                else plan_result
             )
 
         self.assertEqual(

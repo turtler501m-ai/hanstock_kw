@@ -6,6 +6,7 @@ from pathlib import Path
 from src.approval_service import ApprovalService, ApprovalStatusError
 from src.mistock import approval_service as mistock_approval
 from src.repositories import ApprovalRepository
+from src.db.connection import ClosingConnection
 
 
 class MistockApprovalServiceTests(unittest.TestCase):
@@ -21,7 +22,7 @@ class MistockApprovalServiceTests(unittest.TestCase):
         self.temp_dir.cleanup()
 
     def _connect_db(self) -> sqlite3.Connection:
-        return sqlite3.connect(self.db_path, timeout=5)
+        return sqlite3.connect(self.db_path, timeout=5, factory=ClosingConnection)
 
     def _queue(self, *, client_order_key: str = "") -> int:
         return self.service.queue_approval(

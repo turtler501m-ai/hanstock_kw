@@ -10,6 +10,7 @@ from src.approval_service import (
     ApprovalStatusError,
 )
 from src.repositories import ApprovalRepository
+from src.db.connection import ClosingConnection
 
 
 class ApprovalServiceTests(unittest.TestCase):
@@ -25,7 +26,7 @@ class ApprovalServiceTests(unittest.TestCase):
         self.temp_dir.cleanup()
 
     def _connect_db(self) -> sqlite3.Connection:
-        return sqlite3.connect(self.db_path)
+        return sqlite3.connect(self.db_path, factory=ClosingConnection)
 
     def test_create_approval_persists_pending_row(self):
         approval_id = self.service.create_approval(

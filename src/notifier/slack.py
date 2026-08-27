@@ -79,7 +79,7 @@ def _decorate_payload(payload: dict, *, tag: str | None = None) -> dict:
     return decorated
 
 
-def _post_slack_payload(webhook_url: str, payload: dict, session, **kwargs) -> bool:
+def post_slack_payload(webhook_url: str, payload: dict, session, **kwargs) -> bool:
     return _post_slack_payload_raw(
         webhook_url,
         _decorate_payload(payload),
@@ -110,7 +110,7 @@ def _send_slack_to(webhook_url: str | None, text: str = "", blocks: list | None 
     elif blocks:
         payload["blocks"] = blocks
 
-    _post_slack_payload(
+    post_slack_payload(
         webhook_url=webhook_url or "",
         payload=payload,
         session=HTTP,
@@ -140,7 +140,7 @@ def slack_session_start(
         mode=_mode_label(order_submission_enabled, real_orders_enabled),
         trading_env=config.trading_env,
     )
-    _post_slack_payload(config.slack_webhook_url, payload, HTTP, log_fn=logger.warning)
+    post_slack_payload(config.slack_webhook_url, payload, HTTP, log_fn=logger.warning)
 
 
 def slack_order(
@@ -154,7 +154,7 @@ def slack_order(
     indicators: dict,
 ) -> None:
     payload = build_order_summary_payload(name, symbol, action, qty, price, reason, ok, indicators)
-    _post_slack_payload(config.slack_webhook_url, payload, HTTP, log_fn=logger.warning)
+    post_slack_payload(config.slack_webhook_url, payload, HTTP, log_fn=logger.warning)
 
 
 def mistock_slack_order(
@@ -180,21 +180,21 @@ def mistock_slack_order(
         indicators,
         exchange_rate=rate,
     )
-    _post_slack_payload(config.mistock_slack_webhook_url or "", payload, HTTP, log_fn=logger.warning)
+    post_slack_payload(config.mistock_slack_webhook_url or "", payload, HTTP, log_fn=logger.warning)
 
 
 def slack_candidates(candidates: list[dict]) -> None:
     payload = build_candidates_payload(candidates)
     if payload is None:
         return
-    _post_slack_payload(config.slack_webhook_url, payload, HTTP, log_fn=logger.warning)
+    post_slack_payload(config.slack_webhook_url, payload, HTTP, log_fn=logger.warning)
 
 
 def slack_session_end(results: list[dict], cash: int, total: int, pnl: int) -> None:
     payload = build_session_end_payload(results=results, cash=cash, total=total, pnl=pnl)
-    _post_slack_payload(config.slack_webhook_url, payload, HTTP, log_fn=logger.warning)
+    post_slack_payload(config.slack_webhook_url, payload, HTTP, log_fn=logger.warning)
 
 
 def slack_error(msg: str) -> None:
     payload = build_error_payload(msg)
-    _post_slack_payload(config.slack_webhook_url, payload, HTTP, log_fn=logger.warning)
+    post_slack_payload(config.slack_webhook_url, payload, HTTP, log_fn=logger.warning)

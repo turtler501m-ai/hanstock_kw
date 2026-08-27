@@ -6,6 +6,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from src.db.custom_strategy_registry import sync_custom_rules_to_db
+from src.db.connection import ClosingConnection
 
 
 class CustomStrategyRegistryTests(unittest.TestCase):
@@ -18,7 +19,8 @@ class CustomStrategyRegistryTests(unittest.TestCase):
                 '    """샘플 전략\n\n    코드 설명"""\n',
                 encoding="utf-8",
             )
-            conn = sqlite3.connect(":memory:")
+            conn = sqlite3.connect(":memory:", factory=ClosingConnection)
+            self.addCleanup(conn.close)
             conn.execute(
                 """
                 CREATE TABLE ai_strategies (

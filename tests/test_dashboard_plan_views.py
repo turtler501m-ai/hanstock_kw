@@ -1,4 +1,5 @@
 import asyncio
+import inspect
 import unittest
 from contextlib import ExitStack
 from unittest.mock import MagicMock, patch
@@ -22,7 +23,8 @@ class DashboardPlanViewRegressionTests(unittest.TestCase):
         raise AssertionError(f"Missing GET route for {path}")
 
     def _call_route(self, route, *args, **kwargs):
-        return asyncio.run(route.endpoint(*args, **kwargs))
+        result = route.endpoint(*args, **kwargs)
+        return asyncio.run(result) if inspect.isawaitable(result) else result
 
     def test_execution_plan_shapes_runtime_plan_for_dashboard_view(self):
         expected_plan = [

@@ -58,6 +58,10 @@ class StrategyAttributionSellTests(unittest.TestCase):
                 with patch.object(
                     stock_order, "_strategy_attribution_sell_orders", return_value=(orders, [])
                 ), patch.object(
+                    stock_order._stock,
+                    "_strategy_attribution_sell_orders",
+                    return_value=(orders, []),
+                ), patch.object(
                     dashboard, "_strategy_attribution_sell_orders", return_value=(orders, [])
                 ), patch.object(stock_order, "_required_env_missing", return_value=[]), patch.object(
                     dashboard, "_required_env_missing", return_value=[]
