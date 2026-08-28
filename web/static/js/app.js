@@ -4147,7 +4147,7 @@ async function renderApprovals() {
         }
         const summary = document.getElementById('approval-queue-summary');
         if (summary) {
-            summary.textContent = `표시 ${data.approvals.length}건 · 처리 필요 ${Number(data.actionable_count || 0)}건 · 증권사 확인 필요 ${Number(data.verification_required_count || 0)}건 · 일반 재처리 ${directRetryCount}건 · 미체결 취소 필요 ${cancelRetryCount}건 · 주문 접수는 체결이 아닙니다.`;
+            summary.textContent = `표시 ${data.approvals.length}건 · 처리 필요 ${Number(data.actionable_count || 0)}건 · 증권사 확인 필요 ${Number(data.verification_required_count || 0)}건 · 일반 재처리 ${directRetryCount}건 · 미체결 취소 필요 ${cancelRetryCount}건 · 승인 없이 동기화된 증권사 거래는 체결 내역에서 확인하세요.`;
         }
         if (!data.approvals.length) {
             setTableMessage('#table-approvals tbody', 10, '승인 대기 주문이 없습니다');
@@ -4175,7 +4175,9 @@ async function renderApprovals() {
             const blockingText = Number(row.blocking_remaining_qty || 0) > 0
                 ? ` · 증권사 미체결 ${Number(row.blocking_remaining_qty).toLocaleString()}주 (#${escapeHtml(row.blocking_order_id || '-')})`
                 : '';
-            const responseText = `${escapeHtml(row.response_msg || row.order_status || '')}${blockingText}`;
+            // The approval response only confirms submission. Once broker trade
+            // data exists, show that final/partial outcome instead.
+            const responseText = `${escapeHtml(row.result_message || row.response_msg || row.order_status || '')}${blockingText}`;
             const classificationKind = row.order_classification
                 || (row.strategy_id ? 'strategy' : 'manual');
             const classificationLabel = row.order_classification_label

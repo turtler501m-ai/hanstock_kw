@@ -212,6 +212,7 @@ def get_approvals(limit: int = 50, strategy_id: str | None = None):
         ))
         trade = latest_trades.get(int(item.get("id") or 0))
         if trade:
+            item["submission_message"] = str(item.get("response_msg") or "")
             item["trade_id"] = trade.get("id")
             item["broker_order_id"] = trade.get("broker_order_id")
             item["order_status"] = trade.get("order_status")
@@ -223,6 +224,7 @@ def get_approvals(limit: int = 50, strategy_id: str | None = None):
             item["filled_qty"] = 0
             item["filled_price"] = 0
             item["retry_eligible"] = _approval_retry_eligible(item, None)
+        item["result_message"] = _approval_result_message(item, trade)
         item["remaining_qty"] = max(
             0, _to_int(item.get("qty")) - _to_int(item.get("filled_qty"))
         )
@@ -333,6 +335,38 @@ def _latest_trades_by_approval_ids(approval_ids: list[int]) -> dict[int, dict]:
 
 def _latest_trade_by_approval_id(approval_id: int) -> dict | None:
     return _latest_trades_by_approval_ids([approval_id]).get(int(approval_id))
+
+
+def _approval_result_message(item: dict, trade: dict | None) -> str:
+    """Describe the latest broker outcome, not the earlier submission response."""
+    if not trade:
+        return str(item.get("response_msg") or "").strip()
+
+    status = str(trade.get("order_status") or "").strip().lower()
+    requested_qty = _to_int(item.get("qty"))
+    filled_qty = _to_int(trade.get("filled_qty"))
+    remaining_qty = max(0, requested_qty - filled_qty)
+    filled_price = _to_int(trade.get("filled_price"))
+    price_text = f" · 평균 {filled_price:,}원" if filled_price > 0 else ""
+
+    if status in {"filled", "reconciled"}:
+        return f"전량 체결 · {filled_qty:,}/{requested_qty:,}주{price_text}"
+    if status in {"partial", "partially_filled"}:
+        return (
+            f"부분 체결 · {filled_qty:,}/{requested_qty:,}주"
+            f" · 잔여 {remaining_qty:,}주{price_text}"
+        )
+    if status in {"submitted", "open", "accepted"}:
+        return f"주문 접수 · 체결 {filled_qty:,}주 · 잔여 {remaining_qty:,}주"
+    if status in {"cancelled", "canceled"}:
+        return f"주문 취소 · 체결 {filled_qty:,}주 · 취소 잔량 {remaining_qty:,}주"
+    if status == "rejected":
+        return "증권사 주문 거부"
+    if status == "broker_unknown":
+        return "증권사 확인 필요 · 체결 여부 미확정"
+    if status == "failed":
+        return str(trade.get("response_msg") or item.get("response_msg") or "주문 실패").strip()
+    return str(trade.get("response_msg") or item.get("response_msg") or status).strip()
 
 
 def _approval_retry_eligible(item: dict, trade: dict | None) -> bool:

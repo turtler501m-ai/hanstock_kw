@@ -1048,6 +1048,25 @@ class DashboardCoreTests(unittest.TestCase):
             dashboard.trader.config.trade_db_path = original_db_path
             dashboard.AUTO_APPROVAL_STALE_EXECUTING_SECONDS = original_stale_seconds
 
+    def test_approval_result_message_prefers_broker_fill_over_submission_text(self):
+        from src.dashboard.routes import stock_order
+
+        item = {
+            "qty": 67,
+            "response_msg": "주문 접수 완료, 체결 여부는 동기화 후 확인",
+        }
+        trade = {
+            "order_status": "filled",
+            "filled_qty": 67,
+            "filled_price": 49699,
+            "response_msg": "Kiwoom order history sync: filled",
+        }
+
+        message = stock_order._approval_result_message(item, trade)
+
+        self.assertEqual(message, "전량 체결 · 67/67주 · 평균 49,699원")
+        self.assertNotIn("동기화 후 확인", message)
+
     def test_approval_timeout_persists_broker_unknown_trade_for_reconciliation(self):
         original_db_path = dashboard.trader.config.trade_db_path
         original_get_api = dashboard._get_api
