@@ -7,6 +7,7 @@ import time
 
 _order_status_sync_lock = threading.Lock()
 _order_status_sync_thread: threading.Thread | None = None
+_order_status_sync_generation = 0
 
 def _refresh_dependencies() -> None:
     from src.dashboard import core
@@ -56,30 +57,41 @@ def _run_submitted_order_sync() -> None:
     retry_delay = max(0.0, float(os.environ.get("HANSTOCK_POST_ORDER_SYNC_RETRY_SECONDS", "5")))
     attempts = max(1, int(os.environ.get("HANSTOCK_POST_ORDER_SYNC_ATTEMPTS", "3")))
     days = max(1, int(os.environ.get("HANSTOCK_ORDER_STATUS_SYNC_DAYS", "1")))
-    time.sleep(initial_delay)
     from src.dashboard import core
 
-    for attempt in range(1, attempts + 1):
-        try:
-            result = core._sync_order_status_from_history(core._get_api(), days=days)
-            core._clear_balance_cache()
-            logger.info(
-                "post-order status sync attempt={} checked={} updated={}",
-                attempt,
-                result.get("checked_count", 0),
-                result.get("updated_count", 0),
-            )
-            if int(result.get("updated_count", 0) or 0) > 0:
+    while True:
+        with _order_status_sync_lock:
+            generation = _order_status_sync_generation
+        time.sleep(initial_delay)
+        for attempt in range(1, attempts + 1):
+            try:
+                result = core._sync_order_status_from_history(core._get_api(), days=days)
+                core._clear_balance_cache()
+                logger.info(
+                    "post-order status sync generation={} attempt={} checked={} updated={}",
+                    generation,
+                    attempt,
+                    result.get("checked_count", 0),
+                    result.get("updated_count", 0),
+                )
+            except Exception as exc:
+                logger.warning(
+                    f"post-order status sync generation={generation} attempt={attempt} failed: {exc}"
+                )
+            if attempt < attempts:
+                time.sleep(retry_delay)
+
+        # A submission arriving while this worker is active increments the
+        # generation. Run a fresh delayed reconciliation window for it instead
+        # of silently dropping its sync request.
+        with _order_status_sync_lock:
+            if generation == _order_status_sync_generation:
                 return
-        except Exception as exc:
-            logger.warning(f"post-order status sync attempt {attempt} failed: {exc}")
-        if attempt < attempts:
-            time.sleep(retry_delay)
 
 
 def _schedule_submitted_order_sync() -> bool:
     """Start one debounced reconciliation worker for all recent submissions."""
-    global _order_status_sync_thread
+    global _order_status_sync_generation, _order_status_sync_thread
     if os.environ.get("HANSTOCK_TESTING") == "1":
         return False
     if os.environ.get("HANSTOCK_ORDER_STATUS_SYNC", "true").lower() in {
@@ -87,8 +99,13 @@ def _schedule_submitted_order_sync() -> bool:
     }:
         return False
     with _order_status_sync_lock:
+        _order_status_sync_generation += 1
         if _order_status_sync_thread is not None and _order_status_sync_thread.is_alive():
-            return False
+            logger.info(
+                "post-order status sync queued generation={} worker_alive=true",
+                _order_status_sync_generation,
+            )
+            return True
         _order_status_sync_thread = threading.Thread(
             target=_run_submitted_order_sync,
             name="post-order-status-sync",

@@ -362,9 +362,10 @@ class DashboardCoreTests(unittest.TestCase):
         ) as clear_cache:
             approval_service._run_submitted_order_sync()
 
-        get_api.assert_called_once_with()
-        sync.assert_called_once_with(get_api.return_value, days=1)
-        clear_cache.assert_called_once_with()
+        self.assertEqual(get_api.call_count, 2)
+        self.assertEqual(sync.call_count, 2)
+        sync.assert_called_with(get_api.return_value, days=1)
+        self.assertEqual(clear_cache.call_count, 2)
 
     def test_post_order_sync_retries_when_history_has_not_updated(self):
         approval_service._refresh_dependencies()
