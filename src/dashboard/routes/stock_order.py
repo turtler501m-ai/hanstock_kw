@@ -706,6 +706,64 @@ def create_approval(payload: dict = Body(...)):
     return {"id": approval_id, "status": "pending"}
 
 
+@router.post("/api/strategy-lookup/manual-buy")
+def create_strategy_lookup_manual_buy(payload: dict = Body(...)):
+    """Queue an operator-requested buy even when analysis excluded the symbol.
+
+    This endpoint intentionally never auto-approves. The ordinary approval
+    execution path remains responsible for account, duplicate-order, and kill
+    switch checks.
+    """
+    if payload.get("manual_override_acknowledged") is not True:
+        raise HTTPException(
+            status_code=400,
+            detail="manual_override_acknowledged=true is required",
+        )
+    qty = _to_int(payload.get("qty"))
+    price = _to_int(payload.get("price"))
+    if qty <= 0:
+        raise HTTPException(status_code=400, detail="qty must be greater than 0")
+    if price <= 0:
+        raise HTTPException(status_code=400, detail="price must be greater than 0")
+
+    symbol = str(payload.get("symbol") or "").strip()
+    verdict = str(payload.get("analysis_verdict") or "").strip() or "unknown"
+    strategy_id = str(payload.get("strategy_id") or "").strip()
+    reason_detail = str(payload.get("reason") or "").strip()
+    reason = (
+        f"Strategy lookup manual override (verdict={verdict})"
+        + (f": {reason_detail}" if reason_detail else "")
+    )
+    approval_id = _create_approval_row({
+        "symbol": symbol,
+        "name": str(payload.get("name") or symbol),
+        "action": "buy",
+        "qty": qty,
+        "price": price,
+        "reason": reason,
+        "source": "strategy_lookup_manual",
+        "strategy_id": strategy_id or "manual_strategy",
+        "strategy_version": payload.get("strategy_version"),
+        "profile_hash": payload.get("profile_hash"),
+    })
+    logger.warning(
+        "[MANUAL_BUY_OVERRIDE] approval_id={} symbol={} qty={} price={} "
+        "strategy_id={} analysis_verdict={}",
+        approval_id,
+        symbol,
+        qty,
+        price,
+        strategy_id or "manual_strategy",
+        verdict,
+    )
+    return {
+        "id": approval_id,
+        "status": "pending",
+        "auto_approved": False,
+        "manual_override": True,
+    }
+
+
 def _create_approval_row(payload: dict) -> int:
     action = str(payload.get("action", "")).lower()
     if action not in {"buy", "sell"}:

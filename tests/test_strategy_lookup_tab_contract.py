@@ -99,7 +99,7 @@ class StrategyLookupTabContractTests(unittest.TestCase):
         self.assertIn("function strategyAnalysisChecks(row)", script)
         self.assertIn("function strategyAnalysisChecklistMarkup(row)", script)
         self.assertIn("function strategyExcludedRowsMarkup(rows)", script)
-        self.assertIn('const analyzedRows = data.scan_summary || [];', script)
+        self.assertIn('const analyzedRows = (data.scan_summary || []).map((row) => ({', script)
         self.assertIn('class="strategy-analysis-details"', script)
         self.assertIn("분석 세부내역 · 통과", script)
         self.assertIn("Alpha HA 진입 형태", script)
@@ -154,6 +154,15 @@ class StrategyLookupTabContractTests(unittest.TestCase):
         self.assertIn("매매 생성·미생성 원인 진단", script)
         self.assertIn("④ 매수계획 가능", script)
         self.assertIn("후보 선정", script)
+
+    def test_all_lookup_rows_offer_manual_buy_override(self):
+        script = (ROOT / "web/static/js/app.js").read_text(encoding="utf-8")
+
+        self.assertIn("function strategyManualBuyButton(row, verdict)", script)
+        self.assertIn("function createStrategyLookupManualBuy(button)", script)
+        self.assertIn("/api/strategy-lookup/manual-buy", script)
+        self.assertIn("manual_override_acknowledged: true", script)
+        self.assertIn("판정이 제외여도 사용자가 직접 요청한 수동 매수", script)
 
     def test_approved_independent_strategy_can_be_selected(self):
         script = (ROOT / "web/static/js/app.js").read_text(encoding="utf-8")

@@ -1042,6 +1042,48 @@ class DashboardCoreTests(unittest.TestCase):
             dashboard._slack_order = original_slack_order
             dashboard.trader.config.dry_run = original_dry_run
 
+    def test_strategy_lookup_manual_buy_stays_pending_when_auto_approval_is_enabled(self):
+        original_db_path = dashboard.trader.config.trade_db_path
+        original_state = dashboard.AUTO_APPROVAL_STATE
+        try:
+            with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+                dashboard.trader.config.trade_db_path = f"{tmpdir}/trades.sqlite"
+                dashboard.AUTO_APPROVAL_STATE = MemoryCachePath()
+                dashboard._save_auto_approval(True)
+
+                result = dashboard.create_strategy_lookup_manual_buy({
+                    "symbol": "207940",
+                    "name": "Samsung Biologics",
+                    "qty": 2,
+                    "price": 1508000,
+                    "strategy_id": "rsi_limit_strategy",
+                    "analysis_verdict": "excluded",
+                    "reason": "operator override",
+                    "manual_override_acknowledged": True,
+                })
+
+                self.assertEqual(result["status"], "pending")
+                self.assertFalse(result["auto_approved"])
+                with sqlite3.connect(dashboard.trader.config.trade_db_path) as conn:
+                    conn.row_factory = sqlite3.Row
+                    approval = dict(conn.execute(
+                        "SELECT * FROM approvals WHERE id=?", (result["id"],)
+                    ).fetchone())
+                self.assertEqual(approval["source"], "strategy_lookup_manual")
+                self.assertEqual(approval["status"], "pending")
+                self.assertEqual(approval["strategy_id"], "rsi_limit_strategy")
+                self.assertIn("verdict=excluded", approval["reason"])
+        finally:
+            dashboard.trader.config.trade_db_path = original_db_path
+            dashboard.AUTO_APPROVAL_STATE = original_state
+
+    def test_strategy_lookup_manual_buy_requires_explicit_override_acknowledgement(self):
+        with self.assertRaises(dashboard.HTTPException) as raised:
+            dashboard.create_strategy_lookup_manual_buy({
+                "symbol": "207940", "qty": 1, "price": 1508000,
+            })
+        self.assertEqual(raised.exception.status_code, 400)
+
     def test_approval_execution_is_claimed_once_and_records_broker_result(self):
         original_db_path = dashboard.trader.config.trade_db_path
         original_get_api = dashboard._get_api

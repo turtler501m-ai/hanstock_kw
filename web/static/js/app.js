@@ -2940,7 +2940,7 @@ function sortStrategyAnalysisRows(rows, sortKey) {
 }
 
 function strategyExcludedRowsMarkup(rows) {
-    if (!rows.length) return '<tr><td colspan="7" class="table-message">분석 세부내역이 없습니다.</td></tr>';
+    if (!rows.length) return '<tr><td colspan="8" class="table-message">분석 세부내역이 없습니다.</td></tr>';
     return rows.map((row) => {
         const evaluation = strategyAnalysisEvaluation(row);
         const failed = evaluation.checks.filter((check) => !check.passed);
@@ -2953,8 +2953,73 @@ function strategyExcludedRowsMarkup(rows) {
             <td><ul class="strategy-analysis-checklist">${strategyAnalysisChecklistMarkup(row)}</ul></td>
             <td><div class="reason-detail">${escapeHtml(reasons)}</div></td>
             <td>${failed.length.toLocaleString()}개</td>
+            <td>${strategyManualBuyButton(row, evaluation.verdict)}</td>
         </tr>`;
     }).join('');
+}
+
+function strategyManualBuyButton(row, verdict) {
+    const symbol = String(row.ticker || row.symbol || '').trim();
+    const price = Number(row.limit_price || row.current_price || 0);
+    const qty = Math.max(1, Number(row.planned_qty || 1));
+    if (!symbol || price <= 0) {
+        return '<button type="button" class="button-ghost" disabled>가격 없음</button>';
+    }
+    return `<button type="button" class="button-ghost strategy-manual-buy"
+        data-symbol="${escapeHtml(symbol)}"
+        data-name="${escapeHtml(row.name || symbol)}"
+        data-price="${price}"
+        data-qty="${qty}"
+        data-strategy-id="${escapeHtml(row.strategy_id || '')}"
+        data-strategy-version="${Number(row.strategy_version || 0)}"
+        data-profile-hash="${escapeHtml(row.profile_hash || '')}"
+        data-verdict="${escapeHtml(verdict || 'unknown')}"
+        data-reason="${escapeHtml((row.reasons || []).map(strategyReasonLabel).join(' · '))}">수동매수</button>`;
+}
+
+async function createStrategyLookupManualBuy(button) {
+    const symbol = button.dataset.symbol || '';
+    const name = button.dataset.name || symbol;
+    const defaultQty = Math.max(1, Number(button.dataset.qty || 1));
+    const defaultPrice = Math.max(1, Number(button.dataset.price || 0));
+    const qtyText = window.prompt(`${name}(${symbol}) 수동 매수 수량`, String(defaultQty));
+    if (qtyText === null) return;
+    const priceText = window.prompt(`${name}(${symbol}) 지정가`, String(defaultPrice));
+    if (priceText === null) return;
+    const qty = Number(qtyText);
+    const price = Number(priceText);
+    if (!Number.isInteger(qty) || qty <= 0 || !Number.isInteger(price) || price <= 0) {
+        setStatus('수량과 지정가는 1 이상의 정수로 입력해야 합니다.');
+        return;
+    }
+    const verdict = button.dataset.verdict || 'unknown';
+    if (!window.confirm(
+        `${name}(${symbol}) ${qty.toLocaleString()}주를 ${formatCurrency(price)} 지정가로 승인 대기에 등록할까요?\n\n` +
+        `분석 판정: ${verdict}\n판정이 제외여도 사용자가 직접 요청한 수동 매수로 기록됩니다.`
+    )) return;
+
+    button.disabled = true;
+    try {
+        const result = await postJson('/api/strategy-lookup/manual-buy', {
+            symbol,
+            name,
+            qty,
+            price,
+            strategy_id: button.dataset.strategyId || 'manual_strategy',
+            strategy_version: Number(button.dataset.strategyVersion || 0) || null,
+            profile_hash: button.dataset.profileHash || '',
+            analysis_verdict: verdict,
+            reason: button.dataset.reason || '',
+            manual_override_acknowledged: true,
+        });
+        setStatus(`${name} 수동 매수 ${qty.toLocaleString()}주를 승인 대기에 등록했습니다.`, true);
+        showOrdersTab();
+        await renderApprovals();
+        return result;
+    } catch (error) {
+        setStatus(`수동 매수 등록 실패: ${error.message}`);
+        button.disabled = false;
+    }
 }
 
 function renderStrategyPreviewCards(results, strategies = []) {
@@ -2986,7 +3051,12 @@ function renderStrategyPreviewCards(results, strategies = []) {
             { id: result.strategyId, name: result.strategyId };
         const data = result.data || {};
         const candidates = data.candidates || [];
-        const analyzedRows = data.scan_summary || [];
+        const analyzedRows = (data.scan_summary || []).map((row) => ({
+            ...row,
+            strategy_id: row.strategy_id || result.strategyId,
+            strategy_version: row.strategy_version || strategy.strategy_version || null,
+            profile_hash: row.profile_hash || strategy.profile_hash || '',
+        }));
         const passedRows = analyzedRows.filter((row) => row.passed);
         const excludedRows = analyzedRows.filter((row) => !row.passed);
         const sortKey = strategyAnalysisSortState.get(String(result.strategyId)) || 'score_desc';
@@ -3007,6 +3077,12 @@ function renderStrategyPreviewCards(results, strategies = []) {
                     <td>${formatCurrency(row.estimated_cost)}</td>
                     <td>${pill(row.order_plan_status || (Number(row.planned_qty || 0) > 0 ? '매수계획 가능' : '매수계획 미생성'), Number(row.planned_qty || 0) > 0 ? 'buy' : 'warn')}</td>
                     <td><div class="reason-detail">${escapeHtml(reasons)}</div></td>
+                    <td>${strategyManualBuyButton({
+                        ...row,
+                        strategy_id: row.strategy_id || result.strategyId,
+                        strategy_version: row.strategy_version || strategy.strategy_version || null,
+                        profile_hash: row.profile_hash || strategy.profile_hash || '',
+                    }, Number(row.planned_qty || 0) > 0 ? '매수계획 가능' : '매수계획 미생성')}</td>
                 </tr>`;
             }).join('')
             : `<tr><td colspan="7" class="table-message">${
@@ -3032,7 +3108,7 @@ function renderStrategyPreviewCards(results, strategies = []) {
             </header>
             <div class="table-responsive">
                 <table>
-                    <thead><tr><th>종목</th><th>점수</th><th>현재가</th><th>예상수량</th><th>예상금액</th><th>매수계획</th><th>선정 근거</th></tr></thead>
+                    <thead><tr><th>종목</th><th>점수</th><th>현재가</th><th>예상수량</th><th>예상금액</th><th>매수계획</th><th>선정 근거</th><th>수동 처리</th></tr></thead>
                     <tbody>${rows}</tbody>
                 </table>
             </div>
@@ -3073,7 +3149,7 @@ function renderStrategyPreviewCards(results, strategies = []) {
                 </div>
                 <div class="table-responsive strategy-analysis-table-wrap">
                     <table class="strategy-analysis-table">
-                        <thead><tr><th>종목</th><th>전략점수/기준</th><th>체크점수</th><th>판정</th><th>체크 항목</th><th>판정 사유</th><th>미충족</th></tr></thead>
+                        <thead><tr><th>종목</th><th>전략점수/기준</th><th>체크점수</th><th>판정</th><th>체크 항목</th><th>판정 사유</th><th>미충족</th><th>수동 처리</th></tr></thead>
                         <tbody>${strategyExcludedRowsMarkup(sortedAnalysisRows)}</tbody>
                     </table>
                 </div>
@@ -3085,6 +3161,9 @@ function renderStrategyPreviewCards(results, strategies = []) {
             strategyAnalysisSortState.set(String(select.dataset.strategyId), select.value);
             renderStrategyPreviewCards(strategyPreviewResultsCache, strategyPreviewCatalogCache);
         });
+    });
+    container.querySelectorAll('.strategy-manual-buy').forEach((button) => {
+        button.addEventListener('click', () => createStrategyLookupManualBuy(button));
     });
 }
 
