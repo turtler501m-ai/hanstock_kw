@@ -158,6 +158,18 @@ class CommonDashboardFrontendContractTests(unittest.TestCase):
         self.assertNotIn("cleanMsg.substring", scheduler_renderer)
         self.assertIn("스케줄 세부 내역 조회 실패", scheduler_renderer)
 
+    def test_scheduler_plan_zero_values_have_semantic_labels(self):
+        self.assertIn("function schedulerPlanQuantityText(row)", APP_JS)
+        self.assertIn("function schedulerPlanPriceText(row)", APP_JS)
+        self.assertIn("return '시장가'", APP_JS)
+        self.assertIn("return '수량 미산정'", APP_JS)
+        self.assertIn("보유 ${formatNumber(holdingQuantity)} 주", APP_JS)
+        self.assertIn("현재가 ${formatNumber(currentPrice)} 원", APP_JS)
+        self.assertIn("schedulerPlanQuantityText(row)", APP_JS)
+        self.assertIn("schedulerPlanPriceText(row)", APP_JS)
+        self.assertNotIn("${formatNumber(row.qty || row.signal_qty)}", APP_JS)
+        self.assertNotIn("${formatNumber(row.price || row.signal_price)} 원", APP_JS)
+
     def test_overview_strategy_settings_are_grouped_and_readiness_is_collapsible(self):
         self.assertIn("function strategySettingGroups(config)", APP_JS)
         self.assertIn("title: '기본 매매'", APP_JS)

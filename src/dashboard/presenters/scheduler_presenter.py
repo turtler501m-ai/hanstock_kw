@@ -156,6 +156,7 @@ def _compact_scheduler_status_result(last_result: dict | None, item_limit: int =
     plan_keys = {
         "symbol", "name", "category", "decision", "approval_id", "action",
         "qty", "signal_qty", "price", "signal_price", "reason", "skip_reason",
+        "holding_qty", "current_price",
         "time", "run_date", "run_recorded_at", "round", "strategy_id", "strategy_name",
     }
     approved_keys = {

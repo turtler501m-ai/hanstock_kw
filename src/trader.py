@@ -454,6 +454,30 @@ def _holding_qty(stock: dict, key: str) -> int:
         return 0
 
 
+def _attach_holding_snapshots(plan: list[dict], stocks: list[dict]) -> list[dict]:
+    """Attach account values without changing order quantity or order price."""
+    holdings_by_symbol = {
+        str(stock.get("pdno") or ""): stock
+        for stock in stocks
+        if stock.get("pdno")
+    }
+    enriched_plan = []
+    for item in plan:
+        row = dict(item)
+        holding = holdings_by_symbol.get(str(row.get("symbol") or ""))
+        holding_qty = _holding_qty(holding, "hldg_qty") if holding else 0
+        if holding and holding_qty > 0:
+            current_price = _holding_qty(holding, "prpr")
+            if current_price <= 0 and holding_qty > 0:
+                evaluation_amount = _holding_qty(holding, "evlu_amt")
+                if evaluation_amount > 0:
+                    current_price = round(evaluation_amount / holding_qty)
+            row["holding_qty"] = holding_qty
+            row["current_price"] = current_price
+        enriched_plan.append(row)
+    return enriched_plan
+
+
 def build_ai_rebalance_rows(api, balance_data: dict, total_eval: int) -> list[dict]:
     stocks = balance_data.get("output1", [])
     holdings = _holding_history_from_balance(api, stocks)
@@ -1095,6 +1119,7 @@ def run(
         market_regime_policy=market_regime_policy,
         **bp_kwargs,
     )
+    runtime_bundle["plan"] = _attach_holding_snapshots(runtime_bundle["plan"], stocks)
     daily_loss_halted = daily_loss_halted or bool(runtime_bundle.get("daily_loss_halt"))
 
     candidates = runtime_bundle.get("candidate_scan", {}).get("candidates", [])

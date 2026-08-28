@@ -15,10 +15,27 @@ from src.trader import (
     generate_ai_weight_plan,
     generate_portfolio_optimizer_plan,
     generate_signal,
+    _attach_holding_snapshots,
 )
 
 
 class TraderCoreTests(unittest.TestCase):
+    def test_holding_snapshot_keeps_order_fields_and_adds_account_values(self):
+        plan = [{"symbol": "005930", "action": "hold", "qty": 0, "price": 0}]
+        stocks = [{
+            "pdno": "005930",
+            "hldg_qty": "7",
+            "prpr": "71000",
+            "evlu_amt": "497000",
+        }]
+
+        result = _attach_holding_snapshots(plan, stocks)
+
+        self.assertEqual(result[0]["qty"], 0)
+        self.assertEqual(result[0]["price"], 0)
+        self.assertEqual(result[0]["holding_qty"], 7)
+        self.assertEqual(result[0]["current_price"], 71000)
+
     def test_indicators_handle_short_price_history(self):
         self.assertEqual(calc_rsi([1, 2, 3]), 50.0)
         self.assertEqual(calc_sma([1, 2, 3], 5), 3)

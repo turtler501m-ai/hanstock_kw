@@ -6426,8 +6426,8 @@ async function renderScheduleInfo() {
                                         <td style="padding: 0.6rem 0.75rem; font-size: 0.85rem;">${pill(row.strategy_name || row.strategy_id || '기본 분할매매', 'hold')}</td>
                                         <td style="padding: 0.6rem 0.75rem; font-size: 0.85rem;">${pill(toKorPlanCategory(row.category), 'hold')}</td>
                                         <td style="padding: 0.6rem 0.75rem; font-size: 0.85rem;">${pill(schedulerDecisionLabel(decision, row), kind)}</td>
-                                        <td style="padding: 0.6rem 0.75rem; font-size: 0.85rem; text-align: right;">${formatNumber(row.qty || row.signal_qty)}</td>
-                                        <td style="padding: 0.6rem 0.75rem; font-size: 0.85rem; text-align: right; font-weight: 500;">${formatNumber(row.price || row.signal_price)} 원</td>
+                                        <td style="padding: 0.6rem 0.75rem; font-size: 0.85rem; text-align: right;">${escapeHtml(schedulerPlanQuantityText(row))}</td>
+                                        <td style="padding: 0.6rem 0.75rem; font-size: 0.85rem; text-align: right; font-weight: 500;">${escapeHtml(schedulerPlanPriceText(row))}</td>
                                         <td style="padding: 0.6rem 0.75rem; font-size: 0.85rem;"><div class="reason-cell" style="max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${escapeHtml(displayReason)}">${escapeHtml(displayReason)}</div></td>
                                     `;
                                     plansTbody.appendChild(tr);
@@ -6601,6 +6601,25 @@ function toKorPlanCategory(category) {
         ai_rebalance: 'AI 리밸런싱',
     };
     return labels[category] || category || 'AI 리밸런싱';
+}
+
+function schedulerPlanQuantityText(row) {
+    const quantity = Number(row.qty ?? row.signal_qty ?? 0);
+    if (quantity > 0) return formatNumber(quantity);
+    const holdingQuantity = Number(row.holding_qty ?? 0);
+    if (row.action === 'hold' && holdingQuantity > 0) return `보유 ${formatNumber(holdingQuantity)} 주`;
+    if (row.action === 'hold') return '보유 없음';
+    return '수량 미산정';
+}
+
+function schedulerPlanPriceText(row) {
+    const price = Number(row.price ?? row.signal_price ?? 0);
+    if (price > 0) return `${formatNumber(price)} 원`;
+    if (row.action === 'sell' && Number(row.qty ?? row.signal_qty ?? 0) > 0) return '시장가';
+    const currentPrice = Number(row.current_price ?? 0);
+    if (row.action === 'hold' && currentPrice > 0) return `현재가 ${formatNumber(currentPrice)} 원`;
+    if (row.action === 'hold') return '현재가 확인 불가';
+    return '가격 미산정';
 }
 
 function formatKstTime(isoStr) {

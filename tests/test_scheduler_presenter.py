@@ -86,6 +86,22 @@ class SchedulerPresenterTests(unittest.TestCase):
         self.assertEqual(counts["run_blocked_count"], 1)
         self.assertEqual(counts["run_failed_count"], 1)
 
+    def test_compaction_keeps_holding_quantity_and_current_price(self):
+        payload = {"result": {"results": [{
+            "symbol": "005930",
+            "action": "hold",
+            "qty": 0,
+            "price": 0,
+            "holding_qty": 7,
+            "current_price": 71000,
+        }]}}
+
+        compact = _compact_scheduler_status_result(payload)
+
+        row = compact["result"]["results"][0]
+        self.assertEqual(row["holding_qty"], 7)
+        self.assertEqual(row["current_price"], 71000)
+
 
 if __name__ == "__main__":
     unittest.main()
