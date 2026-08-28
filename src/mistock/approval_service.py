@@ -6,7 +6,7 @@ from src.repositories import ApprovalRepository
 
 
 repository = ApprovalRepository(db.connect_db)
-service = ApprovalService(repository, now_fn=db.now_text)
+service = ApprovalService(repository, now_fn=db.now_text, market="US")
 
 
 def get_approval_service() -> ApprovalService:

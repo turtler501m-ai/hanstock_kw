@@ -48,9 +48,11 @@ class ApprovalService:
         repository: ApprovalRepository,
         *,
         now_fn: Callable[[], str] | None = None,
+        market: str = "KR",
     ) -> None:
         self._repository = repository
         self._now_fn = now_fn or _default_now
+        self._market = str(market).upper()
 
     def init_db(self) -> None:
         self._repository.init_db()
@@ -58,7 +60,7 @@ class ApprovalService:
     def create_approval(self, request: ApprovalCreateRequest) -> int:
         self.init_db()
         now = self._now_fn()
-        return self._repository.create_approval(
+        approval_id = self._repository.create_approval(
             created_at=now,
             updated_at=now,
             symbol=request.symbol,
@@ -77,6 +79,25 @@ class ApprovalService:
             position_id=request.position_id,
             client_order_key=request.client_order_key,
         )
+        from src.application.orders.legacy_bridge import ensure_approval_order
+
+        ensure_approval_order(self._repository.connect_fn, {
+            "id": approval_id,
+            "created_at": now,
+            "symbol": request.symbol,
+            "name": request.name,
+            "action": request.action,
+            "qty": request.qty,
+            "price": request.price,
+            "reason": request.reason,
+            "source": request.source,
+            "strategy_id": request.strategy_id,
+            "strategy_version": request.strategy_version,
+            "decision_id": request.decision_id,
+            "client_order_key": request.client_order_key,
+            "market": self._market,
+        })
+        return approval_id
 
     def queue_approval(
         self,

@@ -1,5 +1,6 @@
 import os
 import time
+import uuid
 
 from src.approval_service import ApprovalService
 from src.broker.base import DomesticStockBroker
@@ -36,6 +37,11 @@ class OrderRouter:
         self.online_access_blocked = bool(getattr(source, "online_access_blocked", False))
         self.approval_service = approval_service or ApprovalService(ApprovalRepository(connect_db))
         self._last_order_at = 0.0
+        from src.db.migrations import apply_migrations
+        with connect_db() as conn:
+            apply_migrations(conn)
+        from src.application.orders.recovery import run_startup_recovery
+        run_startup_recovery(connect_db)
 
     def _execution_context(self) -> ExecutionContext:
         return ExecutionContext(
@@ -163,10 +169,41 @@ class OrderRouter:
                 "approval_id": approval_id,
             }
 
+        from src.application.orders.health import assert_new_risk_allowed
+        from src.application.orders.models import OrderIntent
+        from src.application.orders.repository import OrderLedgerRepository
+
+        if action == "buy":
+            assert_new_risk_allowed(connect_db)
+        ledger = OrderLedgerRepository(connect_db)
+        correlation_id = str(uuid.uuid4())
+        order = ledger.create(OrderIntent(
+            client_order_key=f"router:{correlation_id}", correlation_id=correlation_id,
+            symbol=symbol, name=name, side=action, quantity=qty, price=price,
+            strategy_id=strategy_id, metadata={"reason": reason, "source": "strategy_router"},
+        ), initial_status="approved")
+        ledger.transition(order["id"], "approved", "submitting", actor="strategy_router")
         pre_order_qty = self._current_holding_qty(symbol) if action == "sell" else 0
-        result = self._place_order_with_rate_limit_retries(symbol, action, price, qty)
+        try:
+            result = self._place_order_with_rate_limit_retries(symbol, action, price, qty)
+        except Exception as exc:
+            ledger.transition(order["id"], "submitting", "broker_unknown", actor="strategy_router", reason=str(exc))
+            raise
         ok = result.success
         broker_result = dict(result.raw)
+        broker_order_id = str(
+            broker_result.get("odno") or broker_result.get("ODNO")
+            or (broker_result.get("output") or {}).get("odno")
+            or (broker_result.get("output") or {}).get("ODNO") or ""
+        )
+        ledger.bind_broker_result(order["id"], broker_order_id, message=result.message)
+        target_status = "submitted" if ok and broker_order_id else (
+            "broker_unknown" if ok else "rejected"
+        )
+        ledger.transition(
+            order["id"], "submitting", target_status,
+            actor="strategy_router", reason=result.message, payload=broker_result,
+        )
         save_trade(
             symbol,
             name,
@@ -184,7 +221,7 @@ class OrderRouter:
             pre_order_qty=pre_order_qty,
             strategy_id=strategy_id,
         )
-        return {"ok": ok, "msg": result.message, "status": "live"}
+        return {"ok": ok, "msg": result.message, "status": "live", "order_id": order["id"]}
 
     def _insert_approval(
         self,

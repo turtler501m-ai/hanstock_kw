@@ -1,0 +1,138 @@
+import sqlite3
+import tempfile
+import unittest
+from pathlib import Path
+
+from src.application.orders.health import NewRiskBlockedError, assert_new_risk_allowed
+from src.application.orders.approval import KST, default_domestic_expiry
+from src.application.orders.models import OrderIntent
+from src.application.orders.repository import OrderLedgerRepository
+from src.application.orders.recovery import run_startup_recovery
+from src.db.connection import open_sqlite
+from src.db.migrations import apply_migrations
+
+
+class UnifiedOrderLedgerTests(unittest.TestCase):
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.db_path = Path(self.temp_dir.name) / "orders.db"
+
+        def connect():
+            return open_sqlite(self.db_path, row_factory=sqlite3.Row)
+
+        self.connect = connect
+        with self.connect() as conn:
+            apply_migrations(conn)
+        self.repository = OrderLedgerRepository(self.connect)
+
+    def tearDown(self):
+        self.temp_dir.cleanup()
+
+    def intent(self, key="key-1"):
+        return OrderIntent(
+            client_order_key=key,
+            correlation_id="correlation-1",
+            symbol="005930",
+            name="삼성전자",
+            side="buy",
+            quantity=10,
+            price=70000,
+            approval_id=1,
+        )
+
+    def test_create_is_idempotent(self):
+        first = self.repository.create(self.intent())
+        second = self.repository.create(self.intent())
+        self.assertEqual(first["id"], second["id"])
+        detail = self.repository.detail(first["id"])
+        self.assertEqual(1, len(detail["events"]))
+
+    def test_after_close_approval_expires_at_next_market_session_close(self):
+        from datetime import datetime
+
+        current = datetime(2026, 8, 28, 18, 0, tzinfo=KST)
+        self.assertEqual("2026-08-31 15:30:00", default_domestic_expiry(current))
+
+    def test_transition_uses_expected_state(self):
+        order = self.repository.create(self.intent())
+        approved = self.repository.transition(order["id"], "approval_pending", "approved")
+        self.assertEqual("approved", approved["status"])
+        with self.assertRaises(RuntimeError):
+            self.repository.transition(order["id"], "approval_pending", "approved")
+
+    def test_reconciliation_materializes_only_fill_delta(self):
+        order = self.repository.create(self.intent())
+        self.repository.transition(order["id"], "approval_pending", "approved")
+        self.repository.transition(order["id"], "approved", "submitting")
+        self.repository.transition(order["id"], "submitting", "submitted")
+        self.repository.reconcile_snapshot(
+            order["id"], status="open", cumulative_filled_qty=4,
+            average_fill_price=69900, broker_order_id="123",
+        )
+        result = self.repository.reconcile_snapshot(
+            order["id"], status="open", cumulative_filled_qty=10,
+            average_fill_price=69950, broker_order_id="123",
+        )
+        self.assertEqual("filled", result["status"])
+        self.assertEqual(10, result["filled_qty"])
+        self.assertEqual([4, 6], [row["quantity"] for row in self.repository.detail(order["id"])["fills"]])
+        with self.connect() as conn:
+            position = conn.execute(
+                "SELECT quantity,net_cash_flow FROM positions WHERE market='KR' AND symbol='005930'"
+            ).fetchone()
+        self.assertEqual(10, position["quantity"])
+        self.assertAlmostEqual(-699500, position["net_cash_flow"])
+
+    def test_startup_recovery_moves_to_ready_when_invariants_are_clean(self):
+        recovery = run_startup_recovery(self.connect)
+        self.assertEqual("ready", recovery["state"])
+        assert_new_risk_allowed(self.connect)
+
+    def test_stale_active_order_forces_reduce_only(self):
+        order = self.repository.create(self.intent())
+        self.repository.transition(order["id"], "approval_pending", "approved")
+        self.repository.transition(order["id"], "approved", "submitting")
+        self.repository.transition(order["id"], "submitting", "submitted")
+        with self.connect() as conn:
+            conn.execute(
+                "UPDATE orders SET updated_at='2000-01-01T00:00:00+00:00' WHERE id=?",
+                (order["id"],),
+            )
+        recovery = run_startup_recovery(self.connect)
+        self.assertEqual("reduce_only", recovery["state"])
+        with self.assertRaises(NewRiskBlockedError):
+            assert_new_risk_allowed(self.connect)
+
+    def test_unknown_order_blocks_new_risk(self):
+        order = self.repository.create(self.intent())
+        self.repository.transition(order["id"], "approval_pending", "approved")
+        self.repository.transition(order["id"], "approved", "submitting")
+        self.repository.transition(order["id"], "submitting", "broker_unknown")
+        run_startup_recovery(self.connect)
+        with self.assertRaises(NewRiskBlockedError):
+            assert_new_risk_allowed(self.connect)
+
+    def test_broker_identity_is_unique_per_account_and_market(self):
+        first = self.repository.create(self.intent("first"), initial_status="approved")
+        second = self.repository.create(self.intent("second"), initial_status="approved")
+        self.repository.bind_broker_result(first["id"], "BROKER-1")
+        with self.assertRaises(sqlite3.IntegrityError):
+            self.repository.bind_broker_result(second["id"], "BROKER-1")
+
+    def test_broker_status_alias_is_normalized_and_invalid_status_is_rejected(self):
+        order = self.repository.create(self.intent(), initial_status="approved")
+        self.repository.transition(order["id"], "approved", "submitting")
+        self.repository.transition(order["id"], "submitting", "submitted")
+        result = self.repository.reconcile_snapshot(
+            order["id"], status="partially_filled", cumulative_filled_qty=2,
+            average_fill_price=70000,
+        )
+        self.assertEqual("partial", result["status"])
+        with self.assertRaises(ValueError):
+            self.repository.reconcile_snapshot(
+                order["id"], status="mystery", cumulative_filled_qty=2,
+            )
+
+
+if __name__ == "__main__":
+    unittest.main()

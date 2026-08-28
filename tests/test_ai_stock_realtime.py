@@ -1,11 +1,15 @@
 # -*- coding: utf-8 -*-
 """2차 실시간 타이밍·자동 승인 큐 테스트 (§4.8·§5.12)."""
 import unittest
+import tempfile
+from pathlib import Path
 
 from src.db.repository import init_db, connect_db
 from src.db import ai_stock_repository as repo
 from src.ai_stock import market_data, realtime_service, watchlist_service, automation_service
 from src.ai_stock.constants import DATA_GOOD, WATCH_WATCHING, WATCH_CONFIRMED
+from src.config import config as main_config
+from src.mistock.config import config as mistock_config
 
 _AI_TABLES = [
     "ai_stock_timing_signals", "ai_stock_execution_runs", "ai_stock_execution_plans",
@@ -122,12 +126,22 @@ class RealtimeTests(unittest.TestCase):
 
 class ApprovalQueueTests(unittest.TestCase):
     def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.original_main_db = main_config.trade_db_path
+        self.original_mistock_db = mistock_config.trade_db_path
+        main_config.trade_db_path = Path(self.temp_dir.name) / "main.sqlite"
+        object.__setattr__(mistock_config, "trade_db_path", Path(self.temp_dir.name) / "mistock.sqlite")
         init_db()
         with connect_db() as conn:
             for t in _AI_TABLES:
                 conn.execute(f"DELETE FROM {t}")
             conn.execute("DELETE FROM approvals WHERE source='ai_stock'")
             conn.commit()
+
+    def tearDown(self):
+        main_config.trade_db_path = self.original_main_db
+        object.__setattr__(mistock_config, "trade_db_path", self.original_mistock_db)
+        self.temp_dir.cleanup()
 
     def test_queue_approval_creates_pending(self):
         cand = {"symbol": "005930", "name": "삼성", "final_score": 85, "decision": "strong_watch"}
@@ -154,6 +168,11 @@ class ApprovalQueueTests(unittest.TestCase):
             row = conn.execute("SELECT status, source FROM approvals WHERE id=?", (aid,)).fetchone()
             self.assertEqual(row[0], "pending")
             self.assertEqual(row[1], "ai_stock")
+            unified = conn.execute(
+                "SELECT market,status FROM orders WHERE approval_id=?", (aid,)
+            ).fetchone()
+            self.assertEqual(unified[0], "US")
+            self.assertEqual(unified[1], "approval_pending")
             conn.execute("DELETE FROM approvals WHERE id=?", (aid,))
             conn.commit()
         finally:

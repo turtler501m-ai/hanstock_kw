@@ -48,6 +48,202 @@ _trade_sync_thread: threading.Thread | None = None
 _ATTRIBUTED_BALANCE_SYNC_REASON = "증권사 잔고 전략귀속 동기화"
 
 
+def _record_reconciliation_issue(
+    *, symbol: str, broker_qty: int, internal_qty: int, reason: str, snapshot: dict,
+) -> int:
+    import json
+    from src.db.performance_repository import account_scope_key
+
+    difference = int(broker_qty) - int(internal_qty)
+    now_value = trader.datetime.now(trader.KST)
+    now = now_value.strftime("%Y-%m-%d %H:%M:%S")
+    account_key = account_scope_key()
+    with trader.connect_db() as conn:
+        existing = conn.execute(
+            """SELECT id FROM reconciliation_adjustments
+               WHERE account_key=? AND market='KR' AND symbol=? AND status='open'
+                 AND broker_qty=? AND internal_qty=? AND difference_qty=?
+               ORDER BY id DESC LIMIT 1""",
+            (account_key, symbol, broker_qty, internal_qty, difference),
+        ).fetchone()
+        if existing:
+            return int(existing[0])
+        cursor = conn.execute(
+            """INSERT INTO reconciliation_adjustments
+               (account_key,market,symbol,broker_qty,internal_qty,difference_qty,
+                reason,status,snapshot_json,created_at)
+               VALUES(?,'KR',?,?,?,?,?,'open',?,?)""",
+            (
+                account_key, symbol, broker_qty, internal_qty, difference, reason,
+                json.dumps(snapshot, ensure_ascii=False, default=str), now,
+            ),
+        )
+        return int(cursor.lastrowid)
+
+
+@router.get("/api/orders")
+def unified_orders(status: str = "", limit: int = 100, offset: int = 0):
+    """Read the unified ledger; legacy tables remain compatibility projections."""
+    from src.application.orders.repository import OrderLedgerRepository
+
+    statuses = tuple(value.strip() for value in status.split(",") if value.strip())
+    items = OrderLedgerRepository(trader.connect_db).list_orders(
+        statuses=statuses, limit=limit, offset=offset
+    )
+    return {"items": items, "limit": min(500, max(1, limit)), "offset": max(0, offset)}
+
+
+@router.get("/api/orders/{order_id}")
+def unified_order_detail(order_id: int):
+    from fastapi import HTTPException
+    from src.application.orders.repository import OrderLedgerRepository
+
+    item = OrderLedgerRepository(trader.connect_db).detail(order_id)
+    if not item:
+        raise HTTPException(status_code=404, detail="order not found")
+    return item
+
+
+@router.get("/api/positions")
+def unified_positions(market: str = "KR"):
+    from src.application.orders.repository import OrderLedgerRepository
+
+    return {
+        "items": OrderLedgerRepository(trader.connect_db).list_positions(market=market),
+        "market": market,
+        "source": "verified_fills",
+    }
+
+
+@router.post("/api/orders/{order_id}/reconcile")
+def reconcile_unified_order(order_id: int):
+    from fastapi import HTTPException
+    from src.application.orders.repository import OrderLedgerRepository
+
+    repository = OrderLedgerRepository(trader.connect_db)
+    item = repository.get(order_id)
+    if not item:
+        raise HTTPException(status_code=404, detail="order not found")
+    broker_order_id = str(item.get("broker_order_id") or "")
+    if not broker_order_id:
+        raise HTTPException(status_code=409, detail="broker order id is not known")
+    snapshot = _get_api().fetch_order_snapshot(
+        broker_order_id, str(item.get("created_at") or "")[:10].replace("-", "")
+    )
+    status = str(getattr(snapshot.status, "value", snapshot.status))
+    if snapshot.outcome_unknown:
+        status = "broker_unknown"
+    return repository.reconcile_snapshot(
+        order_id,
+        status=status,
+        cumulative_filled_qty=int(snapshot.filled_quantity),
+        average_fill_price=float(snapshot.average_fill_price),
+        broker_order_id=snapshot.broker_order_id or broker_order_id,
+        raw=dict(snapshot.raw),
+    )
+
+
+@router.post("/api/orders/{order_id}/cancel")
+def cancel_unified_order(order_id: int):
+    from fastapi import HTTPException
+    from src.application.orders.repository import OrderLedgerRepository
+    from src.broker.models import CancelOrderRequest
+
+    repository = OrderLedgerRepository(trader.connect_db)
+    item = repository.get(order_id)
+    if not item:
+        raise HTTPException(status_code=404, detail="order not found")
+    current = str(item["status"])
+    if current not in {"submitted", "open", "partial"}:
+        raise HTTPException(status_code=409, detail=f"order cannot be canceled from {current}")
+    broker_order_id = str(item.get("broker_order_id") or "")
+    if not broker_order_id:
+        raise HTTPException(status_code=409, detail="broker order id is not known")
+    claimed = repository.transition(
+        order_id, current, "cancel_pending", actor="dashboard", reason="operator cancellation"
+    )
+    result = _get_api().submit_cancellation(CancelOrderRequest(
+        order_id=broker_order_id,
+        symbol=str(item["symbol"]),
+        quantity=max(0, int(item["requested_qty"]) - int(item["filled_qty"])),
+    ))
+    if not result.success:
+        # Cancellation outcome may be ambiguous. Reconciliation is required;
+        # never restore the prior active state and blindly retry.
+        claimed = repository.transition(
+            order_id, "cancel_pending", "broker_unknown", actor="broker", reason=result.message
+        )
+    return {"order": claimed, "broker_result": {
+        "success": result.success, "message": result.message,
+        "broker_order_id": result.broker_order_id,
+        "status": str(getattr(result.status, "value", result.status)),
+    }}
+
+
+@router.get("/api/operations/order-health")
+def unified_order_health():
+    from src.application.orders.health import build_order_health
+
+    return build_order_health(trader.connect_db)
+
+
+@router.get("/api/operations/health")
+def operations_health():
+    """Canonical operations endpoint retained alongside the narrower alias."""
+    return unified_order_health()
+
+
+@router.get("/api/reconciliation/issues")
+def reconciliation_issues(status: str = "open", limit: int = 100, offset: int = 0):
+    limit = min(500, max(1, int(limit)))
+    offset = max(0, int(offset))
+    with trader.connect_db() as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            """SELECT * FROM reconciliation_adjustments
+               WHERE status=? ORDER BY id DESC LIMIT ? OFFSET ?""",
+            (status, limit, offset),
+        ).fetchall()
+    return {"items": [dict(row) for row in rows], "status": status, "limit": limit, "offset": offset}
+
+
+@router.post("/api/reconciliation/issues/{issue_id}/review")
+def review_reconciliation_issue(issue_id: int, payload: dict = Body(...)):
+    status = str(payload.get("status") or "").strip().lower()
+    reviewer = str(payload.get("reviewed_by") or "dashboard").strip()
+    reason = str(payload.get("reason") or "").strip()
+    if status not in {"resolved", "ignored"}:
+        raise HTTPException(status_code=400, detail="status must be resolved or ignored")
+    if not reason:
+        raise HTTPException(status_code=400, detail="review reason is required")
+    now_value = trader.datetime.now(trader.KST)
+    now = now_value.strftime("%Y-%m-%d %H:%M:%S")
+    with trader.connect_db() as conn:
+        cursor = conn.execute(
+            """UPDATE reconciliation_adjustments
+               SET status=?, reviewed_by=?, reviewed_at=?, reason=reason || ' | review: ' || ?
+               WHERE id=? AND status='open'""",
+            (status, reviewer, now, reason, issue_id),
+        )
+    if cursor.rowcount != 1:
+        raise HTTPException(status_code=409, detail="issue is missing or already reviewed")
+    return {"id": issue_id, "status": status, "reviewed_by": reviewer, "reviewed_at": now}
+
+
+@router.post("/api/orders/{order_id}/approve")
+def approve_unified_order(order_id: int):
+    from fastapi import HTTPException
+    from src.application.orders.repository import OrderLedgerRepository
+
+    item = OrderLedgerRepository(trader.connect_db).get(order_id)
+    if not item:
+        raise HTTPException(status_code=404, detail="order not found")
+    approval_id = _to_int(item.get("approval_id"))
+    if approval_id <= 0:
+        raise HTTPException(status_code=409, detail="order has no approval to execute")
+    return _approve_pending_approval(approval_id, "통합원장 승인")
+
+
 def _balance_sync_strategy_id(trade: dict) -> str:
     from src.strategy_ids import resolve_order_strategy_id
 
@@ -191,7 +387,19 @@ def get_approvals(limit: int = 50, strategy_id: str | None = None):
         strategy_names = {}
 
     approvals = []
-    latest_trades = _latest_trades_by_approval_ids([int(row["id"]) for row in rows])
+    approval_ids = [int(row["id"]) for row in rows]
+    latest_trades = _latest_trades_by_approval_ids(approval_ids)
+    unified_by_approval = {}
+    if approval_ids:
+        with trader.connect_db() as conn:
+            conn.row_factory = sqlite3.Row
+            placeholders = ",".join("?" for _ in approval_ids)
+            unified_rows = conn.execute(
+                f"SELECT * FROM orders WHERE approval_id IN ({placeholders}) ORDER BY id DESC",
+                tuple(approval_ids),
+            ).fetchall()
+            for unified_row in unified_rows:
+                unified_by_approval.setdefault(int(unified_row["approval_id"]), dict(unified_row))
     open_sells = _latest_open_sell_trades_by_symbols([str(row["symbol"]) for row in rows])
     for row in rows:
         item = _approval_row(row)
@@ -211,6 +419,13 @@ def get_approvals(limit: int = 50, strategy_id: str | None = None):
             source=item.get("source"),
         ))
         trade = latest_trades.get(int(item.get("id") or 0))
+        unified_order = unified_by_approval.get(int(item.get("id") or 0))
+        if unified_order:
+            item["internal_order_id"] = unified_order.get("id")
+            item["correlation_id"] = unified_order.get("correlation_id")
+            item["unified_order_status"] = unified_order.get("status")
+            item["last_synced_at"] = unified_order.get("last_synced_at")
+            item["expires_at"] = item.get("expires_at") or unified_order.get("expires_at")
         if trade:
             item["submission_message"] = str(item.get("response_msg") or "")
             item["trade_id"] = trade.get("id")
@@ -792,27 +1007,26 @@ def _create_approval_row(payload: dict) -> int:
     strategy_version = _to_int(payload.get("strategy_version")) or None
     profile_hash = str(payload.get("profile_hash") or "").strip() or None
     source_candidate_id = _to_int(payload.get("source_candidate_id")) or None
-    now = trader.datetime.now(trader.KST).strftime("%Y-%m-%d %H:%M:%S")
+    client_order_key = str(
+        payload.get("client_order_key") or payload.get("idempotency_key") or ""
+    ).strip() or None
+    now_value = trader.datetime.now(trader.KST)
+    expires_at = str(payload.get("expires_at") or "").strip()
+    import uuid
 
+    correlation_id = str(payload.get("correlation_id") or uuid.uuid4())
+    from src.application.orders.approval import create_domestic_approval
 
-    _init_approval_db()
-    with trader.connect_db() as conn:
-        cursor = conn.execute(
-            """
-            INSERT INTO approvals
-            (
-                created_at, updated_at, symbol, name, action, qty, price, reason, source,
-                status, response_msg, strategy_id, strategy_version, profile_hash, source_candidate_id
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', '', ?, ?, ?, ?)
-            """,
-            (
-                now, now, symbol, name, action, qty, price, reason, source,
-                strategy_id, strategy_version, profile_hash, source_candidate_id,
-            ),
-        )
-        approval_id = cursor.lastrowid
-    return int(approval_id)
+    return create_domestic_approval(
+        connect=trader.connect_db,
+        init_db=trader.init_db,
+        symbol=symbol, name=name, action=action, qty=qty, price=price,
+        reason=reason, source=source, strategy_id=strategy_id,
+        strategy_version=strategy_version, profile_hash=profile_hash,
+        source_candidate_id=source_candidate_id,
+        client_order_key=client_order_key, correlation_id=correlation_id,
+        expires_at=expires_at or None, now=now_value,
+    )
 
 
 def _run_auto_approval_batch_async(approval_ids: list[int]) -> None:
@@ -1230,12 +1444,19 @@ def reject_order(approval_id: int):
                 status_code=409,
                 detail=f"managed AI-stock rejection failed closed: {exc}",
             ) from exc
+    from src.application.orders.legacy_bridge import ensure_approval_order, mirror_status
+
+    ledger_order = ensure_approval_order(trader.connect_db, item)
     now = trader.datetime.now(trader.KST).strftime("%Y-%m-%d %H:%M:%S")
     with trader.connect_db() as conn:
         conn.execute(
             "UPDATE approvals SET status = 'rejected', response_msg = 'Rejected by dashboard', updated_at = ? WHERE id = ?",
             (now, approval_id),
         )
+    mirror_status(
+        trader.connect_db, ledger_order, "rejected",
+        actor="dashboard", reason="approval rejected",
+    )
     return {"id": approval_id, "status": "rejected"}
 
 
@@ -1643,13 +1864,6 @@ def _execute_trade_sync(*, days: int, run_id: str, started_at: str) -> dict:
 
         merged_values = sorted(merged_trades.values(), key=lambda x: x.get("ts", ""))
         trades = _account_trades(merged_values)
-        # Performance excludes synthetic balance rows, but balance reconciliation must
-        # remember its own new adjustments or the same gap is inserted every run.
-        trades.extend(
-            trade for trade in merged_values
-            if _trade_is_ok(trade)
-            and str(trade.get("reason") or "").strip() == _ATTRIBUTED_BALANCE_SYNC_REASON
-        )
         strategy_positions = _strategy_position_quantities(local_trades)
 
         db_holdings = {}
@@ -1681,39 +1895,22 @@ def _execute_trade_sync(*, days: int, run_id: str, started_at: str) -> dict:
                 raw_stock = ch.get("_raw", {})
                 price = int(float(raw_stock.get("pchs_avg_pric", ch["price"])))
 
-                allocations = _allocate_strategy_reconciliation(
-                    abs(diff), strategy_positions.get(sym, {}), action=action,
+                issue_id = _record_reconciliation_issue(
+                    symbol=sym,
+                    broker_qty=broker_qty,
+                    internal_qty=db_qty,
+                    reason="broker balance differs from verified fills",
+                    snapshot={"holding": ch, "strategy_positions": strategy_positions.get(sym, {})},
                 )
-                for strategy_id, allocated_qty in allocations:
-                    trader.save_trade(
-                        symbol=sym,
-                        name=ch["name"],
-                        action=action,
-                        qty=allocated_qty,
-                        price=price,
-                        reason=_ATTRIBUTED_BALANCE_SYNC_REASON,
-                        ok=True,
-                        order_submission_enabled=False,
-                        order_status="reconciled",
-                        filled_qty=allocated_qty,
-                        filled_price=price,
-                        strategy_id=strategy_id,
-                    )
-                    balance_sync_items.append({
-                        "sync_type": "balance",
-                        "sync_result": "reconciled",
-                        "ts": trader.datetime.now(trader.KST).strftime("%Y-%m-%d %H:%M:%S"),
-                        "symbol": sym,
-                        "name": ch["name"],
-                        "action": action,
-                        "qty": allocated_qty,
-                        "price": price,
-                        "broker_order_id": "",
-                        "order_status": "reconciled",
-                        "strategy_id": strategy_id or "",
-                        "message": f"증권사 잔고 {broker_qty}주 / 기록 잔고 {db_qty}주 차이 보정",
-                    })
-                synced_count += len(allocations)
+                balance_sync_items.append({
+                    "sync_type": "balance",
+                    "sync_result": "review_required",
+                    "ts": trader.datetime.now(trader.KST).strftime("%Y-%m-%d %H:%M:%S"),
+                    "symbol": sym, "name": ch["name"], "action": action,
+                    "qty": abs(diff), "price": price, "broker_order_id": "",
+                    "order_status": "reconciliation_open", "issue_id": issue_id,
+                    "message": f"증권사 {broker_qty}주 / 검증 체결 원장 {db_qty}주 차이: 자동 체결 생성 안 함",
+                })
 
         # Calculate db average costs to use for selling missing items without affecting PnL
         db_costs = {}
@@ -1737,39 +1934,21 @@ def _execute_trade_sync(*, days: int, run_id: str, started_at: str) -> dict:
         for sym, db_qty in db_holdings.items():
             if db_qty > 0 and sym not in current_holdings:
                 avg_cost = int(db_costs.get(sym, {}).get("cost", 0))
-                allocations = _allocate_strategy_reconciliation(
-                    db_qty, strategy_positions.get(sym, {}), action="sell",
+                issue_id = _record_reconciliation_issue(
+                    symbol=sym,
+                    broker_qty=0,
+                    internal_qty=db_qty,
+                    reason="verified fills contain a position absent from broker balance",
+                    snapshot={"name": names.get(sym, sym), "strategy_positions": strategy_positions.get(sym, {})},
                 )
-                for strategy_id, allocated_qty in allocations:
-                    trader.save_trade(
-                        symbol=sym,
-                        name=names.get(sym, sym),
-                        action="sell",
-                        qty=allocated_qty,
-                        price=avg_cost,  # Use avg_cost to avoid distorting Realized PnL
-                        reason=_ATTRIBUTED_BALANCE_SYNC_REASON,
-                        ok=True,
-                        order_submission_enabled=False,
-                        order_status="reconciled",
-                        filled_qty=allocated_qty,
-                        filled_price=avg_cost,
-                        strategy_id=strategy_id,
-                    )
-                    balance_sync_items.append({
-                        "sync_type": "balance",
-                        "sync_result": "reconciled",
-                        "ts": trader.datetime.now(trader.KST).strftime("%Y-%m-%d %H:%M:%S"),
-                        "symbol": sym,
-                        "name": names.get(sym, sym),
-                        "action": "sell",
-                        "qty": allocated_qty,
-                        "price": avg_cost,
-                        "broker_order_id": "",
-                        "order_status": "reconciled",
-                        "strategy_id": strategy_id or "",
-                        "message": "증권사에 없는 로컬 보유수량 전량 보정",
-                    })
-                synced_count += len(allocations)
+                balance_sync_items.append({
+                    "sync_type": "balance", "sync_result": "review_required",
+                    "ts": trader.datetime.now(trader.KST).strftime("%Y-%m-%d %H:%M:%S"),
+                    "symbol": sym, "name": names.get(sym, sym), "action": "sell",
+                    "qty": db_qty, "price": avg_cost, "broker_order_id": "",
+                    "order_status": "reconciliation_open", "issue_id": issue_id,
+                    "message": "증권사에 없는 내부 포지션: 자동 매도 체결 생성 안 함",
+                })
 
         imported_count = _to_int(history_sync.get("imported_count")) if history_sync else 0
         updated_count = _to_int(history_sync.get("updated_count")) if history_sync else 0

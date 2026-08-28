@@ -2145,7 +2145,7 @@ class DashboardCoreTests(unittest.TestCase):
             dashboard.trader.config.trade_db_path = original_db_path
             dashboard.fetch_cloud_trades = original_fetch_cloud_trades
 
-    def test_balance_sync_adjustment_is_reconciled_not_submitted(self):
+    def test_balance_sync_records_review_issue_without_synthetic_trade(self):
         import src.dashboard.routes.stock as stock_routes
 
         original_db_path = dashboard.trader.config.trade_db_path
@@ -2187,14 +2187,17 @@ class DashboardCoreTests(unittest.TestCase):
                     started_at="2026-07-30T10:00:00+09:00",
                 )
 
-                self.assertEqual(result["balance_synced_count"], 1)
+                self.assertEqual(result["balance_synced_count"], 0)
                 with sqlite3.connect(db_path) as conn:
                     conn.row_factory = sqlite3.Row
-                    row = conn.execute("SELECT * FROM trades").fetchone()
+                    trade_count = conn.execute("SELECT COUNT(*) FROM trades").fetchone()[0]
+                    row = conn.execute("SELECT * FROM reconciliation_adjustments").fetchone()
+                self.assertEqual(trade_count, 0)
                 self.assertEqual(row["symbol"], "005360")
-                self.assertEqual(row["order_status"], "reconciled")
-                self.assertEqual(row["broker_order_id"], "")
-                self.assertEqual(row["filled_qty"], 10)
+                self.assertEqual(row["broker_qty"], 10)
+                self.assertEqual(row["internal_qty"], 0)
+                self.assertEqual(row["difference_qty"], 10)
+                self.assertEqual(row["status"], "open")
         finally:
             dashboard.trader.config.trade_db_path = original_db_path
             stock_routes._get_api = original_get_api
@@ -2316,7 +2319,7 @@ class DashboardCoreTests(unittest.TestCase):
             stock_routes._clear_balance_cache = original_clear_balance_cache
             stock_routes.trader.config.dry_run = original_dry_run
 
-    def test_balance_sync_sell_preserves_strategy_attribution(self):
+    def test_balance_sync_gap_preserves_attribution_in_review_snapshot(self):
         import src.dashboard.routes.stock as stock_routes
 
         original_db_path = dashboard.trader.config.trade_db_path
@@ -2366,19 +2369,23 @@ class DashboardCoreTests(unittest.TestCase):
                     started_at="2026-08-05T10:01:00+09:00",
                 )
 
-                self.assertEqual(first["balance_synced_count"], 2)
+                self.assertEqual(first["balance_synced_count"], 0)
                 self.assertEqual(second["balance_synced_count"], 0)
                 with sqlite3.connect(db_path) as conn:
                     conn.row_factory = sqlite3.Row
+                    reconciled_count = conn.execute(
+                        "SELECT COUNT(*) FROM trades WHERE order_status='reconciled'"
+                    ).fetchone()[0]
                     rows = conn.execute(
-                        "SELECT action, qty, strategy_id, reason FROM trades "
-                        "WHERE order_status = 'reconciled' ORDER BY strategy_id"
+                        "SELECT * FROM reconciliation_adjustments"
                     ).fetchall()
-                self.assertEqual(
-                    [(row["action"], row["qty"], row["strategy_id"]) for row in rows],
-                    [("sell", 3, "alpha"), ("sell", 2, "beta")],
-                )
-                self.assertTrue(all(row["reason"] == "증권사 잔고 전략귀속 동기화" for row in rows))
+                self.assertEqual(reconciled_count, 0)
+                self.assertEqual(len(rows), 1)
+                self.assertEqual(rows[0]["broker_qty"], 5)
+                self.assertEqual(rows[0]["internal_qty"], 10)
+                self.assertEqual(rows[0]["difference_qty"], -5)
+                self.assertIn('"alpha": 6', rows[0]["snapshot_json"])
+                self.assertIn('"beta": 4', rows[0]["snapshot_json"])
         finally:
             dashboard.trader.config.trade_db_path = original_db_path
             stock_routes._get_api = original_get_api

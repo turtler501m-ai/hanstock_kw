@@ -1,4 +1,7 @@
 import unittest
+from unittest.mock import Mock
+
+from src.dashboard.routes import stock_order
 
 from src.dashboard.routes.stock_route_groups import (
     analysis_router,
@@ -20,6 +23,19 @@ def _endpoint_modules(router) -> set[str]:
 
 
 class StockRouteOwnershipTests(unittest.TestCase):
+    def test_dependency_refresh_preserves_running_order_sync_state(self):
+        original_thread = stock_order._trade_sync_thread
+        original_lock = stock_order._trade_sync_lock
+        running_thread = Mock()
+        running_thread.is_alive.return_value = True
+        try:
+            stock_order._trade_sync_thread = running_thread
+            stock_order._refresh_legacy_dependencies()
+            self.assertIs(stock_order._trade_sync_thread, running_thread)
+            self.assertIs(stock_order._trade_sync_lock, original_lock)
+        finally:
+            stock_order._trade_sync_thread = original_thread
+
     def test_order_routes_have_order_owner(self):
         paths = _paths(order_router)
         self.assertIn("/api/approvals", paths)

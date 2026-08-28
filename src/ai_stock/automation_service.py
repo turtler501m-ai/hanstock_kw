@@ -188,10 +188,6 @@ def _strategy_gate(candidate: dict[str, Any]) -> str | None:
 
 def _queue_approval(market: str, candidate: dict[str, Any], plan: dict[str, Any], strategy_id: str) -> int:
     """승인 대기열 등록(pending). 기존 시장별 경로만 사용, 브로커 직접 호출 없음(§5.9)."""
-    from datetime import datetime, timezone, timedelta
-
-    kst = timezone(timedelta(hours=9))
-    now = datetime.now(kst).strftime("%Y-%m-%d %H:%M:%S")
     qty = int(plan.get("quantity") or 0)
     price = int(plan.get("entry_price") or 0)
     if qty <= 0 or price <= 0:
@@ -200,35 +196,31 @@ def _queue_approval(market: str, candidate: dict[str, Any], plan: dict[str, Any]
 
     if market == "KR":
         from src.db.repository import init_db, connect_db
+        from src.application.orders.approval import create_domestic_approval
 
-        init_db()
-        with connect_db() as conn:
-            cur = conn.execute(
-                "INSERT INTO approvals (created_at, updated_at, symbol, name, action, qty, price, "
-                "reason, source, status, response_msg, strategy_id) "
-                "VALUES (?, ?, ?, ?, 'buy', ?, ?, ?, 'ai_stock', 'pending', '', ?)",
-                (now, now, candidate.get("symbol"), candidate.get("name") or candidate.get("symbol"),
-                 qty, price, reason, strategy_id),
-            )
-            conn.commit()
-            return int(cur.lastrowid)
-    # US: 미스톡 기존 approvals 경로로만 등록(§5.9, 신규 우회 없음).
-    from src.mistock import db as mistock_db
-
-    mistock_db.init_db()
-    conn = mistock_db.connect_db()
-    try:
-        cur = conn.execute(
-            "INSERT INTO approvals (created_at, updated_at, symbol, name, action, qty, price, "
-            "reason, source, status, response_msg) "
-            "VALUES (?, ?, ?, ?, 'buy', ?, ?, ?, 'ai_stock', 'pending', '')",
-            (now, now, candidate.get("symbol"), candidate.get("name") or candidate.get("symbol"),
-             float(qty), float(price), reason),
+        return create_domestic_approval(
+            connect=connect_db, init_db=init_db,
+            symbol=str(candidate.get("symbol") or ""),
+            name=str(candidate.get("name") or candidate.get("symbol") or ""),
+            action="buy", qty=qty, price=price, reason=reason,
+            source="ai_stock", strategy_id=strategy_id,
+            strategy_version=candidate.get("strategy_version"),
+            profile_hash=candidate.get("profile_hash"),
+            source_candidate_id=candidate.get("id"),
+            client_order_key=str(plan.get("client_order_key") or "") or None,
         )
-        conn.commit()
-        return int(cur.lastrowid)
-    finally:
-        conn.close()
+    # US: 미스톡 기존 approvals 경로로만 등록(§5.9, 신규 우회 없음).
+    from src.mistock.approval_service import get_approval_service
+
+    return get_approval_service().queue_approval(
+        str(candidate.get("symbol") or ""),
+        str(candidate.get("name") or candidate.get("symbol") or ""),
+        "buy", qty, price, reason, source="ai_stock", strategy_id=strategy_id,
+        strategy_version=candidate.get("strategy_version"),
+        profile_hash=str(candidate.get("profile_hash") or ""),
+        source_candidate_id=candidate.get("id"),
+        client_order_key=str(plan.get("client_order_key") or ""),
+    )
 
 
 def _execute_order(

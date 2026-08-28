@@ -284,24 +284,14 @@ def queue_approval(
         reason=reason,
         default="seven_split" if source == "auto_trader" else "",
     ) or None
-    init_approval_db()
-    now = datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S")
-    with connect_db() as conn:
-        cursor = conn.execute(
-            """
-            INSERT INTO approvals
-            (
-                created_at, updated_at, symbol, name, action, qty, price, reason, source,
-                status, response_msg, strategy_id, strategy_version, profile_hash, source_candidate_id
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', '', ?, ?, ?, ?)
-            """,
-            (
-                now, now, symbol, name, action, qty, price, reason, source,
-                strategy_id, strategy_version, profile_hash, source_candidate_id,
-            ),
-        )
-        return cursor.lastrowid
+    from src.application.orders.approval import create_domestic_approval
+
+    return create_domestic_approval(
+        connect=connect_db, init_db=init_db, symbol=symbol, name=name,
+        action=action, qty=qty, price=price, reason=reason, source=source,
+        strategy_id=strategy_id, strategy_version=strategy_version,
+        profile_hash=profile_hash, source_candidate_id=source_candidate_id,
+    )
 
 
 def _is_executable_plan_row(row: dict) -> bool:

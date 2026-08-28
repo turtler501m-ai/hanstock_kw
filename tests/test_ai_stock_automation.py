@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 """AI스톡 자동화 테스트 (§5.12·§6.6): 정책 게이트·스케줄 진입점."""
 import unittest
+import tempfile
+from pathlib import Path
 from unittest.mock import patch
 
 from src.db.repository import init_db, connect_db
@@ -8,6 +10,7 @@ from src.db import ai_autonomy_repository as repo
 from src.ai_stock import market_data, automation_service
 from src.ai_stock.automation_service import evaluate_gate, set_policy, run_strategy
 from src.ai_stock.freshness import now
+from src.config import config
 
 _AI_TABLES = [
     "ai_stock_timing_signals", "ai_stock_execution_runs", "ai_stock_execution_plans",
@@ -36,6 +39,9 @@ class _Provider:
 
 class AutomationTests(unittest.TestCase):
     def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.original_trade_db_path = config.trade_db_path
+        config.trade_db_path = Path(self.temp_dir.name) / "automation.sqlite"
         init_db()
         with connect_db() as conn:
             for t in _AI_TABLES:
@@ -46,6 +52,8 @@ class AutomationTests(unittest.TestCase):
 
     def tearDown(self):
         market_data.set_provider(self._orig)
+        config.trade_db_path = self.original_trade_db_path
+        self.temp_dir.cleanup()
 
     def test_execute_gate_blocked_when_guarded(self):
         # 안전 가드가 닫힌 기본 환경에서 execute 단계는 차단된다.

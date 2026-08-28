@@ -5,6 +5,8 @@ httpx/TestClient 미사용. 라우터 함수를 직접 호출하는 기존 테�
 """
 import unittest
 import asyncio
+import tempfile
+from pathlib import Path
 
 from fastapi import HTTPException, Request
 from fastapi.exceptions import RequestValidationError
@@ -12,10 +14,12 @@ from fastapi.exceptions import RequestValidationError
 import src.dashboard as dashboard
 from src.dashboard import app
 from src.dashboard.routes import ai_stock as route
-from src.db.repository import init_db, connect_db
+from src.db.repository import init_db, connect_db, save_watchlist_data
 from src.db import ai_stock_repository as repo
 from src.ai_stock import market_data
 from src.ai_stock.constants import DATA_GOOD, WATCH_WATCHING, WATCH_CONFIRMED
+from src.config import config as main_config
+from src.mistock.config import config as mistock_config
 
 _AI_TABLES = [
     "ai_stock_timing_signals", "ai_stock_execution_runs", "ai_stock_execution_plans",
@@ -46,7 +50,16 @@ class _Provider:
 
 class AiStockApiTests(unittest.TestCase):
     def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.original_main_db = main_config.trade_db_path
+        self.original_mistock_db = mistock_config.trade_db_path
+        main_config.trade_db_path = Path(self.temp_dir.name) / "main.sqlite"
+        object.__setattr__(mistock_config, "trade_db_path", Path(self.temp_dir.name) / "mistock.sqlite")
         init_db()
+        save_watchlist_data({
+            "symbols": ["005930"],
+            "names": {"005930": "Samsung"},
+        })
         with connect_db() as conn:
             for t in _AI_TABLES:
                 conn.execute(f"DELETE FROM {t}")
@@ -56,6 +69,9 @@ class AiStockApiTests(unittest.TestCase):
 
     def tearDown(self):
         market_data.set_provider(self._orig)
+        main_config.trade_db_path = self.original_main_db
+        object.__setattr__(mistock_config, "trade_db_path", self.original_mistock_db)
+        self.temp_dir.cleanup()
 
     def _check_envelope(self, body, market=None):
         for key in ("ok", "market", "data", "meta", "safety", "errors"):

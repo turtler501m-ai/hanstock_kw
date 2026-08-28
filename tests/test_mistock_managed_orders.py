@@ -119,6 +119,13 @@ class MistockManagedOrdersTests(unittest.TestCase):
         self.assertEqual(order["broker_order_no"], "US-100")
         self.assertEqual(order["filled_qty"], 0)
         self.assertIsNone(order["avg_fill_price"])
+        unified = mistock_db.row(
+            "SELECT market,status,broker_order_id FROM orders WHERE client_order_key=?",
+            ("accepted-1",),
+        )
+        self.assertEqual(unified["market"], "US")
+        self.assertEqual(unified["status"], "submitted")
+        self.assertEqual(unified["broker_order_id"], "US-100")
 
     def test_only_unsupported_demo_order_uses_shadow_fill(self):
         object.__setattr__(config, "trading_env", "demo")
@@ -133,6 +140,11 @@ class MistockManagedOrdersTests(unittest.TestCase):
         order = mistock_db.row("SELECT * FROM managed_orders WHERE client_order_key='demo-shadow'")
         self.assertEqual(order["filled_qty"], 2)
         self.assertEqual(order["avg_fill_price"], 100)
+        unified = mistock_db.row(
+            "SELECT status,filled_qty FROM orders WHERE client_order_key='demo-shadow'"
+        )
+        self.assertEqual(unified["status"], "filled")
+        self.assertEqual(unified["filled_qty"], 2)
 
     def test_simulation_is_filled_and_updates_trade_and_holding(self):
         object.__setattr__(config, "trading_env", "sim")

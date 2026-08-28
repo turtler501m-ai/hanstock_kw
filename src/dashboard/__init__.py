@@ -72,6 +72,12 @@ def _log_server_lifecycle(event: str) -> None:
 @asynccontextmanager
 async def _dashboard_lifespan(_app):
     _log_server_lifecycle("startup")
+    from src.application.orders.recovery import run_startup_recovery
+    from src.db.repository import connect_db, init_db
+
+    init_db()
+    recovery = run_startup_recovery(connect_db)
+    logger.info("[ORDER_RECOVERY] state={} reason={}", recovery["state"], recovery["reason"])
     settings.run_dashboard_startup_tasks()
     try:
         yield

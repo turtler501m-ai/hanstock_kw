@@ -2,6 +2,28 @@
 
 MIN_ORDER_HISTORY_SYNC_DAYS = 30
 
+
+def _mirror_trade_to_unified_ledger(trade: dict, stored: dict | None = None) -> None:
+    """Project a normalized broker history row into the unified ledger."""
+    from src.application.orders.repository import OrderLedgerRepository
+
+    repository = OrderLedgerRepository(trader.connect_db)
+    source = stored or trade
+    approval_id = _to_int(source.get("source_approval_id"))
+    order = repository.get_by_approval(approval_id) if approval_id else None
+    if order is None:
+        order = repository.get_by_broker_order_id(str(trade.get("broker_order_id") or ""))
+    if order is None:
+        return
+    repository.reconcile_snapshot(
+        int(order["id"]),
+        status=str(trade.get("order_status") or "open"),
+        cumulative_filled_qty=_to_int(trade.get("filled_qty")),
+        average_fill_price=float(trade.get("filled_price") or 0),
+        broker_order_id=str(trade.get("broker_order_id") or ""),
+        raw=trade.get("broker_result") if isinstance(trade.get("broker_result"), dict) else {},
+    )
+
 def _refresh_dependencies() -> None:
     from src.dashboard import core
     protected = {
@@ -181,6 +203,7 @@ def _sync_filled_trades_from_history(
                     "order_status": trade["order_status"],
                     "message": item_message,
                 })
+                _mirror_trade_to_unified_ledger(trade, stored)
                 skipped_count += 1
                 continue
 
@@ -224,6 +247,7 @@ def _sync_filled_trades_from_history(
                 f"filled_qty={trade['filled_qty']} filled_price={trade['filled_price']} "
                 f"broker_order_id={trade['broker_order_id'] or '-'}"
             )
+            _mirror_trade_to_unified_ledger(trade)
             existing[key] = trade
             imported_count += 1
             items.append({

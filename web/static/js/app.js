@@ -4208,7 +4208,20 @@ async function processOptimizerBatch() {
 
 async function renderApprovals() {
     try {
-        const data = await fetchJson('/api/approvals?limit=50');
+        const [data, orderHealth] = await Promise.all([
+            fetchJson('/api/approvals?limit=50'),
+            fetchJson('/api/operations/order-health'),
+        ]);
+        const healthBanner = document.getElementById('order-health-banner');
+        if (healthBanner) {
+            const blockers = (orderHealth.blockers || []).map((item) => `${item.code} ${item.count}건`);
+            const warnings = (orderHealth.warnings || []).map((item) => `${item.code} ${item.count}건`);
+            healthBanner.textContent = orderHealth.new_risk_allowed
+                ? `주문 안전 상태: READY${warnings.length ? ` · 주의 ${warnings.join(', ')}` : ''}`
+                : `주문 안전 상태: REDUCE ONLY · 신규 매수 차단 · ${blockers.join(', ')}`;
+            healthBanner.classList.toggle('status-fail', !orderHealth.new_risk_allowed);
+            healthBanner.classList.toggle('status-ok', Boolean(orderHealth.new_risk_allowed));
+        }
         const tbody = document.querySelector('#table-approvals tbody');
         if (!tbody) return;
         tbody.innerHTML = '';
@@ -4217,19 +4230,19 @@ async function renderApprovals() {
         const retryBatchButton = document.getElementById('btn-retry-approvals-batch');
         const cancelRetryBatchButton = document.getElementById('btn-cancel-retry-approvals-batch');
         if (retryBatchButton) {
-            retryBatchButton.disabled = directRetryCount === 0;
-            retryBatchButton.textContent = `재처리 일괄 (${directRetryCount})`;
+            retryBatchButton.disabled = true;
+            retryBatchButton.textContent = '선택 재처리 (0)';
         }
         if (cancelRetryBatchButton) {
-            cancelRetryBatchButton.disabled = cancelRetryCount === 0;
-            cancelRetryBatchButton.textContent = `미체결 취소 후 재처리 (${cancelRetryCount})`;
+            cancelRetryBatchButton.disabled = true;
+            cancelRetryBatchButton.textContent = '선택 취소후재처리 (0)';
         }
         const summary = document.getElementById('approval-queue-summary');
         if (summary) {
             summary.textContent = `표시 ${data.approvals.length}건 · 처리 필요 ${Number(data.actionable_count || 0)}건 · 증권사 확인 필요 ${Number(data.verification_required_count || 0)}건 · 일반 재처리 ${directRetryCount}건 · 미체결 취소 필요 ${cancelRetryCount}건 · 승인 없이 동기화된 증권사 거래는 체결 내역에서 확인하세요.`;
         }
         if (!data.approvals.length) {
-            setTableMessage('#table-approvals tbody', 10, '승인 대기 주문이 없습니다');
+            setTableMessage('#table-approvals tbody', 11, '승인 대기 주문이 없습니다');
             return;
         }
 
@@ -4283,6 +4296,9 @@ async function renderApprovals() {
 
             const tr = document.createElement('tr');
             tr.innerHTML = `
+                <td>${(row.direct_retry_eligible || row.cancel_retry_eligible) && !row.stale
+                    ? `<input type="checkbox" class="approval-batch-select" data-id="${row.id}" aria-label="주문 #${row.id} 일괄 처리 선택">`
+                    : '-'}</td>
                 <td>#${escapeHtml(row.id || '-')}</td>
                 <td>
                     <div class="approval-classification">
@@ -4293,6 +4309,7 @@ async function renderApprovals() {
                 <td>
                     <div>${escapeHtml(String(row.created_at || '').split(' ')[0])}</div>
                     <div class="time-muted">${escapeHtml(String(row.created_at || '').split(' ')[1] || '')}</div>
+                    ${row.expires_at ? `<small class="time-muted">만료 ${escapeHtml(row.expires_at)}</small>` : ''}
                 </td>
                 <td>${pill(toKorAction(row.action), row.action === 'buy' ? 'buy' : 'sell')}</td>
                 <td>
@@ -4311,11 +4328,29 @@ async function renderApprovals() {
                 <td>
                     <div>${pill(approvalLabel, statusKind)} ${pill(orderLabel, orderStatus === 'filled' ? 'buy' : orderStatus === 'partial' ? 'warn' : 'hold')}</div>
                     ${row.broker_order_id ? `<small class="time-muted">주문번호 #${escapeHtml(row.broker_order_id)}</small>` : ''}
+                    ${row.internal_order_id ? `<small class="time-muted">원장 #${escapeHtml(row.internal_order_id)} · ${escapeHtml(row.unified_order_status || '-')}</small>` : ''}
                     ${row.stale ? '<small class="time-muted text-danger">거래일 만료 · 재실행 불가</small>' : ''}
                 </td>
                 <td>${controls}</td>
             `;
             tbody.appendChild(tr);
+        });
+
+        const updateBatchSelection = () => {
+            const selected = new Set(Array.from(document.querySelectorAll('.approval-batch-select:checked')).map((item) => item.dataset.id));
+            const retrySelected = Array.from(document.querySelectorAll('.retry-approval')).filter((button) => selected.has(button.dataset.id)).length;
+            const cancelSelected = Array.from(document.querySelectorAll('.cancel-retry-approval')).filter((button) => selected.has(button.dataset.id)).length;
+            if (retryBatchButton) {
+                retryBatchButton.disabled = retrySelected === 0;
+                retryBatchButton.textContent = `선택 재처리 (${retrySelected})`;
+            }
+            if (cancelRetryBatchButton) {
+                cancelRetryBatchButton.disabled = cancelSelected === 0;
+                cancelRetryBatchButton.textContent = `선택 취소후재처리 (${cancelSelected})`;
+            }
+        };
+        document.querySelectorAll('.approval-batch-select').forEach((checkbox) => {
+            checkbox.addEventListener('change', updateBatchSelection);
         });
 
         document.querySelectorAll('.approve-order').forEach((button) => {
@@ -4331,7 +4366,7 @@ async function renderApprovals() {
             button.addEventListener('click', () => executeApprovalAction(button, 'cancel-retry'));
         });
     } catch (err) {
-        setTableMessage('#table-approvals tbody', 10, err.message);
+        setTableMessage('#table-approvals tbody', 11, err.message);
     }
 }
 
@@ -4354,15 +4389,17 @@ async function executeApprovalBatch(action) {
     const selector = action === 'cancel-retry'
         ? '#table-approvals tbody .cancel-retry-approval:not([disabled])'
         : '#table-approvals tbody .retry-approval:not([disabled])';
+    const selectedIds = new Set(Array.from(document.querySelectorAll('.approval-batch-select:checked')).map((item) => item.dataset.id));
     const seenSymbols = new Set();
     const buttons = Array.from(document.querySelectorAll(selector)).filter((button) => {
+        if (!selectedIds.has(button.dataset.id)) return false;
         const symbol = String(button.dataset.symbol || button.dataset.id);
         if (seenSymbols.has(symbol)) return false;
         seenSymbols.add(symbol);
         return true;
     });
     if (!buttons.length) {
-        setStatus('일괄 재처리할 주문이 없습니다.', true);
+        setStatus('일괄 처리할 주문을 먼저 선택하세요.', true);
         return;
     }
 

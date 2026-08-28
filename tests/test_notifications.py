@@ -1,5 +1,8 @@
 import unittest
 from datetime import datetime, timezone
+from unittest.mock import patch
+
+from src.notifier import slack
 
 from src.notifications import (
     build_candidates_payload,
@@ -35,6 +38,32 @@ class _FakeSession:
 
 
 class NotificationTests(unittest.TestCase):
+    def test_decorate_payload_adds_instance_label_and_limits_lines(self):
+        payload = slack._decorate_payload(
+            {
+                "text": "완료\n두 번째\n세 번째\n제외할 네 번째",
+                "blocks": [{"type": "section", "text": {
+                    "type": "mrkdwn", "text": "요약\n건수 1\n오류 0\n제외할 상세",
+                }}],
+            },
+            tag="KW",
+        )
+        self.assertEqual(payload["text"], "[KW] 완료\n두 번째\n세 번째")
+        self.assertEqual(payload["blocks"][0]["text"]["text"], "[KW] 요약\n건수 1\n오류 0")
+
+    def test_mistock_notifications_use_only_mistock_webhook(self):
+        with patch.object(slack.config, "slack_webhook_url", "https://example.test/hanstock"), \
+                patch.object(slack.config, "mistock_slack_webhook_url", "https://example.test/mistock"), \
+                patch.object(slack, "post_slack_payload") as post:
+            slack.send_mistock_slack(text="mistock")
+            self.assertEqual(post.call_args.kwargs["webhook_url"], "https://example.test/mistock")
+
+            slack.mistock_slack_order(
+                name="Amazon", symbol="AMZN", action="buy", qty=1, price=100,
+                reason="test", ok=True, indicators={},
+            )
+            self.assertEqual(post.call_args.args[0], "https://example.test/mistock")
+
     def test_format_kst_timestamp_converts_timezone(self):
         value = datetime(2026, 4, 26, 3, 15, tzinfo=timezone.utc)
         self.assertEqual(format_kst_timestamp(value), "2026-04-26 12:15 KST")

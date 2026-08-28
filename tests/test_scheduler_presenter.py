@@ -3,9 +3,23 @@ import unittest
 from src.dashboard.presenters.scheduler_presenter import (
     _compact_scheduler_status_result,
 )
+from src.db.scheduler_repository import normalize_scheduler_status
 
 
 class SchedulerPresenterTests(unittest.TestCase):
+    def test_repository_normalizes_terminal_outcomes(self):
+        cases = [
+            ({"ok": True}, "success"),
+            ({"ok": False}, "failed"),
+            ({"blocked": ["risk gate"]}, "blocked"),
+            ({"skipped": True}, "skipped"),
+            ({"errors": ["one"], "results": [{"symbol": "005930"}]}, "partial"),
+            ({"errors": ["one"]}, "failed"),
+        ]
+        for result, expected in cases:
+            with self.subTest(result=result):
+                self.assertEqual(normalize_scheduler_status(result), expected)
+
     def test_multi_strategy_result_keeps_run_and_block_reasons(self):
         payload = {
             "result": {

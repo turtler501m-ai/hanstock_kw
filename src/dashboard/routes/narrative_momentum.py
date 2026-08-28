@@ -325,35 +325,16 @@ def _create_approval_row(payload: dict[str, Any]) -> int:
     if qty <= 0:
         raise HTTPException(status_code=400, detail="qty must be greater than 0")
     price = int(_to_float(payload.get("price")))
-    now = trader.datetime.now(trader.KST).strftime("%Y-%m-%d %H:%M:%S")
-    init_db()
-    with trader.connect_db() as conn:
-        cursor = conn.execute(
-            """
-            INSERT INTO approvals
-            (
-                created_at, updated_at, symbol, name, action, qty, price, reason, source,
-                status, response_msg, strategy_id, strategy_version, profile_hash, source_candidate_id
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', '', ?, ?, ?, ?)
-            """,
-            (
-                now,
-                now,
-                symbol,
-                str(payload.get("name") or symbol),
-                action,
-                qty,
-                price,
-                str(payload.get("reason") or ""),
-                str(payload.get("source") or "narrative_momentum"),
-                str(payload.get("strategy_id") or STRATEGY_ID),
-                None,
-                None,
-                None,
-            ),
-        )
-        return int(cursor.lastrowid)
+    from src.application.orders.approval import create_domestic_approval
+
+    return create_domestic_approval(
+        connect=trader.connect_db, init_db=init_db,
+        symbol=symbol, name=str(payload.get("name") or symbol), action=action,
+        qty=qty, price=price, reason=str(payload.get("reason") or ""),
+        source=str(payload.get("source") or "narrative_momentum"),
+        strategy_id=str(payload.get("strategy_id") or STRATEGY_ID),
+        client_order_key=str(payload.get("client_order_key") or "") or None,
+    )
 
 
 def _has_pending_buy(symbol: str) -> bool:

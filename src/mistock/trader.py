@@ -1052,7 +1052,73 @@ def place_order(
         notify_slack_order(symbol, action, qty, price, message, False)
         return {"ok": False, "status": "rejected", "message": message, "managed_order_id": managed_order_id, "client_order_key": key}
 
+    # Mirror every executable US order into the broker-neutral ledger. The
+    # Mistock managed table remains a compatibility projection during rollout.
+    from src.application.orders.health import assert_new_risk_allowed
+    from src.application.orders.models import OrderIntent
+    from src.application.orders.repository import OrderLedgerRepository
+    from src.db.migrations import apply_migrations
+
+    unified_connect = db.connect_db
+    with unified_connect() as unified_conn:
+        apply_migrations(unified_conn)
+    if action == "buy":
+        try:
+            assert_new_risk_allowed(unified_connect)
+        except Exception as exc:
+            finish("rejected", error=str(exc))
+            return {
+                "ok": False, "status": "rejected", "message": str(exc),
+                "managed_order_id": managed_order_id, "client_order_key": key,
+            }
+    unified_repo = OrderLedgerRepository(unified_connect)
+    unified_order = unified_repo.create(OrderIntent(
+        client_order_key=key,
+        correlation_id=str(uuid.uuid4()),
+        market="US",
+        symbol=symbol,
+        name=symbol_name(symbol),
+        side=action,
+        quantity=qty,
+        price=price,
+        strategy_id=strategy_id,
+        approval_id=approval_id,
+        metadata={"source": "mistock", "managed_order_id": managed_order_id, "reason": reason},
+    ), initial_status="approved")
+
+    def unified_submit() -> dict:
+        current = unified_repo.get(int(unified_order["id"])) or unified_order
+        if current["status"] == "approved":
+            return unified_repo.transition(
+                int(current["id"]), "approved", "submitting", actor="mistock"
+            )
+        return current
+
+    def unified_finish(status: str, *, broker_order_no: str | None = None,
+                       message: str = "", payload: dict | None = None) -> None:
+        current = unified_repo.get(int(unified_order["id"])) or unified_order
+        if broker_order_no:
+            unified_repo.bind_broker_result(int(current["id"]), broker_order_no, message=message)
+        current_status = str(current["status"])
+        if status in {"filled", "demo_local_filled"}:
+            if current_status == "submitting":
+                unified_repo.transition(int(current["id"]), "submitting", "submitted", actor="mistock")
+            unified_repo.reconcile_snapshot(
+                int(current["id"]), status="filled", cumulative_filled_qty=qty,
+                average_fill_price=price, broker_order_id=broker_order_no or "",
+                raw=payload or {},
+            )
+        elif current_status == "submitting":
+            target = "submitted" if status in {"accepted", "submitted", "open"} else (
+                "broker_unknown" if status in {"failed", "unknown"} else "rejected"
+            )
+            unified_repo.transition(
+                int(current["id"]), "submitting", target, actor="mistock",
+                reason=message, payload=payload or {},
+            )
+
     if config.trading_env not in {"demo", "real"}:
+        unified_submit()
         cash = float(db.get_setting("cash", str(config.total_capital)) or 0.0)
         existing = db.row("SELECT symbol, name, qty, avg_price FROM holdings WHERE symbol = ?", (symbol,))
         if action == "buy":
@@ -1071,6 +1137,7 @@ def place_order(
             _apply_local_filled_order(symbol, action, qty, price)
             db.set_setting("cash", str(cash + qty * price))
         finish("filled", payload={"mode": "local_simulation"}, filled=True)
+        unified_finish("filled", payload={"mode": "local_simulation"})
         save_trade(symbol, symbol_name(symbol), action, qty, price, reason, True, "filled", "simulated order filled")
         notify_slack_order(symbol, action, qty, price, reason or "simulated order filled", True)
         return {"ok": True, "status": "filled", "msg1": "simulated order filled", "managed_order_id": managed_order_id, "client_order_key": key}
@@ -1078,12 +1145,17 @@ def place_order(
         real_orders_enabled = (not config.dry_run) and config.trading_env == "real" and config.enable_live_trading
         order_submission_enabled = (not config.dry_run) and (config.trading_env == "demo" or real_orders_enabled)
         if not order_submission_enabled:
+            unified_repo.transition(
+                int(unified_order["id"]), "approved", "expired", actor="mistock",
+                reason="dry run order skipped",
+            )
             finish("dry_run", payload={"mode": "dry_run"})
             save_trade(symbol, symbol_name(symbol), action, qty, price, reason, True, "dry_run", "dry run order skipped")
             notify_slack_order(symbol, action, qty, price, reason or "dry run order skipped", True)
             return {"ok": True, "status": "dry_run", "msg1": "dry run order skipped", "managed_order_id": managed_order_id, "client_order_key": key}
 
         try:
+            unified_submit()
             client = _get_broker_client()
             res = client.place_overseas_order(symbol, action, price, qty)
             rt_cd = res.get("rt_cd")
@@ -1096,13 +1168,16 @@ def place_order(
                 status = "demo_local_filled"
                 msg = f"Kiwoom demo overseas order unsupported; local shadow fill applied: {msg}"
                 finish(status, payload=res, broker_order_no=broker_order_no, filled=True)
+                unified_finish(status, broker_order_no=broker_order_no, message=msg, payload=res)
                 save_trade(symbol, symbol_name(symbol), action, qty, price, reason, True, status, msg, strategy_id)
             elif ok:
                 status = "accepted"
                 finish(status, payload=res, broker_order_no=broker_order_no)
+                unified_finish(status, broker_order_no=broker_order_no, message=msg, payload=res)
             else:
                 status = "rejected"
                 finish(status, error=str(msg), payload=res, broker_order_no=broker_order_no)
+                unified_finish(status, broker_order_no=broker_order_no, message=msg, payload=res)
             notify_slack_order(symbol, action, qty, price, reason or msg, ok)
             return {"ok": ok, "status": status, "msg1": msg, "res": res,
                     "managed_order_id": managed_order_id, "client_order_key": key,
@@ -1111,6 +1186,7 @@ def place_order(
             from src.utils.logger import logger
             logger.error(f"Failed to place Kiwoom US order: {e}")
             finish("failed", error=str(e))
+            unified_finish("failed", message=str(e))
             notify_slack_order(symbol, action, qty, price, str(e), False)
             return {"ok": False, "status": "failed", "message": str(e), "managed_order_id": managed_order_id, "client_order_key": key}
 

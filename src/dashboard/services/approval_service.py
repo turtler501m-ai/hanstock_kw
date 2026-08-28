@@ -367,15 +367,33 @@ def _approve_pending_approval_serialized(
     pending = approval or _dependency(
         "_load_pending_approval", _load_pending_approval
     )(approval_id)
+    from src.application.orders.legacy_bridge import ensure_approval_order, mirror_status
+    ledger_order = (
+        None
+        if pending.get("managed_order_id")
+        else ensure_approval_order(trader.connect_db, pending)
+    )
     created_at = str(pending.get("created_at") or "").strip()
-    today = trader.datetime.now(trader.KST).strftime("%Y-%m-%d")
-    if created_at and created_at[:10] != today:
-        now = trader.datetime.now(trader.KST).strftime("%Y-%m-%d %H:%M:%S")
+    current_time = trader.datetime.now(trader.KST)
+    now = current_time.strftime("%Y-%m-%d %H:%M:%S")
+    today = current_time.strftime("%Y-%m-%d")
+    expires_at = str(pending.get("expires_at") or "").strip()
+    expired = (
+        bool(expires_at and expires_at <= now)
+        if expires_at
+        else bool(created_at and created_at[:10] != today)
+    )
+    if expired:
         with trader.connect_db() as conn:
             conn.execute(
                 "UPDATE approvals SET status='expired', response_msg=?, updated_at=? "
                 "WHERE id=? AND status='pending'",
                 ("Approval expired at the end of its trading day", now, approval_id),
+            )
+        if ledger_order is not None:
+            mirror_status(
+                trader.connect_db, ledger_order, "expired", actor=approval_label,
+                reason="Approval expired at the end of its trading day",
             )
         raise HTTPException(
             status_code=409,
@@ -390,6 +408,9 @@ def _approve_pending_approval_serialized(
             detail="Kill switch is active. Buy approval remains pending.",
         )
     if str(pending.get("action") or "").lower() == "buy":
+        from src.application.orders.health import assert_new_risk_allowed
+
+        assert_new_risk_allowed(trader.connect_db)
         _enforce_buy_position_limit(approval_id, pending)
     if pending.get("managed_order_id"):
         from src.strategy.autonomy.ai_stock_integration import (
@@ -397,13 +418,18 @@ def _approve_pending_approval_serialized(
         )
 
         try:
-            return approve_managed_ai_stock_order(approval_id)
+            result = approve_managed_ai_stock_order(approval_id)
+            return result
         except Exception as exc:
             raise HTTPException(
                 status_code=409,
                 detail=f"managed AI-stock approval failed closed: {exc}",
             ) from exc
     item = _dependency("_claim_pending_approval", _claim_pending_approval)(approval_id)
+    ledger_order = mirror_status(
+        trader.connect_db, ledger_order, "submitting", actor=approval_label,
+        reason="legacy approval claimed",
+    )
     result: dict = {}
     status = "failed"
     response_msg = "Order submission did not complete"
@@ -460,6 +486,30 @@ def _approve_pending_approval_serialized(
             profile_hash=item.get("profile_hash"),
             source_approval_id=approval_id,
         )
+        output = result.get("output")
+        if not isinstance(output, dict):
+            output = {}
+        broker_order_id = str(
+            result.get("broker_order_id")
+            or result.get("odno")
+            or result.get("ODNO")
+            or output.get("odno")
+            or output.get("ODNO")
+            or ""
+        )
+        from src.application.orders.repository import OrderLedgerRepository
+
+        if ledger_order is not None:
+            OrderLedgerRepository(trader.connect_db).bind_broker_result(
+                int(ledger_order["id"]), broker_order_id, message=response_msg
+            )
+        ledger_order = mirror_status(
+            trader.connect_db,
+            ledger_order,
+            "submitted" if ok else "failed",
+            actor="broker",
+            reason=response_msg,
+        )
     except Exception as e:
         ambiguous = submission_started and _is_ambiguous_submission_exception(e)
         status = "broker_unknown" if ambiguous else "failed"
@@ -479,9 +529,11 @@ def _approve_pending_approval_serialized(
                 strategy_version=_to_int(item.get("strategy_version")) or None,
                 profile_hash=item.get("profile_hash"), source_approval_id=approval_id,
             )
+        ledger_order = mirror_status(
+            trader.connect_db, ledger_order, status, actor="broker", reason=response_msg
+        )
         logger.warning(f"approval order submission failed approval_id={approval_id}: {e}")
 
-    now = trader.datetime.now(trader.KST).strftime("%Y-%m-%d %H:%M:%S")
     with trader.connect_db() as conn:
         conn.execute(
             "UPDATE approvals SET status = ?, response_msg = ?, updated_at = ? WHERE id = ?",

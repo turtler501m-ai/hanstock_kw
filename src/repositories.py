@@ -4,6 +4,8 @@ from dataclasses import dataclass
 import sqlite3
 from typing import Callable
 
+from src.db.migrations import apply_migrations
+
 
 def _close_connection(conn: sqlite3.Connection) -> None:
     conn.close()
@@ -69,10 +71,15 @@ class ApprovalRepository:
     def __init__(self, connect_fn: Callable[[], sqlite3.Connection]) -> None:
         self._connect_fn = connect_fn
 
+    @property
+    def connect_fn(self) -> Callable[[], sqlite3.Connection]:
+        return self._connect_fn
+
     def init_db(self) -> None:
         conn = self._connect_fn()
         try:
             with conn:
+                apply_migrations(conn)
                 conn.execute(
                     """
                     CREATE TABLE IF NOT EXISTS approvals (

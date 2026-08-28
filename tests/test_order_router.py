@@ -1,12 +1,31 @@
 import unittest
+import sqlite3
+import tempfile
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 from src.config import config
 from src.strategy import router
+from src.db.connection import open_sqlite
 
 
 class OrderRouterTests(unittest.TestCase):
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp_dir.cleanup)
+        db_path = Path(self.temp_dir.name) / "router.db"
+        original_db_path = config.trade_db_path
+        config.trade_db_path = str(db_path)
+        self.addCleanup(setattr, config, "trade_db_path", original_db_path)
+
+        def connect():
+            return open_sqlite(Path(config.trade_db_path), row_factory=sqlite3.Row)
+
+        patcher = patch.object(router, "connect_db", connect)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     def test_explicit_execution_context_is_independent_from_global_config(self):
         context = SimpleNamespace(
             dry_run=True,

@@ -731,6 +731,9 @@ def build_dashboard_execution_plan(strategy_id: str | None = None) -> dict:
 def _init_approval_db() -> None:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     with trader.connect_db() as conn:
+        from src.db.migrations import apply_migrations
+
+        apply_migrations(conn)
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS approvals (
@@ -756,6 +759,12 @@ def _init_approval_db() -> None:
             _ensure_column(conn, "approvals", "strategy_version", "INTEGER")
             _ensure_column(conn, "approvals", "profile_hash", "TEXT")
             _ensure_column(conn, "approvals", "source_candidate_id", "INTEGER")
+            _ensure_column(conn, "approvals", "managed_order_id", "INTEGER")
+            _ensure_column(conn, "approvals", "decision_id", "INTEGER")
+            _ensure_column(conn, "approvals", "position_id", "INTEGER")
+            _ensure_column(conn, "approvals", "client_order_key", "TEXT")
+            _ensure_column(conn, "approvals", "expires_at", "TEXT")
+            _ensure_column(conn, "approvals", "correlation_id", "TEXT")
         except sqlite3.DatabaseError as exc:
             logger.warning(f"Failed to migrate approval columns: {exc}")
 

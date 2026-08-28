@@ -2058,6 +2058,46 @@ def mistock_approvals(limit: int = 50):
     return {"approvals": approvals}
 
 
+@router.get("/api/mistock/orders")
+def mistock_unified_orders(status: str = "", limit: int = 100, offset: int = 0):
+    from src.application.orders.repository import OrderLedgerRepository
+    from src.db.migrations import apply_migrations
+
+    with mistock_db.connect_db() as conn:
+        apply_migrations(conn)
+    statuses = tuple(value.strip() for value in status.split(",") if value.strip())
+    items = OrderLedgerRepository(mistock_db.connect_db).list_orders(
+        statuses=statuses, limit=limit, offset=offset
+    )
+    return {
+        "items": items, "market": "US",
+        "limit": min(500, max(1, limit)), "offset": max(0, offset),
+    }
+
+
+@router.get("/api/mistock/positions")
+def mistock_unified_positions():
+    from src.application.orders.repository import OrderLedgerRepository
+    from src.db.migrations import apply_migrations
+
+    with mistock_db.connect_db() as conn:
+        apply_migrations(conn)
+    return {
+        "items": OrderLedgerRepository(mistock_db.connect_db).list_positions(market="US"),
+        "market": "US", "source": "verified_fills",
+    }
+
+
+@router.get("/api/mistock/operations/health")
+def mistock_order_health():
+    from src.application.orders.health import build_order_health
+    from src.db.migrations import apply_migrations
+
+    with mistock_db.connect_db() as conn:
+        apply_migrations(conn)
+    return build_order_health(mistock_db.connect_db)
+
+
 def _execute_approval(approval_id: int, *, approve: bool) -> dict:
     from src.online_access import is_online_access_blocked
     from src.approval_service import ApprovalStatusError

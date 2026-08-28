@@ -175,6 +175,15 @@ def approve_managed_ai_stock_order(approval_id: int) -> dict[str, Any]:
         market=str(order["market"]),
     )
     approved = bridge.approve(int(approval_id))
+    from src.application.orders.legacy_bridge import mirror_status
+    from src.application.orders.repository import OrderLedgerRepository
+
+    unified = OrderLedgerRepository(connect_db).get_by_approval(int(approval_id))
+    mirror_status(
+        connect_db, unified, "submitting" if str(approved["status"]) == "submitting" else "submitted"
+        if str(approved["status"]) in {"submitted", "open"} else "approved",
+        actor="managed_ai_stock", reason="managed order approval synchronized",
+    )
     response = {
         "id": int(approval_id),
         "managed_order_id": int(order["id"]),
@@ -229,6 +238,18 @@ def approve_managed_ai_stock_order(approval_id: int) -> dict[str, Any]:
             pre_submit_validator=bridge.revalidate_for_execution,
             repo=ai_stock_repository,
         ).execute(int(approval_id), gateway)
+        target = str(submitted["status"])
+        target = "partial" if target == "partially_filled" else target
+        unified = OrderLedgerRepository(connect_db).get_by_approval(int(approval_id))
+        if target in {"submitted", "broker_unknown", "rejected", "failed"}:
+            mirrored = mirror_status(
+                connect_db, unified, target, actor="managed_ai_stock",
+                reason="managed broker submission synchronized",
+            )
+            if mirrored and submitted.get("broker_order_id"):
+                OrderLedgerRepository(connect_db).bind_broker_result(
+                    int(mirrored["id"]), str(submitted["broker_order_id"])
+                )
         response.update(
             {
                 "status": str(submitted["status"]),

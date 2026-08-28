@@ -30,6 +30,9 @@ def connect_db():
 
 def init_db() -> None:
     with connect_db() as conn:
+        from src.db.migrations import apply_migrations
+
+        apply_migrations(conn)
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS trades (
@@ -250,6 +253,8 @@ def init_db() -> None:
         _ensure_column(conn, "approvals", "decision_id", "INTEGER")
         _ensure_column(conn, "approvals", "position_id", "INTEGER")
         _ensure_column(conn, "approvals", "client_order_key", "TEXT")
+        _ensure_column(conn, "approvals", "expires_at", "TEXT")
+        _ensure_column(conn, "approvals", "correlation_id", "TEXT")
         conn.execute(
             """
             CREATE UNIQUE INDEX IF NOT EXISTS idx_approvals_managed_order_unique
