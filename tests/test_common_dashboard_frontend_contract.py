@@ -140,6 +140,8 @@ class CommonDashboardFrontendContractTests(unittest.TestCase):
         self.assertNotIn("fetchJson('/api/ai-strategies')", scheduler_renderer)
         self.assertIn("row.strategy_id", scheduler_renderer)
         self.assertIn("narrative_momentum_strategy", scheduler_renderer)
+        self.assertIn("strategy.lastErrors", scheduler_renderer)
+        self.assertIn("최근 실패", scheduler_renderer)
 
     def test_scheduler_summary_tracks_approval_success_and_failure(self):
         self.assertIn('id="sched-result-success-cnt"', INDEX_HTML)

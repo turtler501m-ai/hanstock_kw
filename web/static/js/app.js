@@ -6525,14 +6525,30 @@ async function renderSchedulerStrategyChecklist(schedules = []) {
             id: String(row.strategy_id),
             name: row.display_name || row.strategy_name || String(row.strategy_id),
             selected: Boolean(row.enabled),
+            lastStatus: row.last_status || 'never_run',
+            lastResultAt: row.last_result_at || row.last_run_at || null,
+            lastErrors: Array.isArray(row.last_errors) ? row.last_errors : [],
         }));
     container.innerHTML = strategies.map((strategy) => {
         const checked = scheduled.has(String(strategy.id))
             || String(strategy.id) === activeStrategyId
             || (!activeStrategyId && strategy.selected);
+        const statusLabel = ['success', 'completed'].includes(strategy.lastStatus)
+            ? '최근 성공'
+            : strategy.lastStatus === 'failed' ? '최근 실패'
+            : strategy.lastStatus === 'blocked' ? '실행 차단'
+            : strategy.lastStatus === 'partial' ? '부분 실패'
+            : '실행 기록 없음';
+        const errorText = strategy.lastErrors.map((item) => {
+            const target = [item.symbol, item.action ? toKorAction(item.action) : ''].filter(Boolean).join(' ');
+            return `${target ? `${target}: ` : ''}${item.message || '알 수 없는 오류'}`;
+        }).join('\n');
+        const statusClass = ['failed', 'partial', 'blocked'].includes(strategy.lastStatus) ? 'is-error' : 'time-muted';
         return `<label class="scheduler-strategy-option">
             <input type="checkbox" class="scheduler-strategy-checkbox" value="${escapeHtml(strategy.id)}" ${checked ? 'checked' : ''}>
-            <span>${escapeHtml(strategyDisplayName(strategy))}</span>
+            <span>${escapeHtml(strategyDisplayName(strategy))}
+                <small class="${statusClass}" style="display:block;margin-top:3px;white-space:pre-wrap;">${escapeHtml(statusLabel)} · ${escapeHtml(formatKstTime(strategy.lastResultAt))}${errorText ? `\n${escapeHtml(errorText)}` : ''}</small>
+            </span>
         </label>`;
     }).join('') || '<span class="time-muted">실행 가능한 전략이 없습니다.</span>';
 }

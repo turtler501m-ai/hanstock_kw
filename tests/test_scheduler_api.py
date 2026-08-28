@@ -111,6 +111,43 @@ class SchedulerApiTests(unittest.TestCase):
         self.assertEqual(schedule["window_label"], "월-금 09:00-15:30")
         self.assertEqual(schedule["mode_label"], "주문실행")
         self.assertEqual(schedule["auto_approve_label"], "자동승인")
+        self.assertEqual(schedule["last_status"], "never_run")
+        self.assertEqual(schedule["last_errors"], [])
+
+    @patch("src.db.repository.load_strategy_universe", return_value=[])
+    @patch("src.db.repository.list_strategy_schedules", return_value=[{
+        "strategy_id": "heikin_ashi_scalping_strategy", "enabled": 1,
+        "interval_minutes": 15, "start_hm": "0900", "end_hm": "1530",
+        "weekdays": "1-5", "mode": "execute", "auto_approve": 1,
+        "last_run_at": "2026-08-28 09:30:00",
+    }])
+    @patch("src.db.repository.load_ai_strategies", return_value=[{
+        "id": "heikin_ashi_scalping_strategy", "name": "알파 하이킨아시",
+        "selected": False,
+    }])
+    @patch("src.db.repository.load_recent_scheduler_results")
+    def test_schedule_status_includes_exact_latest_error(
+        self, load_results, _load_strategies, _load_schedules, _load_universe
+    ):
+        load_results.return_value = {
+            "recorded_at": "2026-08-28T09:30:00+09:00",
+            "result": {
+                "execution_runs": [{
+                    "strategy_id": "heikin_ashi_scalping_strategy",
+                    "recorded_at": "2026-08-28T09:30:00+09:00",
+                    "status": "failed",
+                    "message": "키움 주문 실패: 주문가능금액을 확인하세요.",
+                }],
+                "errors": [],
+            },
+        }
+
+        schedule = get_scheduler_status()["strategy_dispatch"]["schedules"][0]
+
+        self.assertEqual(schedule["last_status"], "failed")
+        self.assertFalse(schedule["last_ok"])
+        self.assertEqual(schedule["last_result_at"], "2026-08-28T09:30:00+09:00")
+        self.assertEqual(schedule["last_errors"][0]["message"], "키움 주문 실패: 주문가능금액을 확인하세요.")
 
     @patch("src.db.repository.load_strategy_universe", return_value=[])
     @patch(

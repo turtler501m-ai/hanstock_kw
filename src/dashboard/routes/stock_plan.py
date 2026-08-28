@@ -231,11 +231,49 @@ def get_scheduler_status(
         from src.db.repository import list_strategy_schedules, load_strategy_universe
 
         observed_universe_counts = {}
-        for run in ((last_result or {}).get("result") or {}).get("execution_runs") or []:
+        result_payload = ((last_result or {}).get("result") or {})
+        execution_runs = result_payload.get("execution_runs") or []
+        latest_run_by_strategy = {}
+        for run in execution_runs:
             run_strategy_id = str(run.get("strategy_id") or "")
             observed_count = int(run.get("universe_count") or run.get("scanned_count") or 0)
             if run_strategy_id and observed_count > observed_universe_counts.get(run_strategy_id, 0):
                 observed_universe_counts[run_strategy_id] = observed_count
+            if run_strategy_id:
+                latest_run_by_strategy[run_strategy_id] = run
+
+        errors_by_strategy = {}
+        for error in (
+            (result_payload.get("errors") or [])
+            + (result_payload.get("retry_errors") or [])
+            + (result_payload.get("auto_approval_errors") or [])
+        ):
+            if not isinstance(error, dict):
+                continue
+            error_strategy_id = str(error.get("strategy_id") or "")
+            if error_strategy_id:
+                errors_by_strategy.setdefault(error_strategy_id, []).append({
+                    "symbol": error.get("symbol"),
+                    "action": error.get("action"),
+                    "message": str(error.get("message") or error.get("error") or error.get("response_msg") or "알 수 없는 오류"),
+                })
+
+        def latest_schedule_result(strategy_id):
+            strategy_key = str(strategy_id or "")
+            run = latest_run_by_strategy.get(strategy_key)
+            if not run:
+                return {"last_status": "never_run", "last_ok": None, "last_result_at": None, "last_errors": errors_by_strategy.get(strategy_key, [])}
+            status = str(run.get("status") or "unknown")
+            run_errors = list(errors_by_strategy.get(strategy_key, []))
+            message = str(run.get("message") or "").strip()
+            if message and status in {"failed", "partial", "blocked"}:
+                run_errors.insert(0, {"symbol": None, "action": None, "message": message})
+            return {
+                "last_status": status,
+                "last_ok": status in {"success", "completed", "skipped"},
+                "last_result_at": run.get("recorded_at") or run.get("time"),
+                "last_errors": run_errors,
+            }
 
         schedules = [
             schedule
@@ -282,6 +320,7 @@ def get_scheduler_status(
                             if policy_auto_approve
                             else "계획만 생성"
                         ),
+                        **latest_schedule_result(applied_id),
                     })
                 continue
             universe_count = len(load_strategy_universe(sid)) if sid else 0
@@ -291,6 +330,7 @@ def get_scheduler_status(
                 **schedule,
                 **_schedule_display_payload(schedule, display_name),
                 "universe_count": universe_count,
+                **latest_schedule_result(sid),
             })
         enabled_count = sum(1 for item in schedule_items if item.get("enabled"))
         strategy_dispatch = {
