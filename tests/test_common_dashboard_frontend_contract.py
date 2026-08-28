@@ -170,6 +170,12 @@ class CommonDashboardFrontendContractTests(unittest.TestCase):
         self.assertNotIn("${formatNumber(row.qty || row.signal_qty)}", APP_JS)
         self.assertNotIn("${formatNumber(row.price || row.signal_price)} 원", APP_JS)
 
+    def test_scheduler_approval_rejection_is_not_rendered_as_failure(self):
+        self.assertIn("function schedulerApprovalStatus(status)", APP_JS)
+        self.assertIn("rejected: { label: '거절'", APP_JS)
+        self.assertIn("broker_unknown: { label: '브로커 확인 필요'", APP_JS)
+        self.assertNotIn("pill(isSuccess ? '성공' : '실패'", APP_JS)
+
     def test_overview_strategy_settings_are_grouped_and_readiness_is_collapsible(self):
         self.assertIn("function strategySettingGroups(config)", APP_JS)
         self.assertIn("title: '기본 매매'", APP_JS)

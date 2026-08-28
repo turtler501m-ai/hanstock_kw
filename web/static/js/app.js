@@ -6473,7 +6473,7 @@ async function renderScheduleInfo() {
                                 roundData.approved.forEach(ord => {
                                     const tr = document.createElement('tr');
                                     tr.style.borderBottom = '1px solid var(--border)';
-                                    const isSuccess = ord.status === 'executed';
+                                    const approvalStatus = schedulerApprovalStatus(ord.status);
                                     const responseMessage = ord.response_msg || ord.message || '정상 처리';
                                     
                                     const ordId = ord.id || ord.approval_id;
@@ -6493,7 +6493,7 @@ async function renderScheduleInfo() {
                                         <td style="padding: 0.6rem 0.75rem; font-size: 0.85rem;">${actionVal !== '-' ? pill(toKorAction(actionVal), actionVal === 'sell' ? 'sell' : 'buy') : '-'}</td>
                                         <td style="padding: 0.6rem 0.75rem; font-size: 0.85rem; text-align: right;">${qtyVal !== '-' ? formatNumber(qtyVal) : '-'}</td>
                                         <td style="padding: 0.6rem 0.75rem; font-size: 0.85rem; text-align: right; font-weight: 500;">${priceVal !== '-' ? formatNumber(priceVal) + ' 원' : '-'}</td>
-                                        <td style="padding: 0.6rem 0.75rem; font-size: 0.85rem;">${pill(isSuccess ? '성공' : '실패', isSuccess ? 'buy' : 'sell')}</td>
+                                        <td style="padding: 0.6rem 0.75rem; font-size: 0.85rem;">${pill(approvalStatus.label, approvalStatus.kind)}</td>
                                         <td style="padding: 0.6rem 0.75rem; font-size: 0.85rem;"><div class="reason-cell" style="max-width: 420px; white-space: pre-wrap; overflow-wrap: anywhere;" title="${escapeHtml(responseMessage)}">${escapeHtml(responseMessage)}</div></td>
                                     `;
                                     ordersTbody.appendChild(tr);
@@ -6601,6 +6601,19 @@ function toKorPlanCategory(category) {
         ai_rebalance: 'AI 리밸런싱',
     };
     return labels[category] || category || 'AI 리밸런싱';
+}
+
+function schedulerApprovalStatus(status) {
+    const normalized = String(status || '').toLowerCase();
+    const labels = {
+        executed: { label: '주문접수', kind: 'buy' },
+        rejected: { label: '거절', kind: 'warn' },
+        failed: { label: '실패', kind: 'sell' },
+        broker_unknown: { label: '브로커 확인 필요', kind: 'warn' },
+        expired: { label: '만료', kind: 'hold' },
+        pending: { label: '승인대기', kind: 'hold' },
+    };
+    return labels[normalized] || { label: status || '상태 미확인', kind: 'hold' };
 }
 
 function schedulerPlanQuantityText(row) {

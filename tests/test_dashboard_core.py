@@ -9,7 +9,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import src.dashboard as dashboard
 import src.dashboard.core as dashboard_core
@@ -272,6 +272,27 @@ class DashboardCoreTests(unittest.TestCase):
 
         self.assertFalse(allowed)
         self.assertIn("maximum positions reached", reason)
+
+    def test_ai_rebalance_can_add_to_existing_holding_without_active_buy(self):
+        approval_service._refresh_dependencies()
+        pending = {
+            "symbol": "005930",
+            "strategy_id": "ai_rebalance",
+            "source": "ai-allocation",
+        }
+        connection = Mock()
+        connection.execute.return_value.fetchall.side_effect = [[], [(301, "005930")]]
+        context = Mock()
+        context.__enter__ = Mock(return_value=connection)
+        context.__exit__ = Mock(return_value=False)
+
+        with patch.object(approval_service, "_get_api", return_value=Mock(get_balance=Mock())), \
+                patch.object(approval_service, "_get_balance_data", return_value={}), \
+                patch.object(approval_service, "_parse_balance", return_value={
+                    "holdings": [{"symbol": "005930", "qty": 10}],
+                }), \
+                patch.object(approval_service.trader, "connect_db", return_value=context):
+            approval_service._enforce_buy_position_limit(301, pending)
 
     def test_balance_cache_is_scoped_to_account(self):
         original_cache = dashboard.BALANCE_CACHE

@@ -160,6 +160,24 @@ def _enforce_buy_position_limit(approval_id: int, pending: dict) -> None:
             ).fetchall()
         ]
 
+    target = str(pending.get("symbol") or "").strip()
+    is_ai_rebalance = (
+        str(pending.get("strategy_id") or "") == "ai_rebalance"
+        or str(pending.get("source") or "") == "ai-allocation"
+    )
+    if is_ai_rebalance and target in held_symbols:
+        if target not in active_buy_symbols:
+            return
+        reason = f"AI 리밸런싱 추가매수 거절: {target} 종목의 기존 매수 주문이 아직 처리 중입니다."
+        now = trader.datetime.now(trader.KST).strftime("%Y-%m-%d %H:%M:%S")
+        with trader.connect_db() as conn:
+            conn.execute(
+                "UPDATE approvals SET status = 'rejected', response_msg = ?, updated_at = ? "
+                "WHERE id = ? AND status = 'pending'",
+                (reason, now, approval_id),
+            )
+        raise HTTPException(status_code=409, detail=reason)
+
     allowed, reason = _buy_approval_capacity_decision(
         approval_id=approval_id,
         symbol=str(pending.get("symbol") or ""),
@@ -171,7 +189,7 @@ def _enforce_buy_position_limit(approval_id: int, pending: dict) -> None:
     if allowed:
         return
     now = trader.datetime.now(trader.KST).strftime("%Y-%m-%d %H:%M:%S")
-    message = f"Risk limit rejected buy: {reason}"
+    message = f"리스크 제한으로 매수 거절: {reason}"
     with trader.connect_db() as conn:
         conn.execute(
             """

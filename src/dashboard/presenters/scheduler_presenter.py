@@ -144,7 +144,11 @@ def _compact_scheduler_status_result(last_result: dict | None, item_limit: int =
 
     queued_created = sum(1 for item in plan_items if isinstance(item, dict) and item.get("decision") == "queue")
     approved_executed = sum(1 for item in approved_items if isinstance(item, dict) and item.get("status") == "executed")
-    approved_failed = sum(1 for item in approved_items if isinstance(item, dict) and item.get("status") == "failed")
+    approved_rejected = sum(1 for item in approved_items if isinstance(item, dict) and item.get("status") == "rejected")
+    approved_failed = sum(
+        1 for item in approved_items
+        if isinstance(item, dict) and item.get("status") in {"failed", "broker_unknown"}
+    )
     execution_runs = result.get("execution_runs") if isinstance(result.get("execution_runs"), list) else []
     run_status_counts = result.get("run_status_counts") if isinstance(result.get("run_status_counts"), dict) else {}
     if not run_status_counts:
@@ -192,6 +196,7 @@ def _compact_scheduler_status_result(last_result: dict | None, item_limit: int =
             "queue_count": max(0, queued_created - len(approved_items) - len(approval_errors)),
             "approved_count": len(approved_items) + len(approval_errors),
             "success_count": approved_executed,
+            "rejected_count": approved_rejected,
             "failed_count": approved_failed + len(approval_errors) + len(run_errors),
             "run_count": len(execution_runs),
             "run_success_count": int(run_status_counts.get("success") or 0),

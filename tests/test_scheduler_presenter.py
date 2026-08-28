@@ -102,6 +102,20 @@ class SchedulerPresenterTests(unittest.TestCase):
         self.assertEqual(row["holding_qty"], 7)
         self.assertEqual(row["current_price"], 71000)
 
+    def test_compaction_counts_policy_rejection_separately_from_failure(self):
+        payload = {"result": {
+            "auto_approved": [
+                {"id": 1, "status": "rejected", "response_msg": "risk policy"},
+                {"id": 2, "status": "failed", "response_msg": "broker failure"},
+            ],
+        }}
+
+        compact = _compact_scheduler_status_result(payload)
+        counts = compact["result"]["summary_counts"]
+
+        self.assertEqual(counts["rejected_count"], 1)
+        self.assertEqual(counts["failed_count"], 1)
+
 
 if __name__ == "__main__":
     unittest.main()

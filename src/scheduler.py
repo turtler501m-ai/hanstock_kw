@@ -422,6 +422,27 @@ def run_scheduled_cycle(
             "auto_approved": approval_result["approved"],
             "auto_approval_errors": approval_result["errors"],
         }
+        approval_statuses = {
+            str(item.get("status") or "")
+            for item in approval_result["approved"]
+            if isinstance(item, dict)
+        }
+        has_approval_failure = bool(
+            approval_statuses & {"failed", "broker_unknown"}
+            or approval_result["errors"]
+        )
+        has_approval_rejection = "rejected" in approval_statuses
+        if (
+            (has_approval_failure or has_approval_rejection)
+            and result.get("status") != "failed"
+            and result.get("ok") is not False
+        ):
+            executed_count = sum(
+                1 for item in approval_result["approved"]
+                if isinstance(item, dict) and item.get("status") == "executed"
+            )
+            result["status"] = "partial" if executed_count else "blocked"
+            result["execution_status"] = result["status"]
     if pre_order_status_sync is not None:
         result["pre_order_status_sync"] = pre_order_status_sync
     if (
