@@ -36,6 +36,18 @@ class TraderCoreTests(unittest.TestCase):
         self.assertEqual(result[0]["holding_qty"], 7)
         self.assertEqual(result[0]["current_price"], 71000)
 
+    def test_holding_snapshot_fetches_quote_when_balance_price_is_missing(self):
+        plan = [{"symbol": "005930", "action": "hold", "qty": 0, "price": 0}]
+        stocks = [{"pdno": "005930", "hldg_qty": "7", "prpr": "0", "evlu_amt": "0"}]
+        market_data_api = Mock()
+        market_data_api.get_quote.return_value = {"current": 71500}
+
+        result = _attach_holding_snapshots(plan, stocks, market_data_api)
+
+        self.assertEqual(result[0]["holding_qty"], 7)
+        self.assertEqual(result[0]["current_price"], 71500)
+        market_data_api.get_quote.assert_called_once_with("005930")
+
     def test_indicators_handle_short_price_history(self):
         self.assertEqual(calc_rsi([1, 2, 3]), 50.0)
         self.assertEqual(calc_sma([1, 2, 3], 5), 3)

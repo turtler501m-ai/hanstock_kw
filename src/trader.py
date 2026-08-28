@@ -454,7 +454,11 @@ def _holding_qty(stock: dict, key: str) -> int:
         return 0
 
 
-def _attach_holding_snapshots(plan: list[dict], stocks: list[dict]) -> list[dict]:
+def _attach_holding_snapshots(
+    plan: list[dict],
+    stocks: list[dict],
+    market_data_api=None,
+) -> list[dict]:
     """Attach account values without changing order quantity or order price."""
     holdings_by_symbol = {
         str(stock.get("pdno") or ""): stock
@@ -472,6 +476,18 @@ def _attach_holding_snapshots(plan: list[dict], stocks: list[dict]) -> list[dict
                 evaluation_amount = _holding_qty(holding, "evlu_amt")
                 if evaluation_amount > 0:
                     current_price = round(evaluation_amount / holding_qty)
+            if current_price <= 0:
+                current_price = _holding_qty(row, "price")
+            if current_price <= 0 and market_data_api is not None:
+                try:
+                    quote = market_data_api.get_quote(str(row.get("symbol") or "")) or {}
+                    current_price = _holding_qty(quote, "current")
+                except Exception as exc:
+                    logger.warning(
+                        "Holding quote fallback failed symbol={}: {}",
+                        row.get("symbol"),
+                        exc,
+                    )
             row["holding_qty"] = holding_qty
             row["current_price"] = current_price
         enriched_plan.append(row)
@@ -1119,7 +1135,11 @@ def run(
         market_regime_policy=market_regime_policy,
         **bp_kwargs,
     )
-    runtime_bundle["plan"] = _attach_holding_snapshots(runtime_bundle["plan"], stocks)
+    runtime_bundle["plan"] = _attach_holding_snapshots(
+        runtime_bundle["plan"],
+        stocks,
+        market_data_api,
+    )
     daily_loss_halted = daily_loss_halted or bool(runtime_bundle.get("daily_loss_halt"))
 
     candidates = runtime_bundle.get("candidate_scan", {}).get("candidates", [])
