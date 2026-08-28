@@ -148,6 +148,16 @@ class CommonDashboardFrontendContractTests(unittest.TestCase):
         self.assertIn("summaryCounts.success_count", APP_JS)
         self.assertIn("성공 <strong", APP_JS)
 
+    def test_scheduler_details_preserve_exact_error_messages(self):
+        scheduler_renderer = APP_JS.split(
+            "async function renderScheduleInfo", 1
+        )[1].split("async function renderSchedulerStrategyChecklist", 1)[0]
+        self.assertIn("전체 실행 오류", scheduler_renderer)
+        self.assertIn("const responseMessage = err.message", scheduler_renderer)
+        self.assertIn("const responseMessage = ord.response_msg", scheduler_renderer)
+        self.assertNotIn("cleanMsg.substring", scheduler_renderer)
+        self.assertIn("스케줄 세부 내역 조회 실패", scheduler_renderer)
+
     def test_overview_strategy_settings_are_grouped_and_readiness_is_collapsible(self):
         self.assertIn("function strategySettingGroups(config)", APP_JS)
         self.assertIn("title: '기본 매매'", APP_JS)

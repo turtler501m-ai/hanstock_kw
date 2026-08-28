@@ -6234,11 +6234,23 @@ async function renderScheduleInfo() {
             const runsContainer = document.getElementById('scheduler-runs-container');
             if (runsContainer) {
                 runsContainer.innerHTML = '';
+                if (runErrors.length) {
+                    const errorPanel = document.createElement('div');
+                    errorPanel.className = 'scheduler-status-message is-error';
+                    errorPanel.style.cssText = 'margin-bottom:1rem;white-space:pre-wrap;color:var(--danger);';
+                    errorPanel.innerHTML = `<strong>전체 실행 오류 ${runErrors.length}건</strong><span>${escapeHtml(runErrors.map((item) => {
+                        if (typeof item === 'string') return item;
+                        const target = [item?.symbol, item?.action ? toKorAction(item.action) : ''].filter(Boolean).join(' ');
+                        const message = item?.message || item?.error || item?.response_msg || '알 수 없는 오류';
+                        return `${target ? `${target}: ` : ''}${message}`;
+                    }).join('\n'))}</span>`;
+                    runsContainer.appendChild(errorPanel);
+                }
                 if (uniqueRounds.size === 0) {
-                    runsContainer.innerHTML = `
+                    runsContainer.insertAdjacentHTML('beforeend', `
                         <div class="text-center" style="color: var(--text-muted); font-size: 0.95rem; padding: 3rem 0;">
                             생성된 실행 계획 및 결과 내역이 없습니다.
-                        </div>`;
+                        </div>`);
                 } else {
                     sortedRoundIds.forEach(round => {
                         const roundData = uniqueRounds.get(round);
@@ -6433,13 +6445,7 @@ async function renderScheduleInfo() {
                                 roundData.approvalErrors.forEach(err => {
                                     const tr = document.createElement('tr');
                                     tr.style.borderBottom = '1px solid var(--border)';
-                                    let cleanMsg = err.message || '오류 발생';
-                                    if (cleanMsg.startsWith('[')) {
-                                        const closingIdx = cleanMsg.indexOf(']');
-                                        if (closingIdx !== -1) {
-                                            cleanMsg = cleanMsg.substring(closingIdx + 1).trim();
-                                        }
-                                    }
+                                    const responseMessage = err.message || '오류 발생';
                                     
                                     // Lookup stock info from generated plans matching the approval_id
                                     const matchingPlan = roundData.results.find(r => r.approval_id && String(r.approval_id) === String(err.approval_id));
@@ -6458,7 +6464,7 @@ async function renderScheduleInfo() {
                                         <td style="padding: 0.6rem 0.75rem; font-size: 0.85rem; text-align: right;">${qtyVal !== '-' ? formatNumber(qtyVal) : '-'}</td>
                                         <td style="padding: 0.6rem 0.75rem; font-size: 0.85rem; text-align: right; font-weight: 500;">${priceVal !== '-' ? formatNumber(priceVal) + ' 원' : '-'}</td>
                                         <td style="padding: 0.6rem 0.75rem; font-size: 0.85rem;">${pill('승인오류', 'sell')}</td>
-                                        <td style="padding: 0.6rem 0.75rem; font-size: 0.85rem;"><div class="reason-cell text-danger" style="max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${escapeHtml(err.message || '')}">${escapeHtml(cleanMsg)}</div></td>
+                                        <td style="padding: 0.6rem 0.75rem; font-size: 0.85rem;"><div class="reason-cell text-danger" style="max-width: 420px; white-space: pre-wrap; overflow-wrap: anywhere;" title="${escapeHtml(responseMessage)}">${escapeHtml(responseMessage)}</div></td>
                                     `;
                                     ordersTbody.appendChild(tr);
                                 });
@@ -6468,13 +6474,7 @@ async function renderScheduleInfo() {
                                     const tr = document.createElement('tr');
                                     tr.style.borderBottom = '1px solid var(--border)';
                                     const isSuccess = ord.status === 'executed';
-                                    let cleanMsg = ord.response_msg || ord.message || '정상 처리';
-                                    if (cleanMsg.startsWith('[')) {
-                                        const closingIdx = cleanMsg.indexOf(']');
-                                        if (closingIdx !== -1) {
-                                            cleanMsg = cleanMsg.substring(closingIdx + 1).trim();
-                                        }
-                                    }
+                                    const responseMessage = ord.response_msg || ord.message || '정상 처리';
                                     
                                     const ordId = ord.id || ord.approval_id;
                                     // Lookup stock info from generated plans matching the approval_id
@@ -6494,7 +6494,7 @@ async function renderScheduleInfo() {
                                         <td style="padding: 0.6rem 0.75rem; font-size: 0.85rem; text-align: right;">${qtyVal !== '-' ? formatNumber(qtyVal) : '-'}</td>
                                         <td style="padding: 0.6rem 0.75rem; font-size: 0.85rem; text-align: right; font-weight: 500;">${priceVal !== '-' ? formatNumber(priceVal) + ' 원' : '-'}</td>
                                         <td style="padding: 0.6rem 0.75rem; font-size: 0.85rem;">${pill(isSuccess ? '성공' : '실패', isSuccess ? 'buy' : 'sell')}</td>
-                                        <td style="padding: 0.6rem 0.75rem; font-size: 0.85rem;"><div class="reason-cell" style="max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${escapeHtml(ord.response_msg || ord.message || '')}">${escapeHtml(cleanMsg)}</div></td>
+                                        <td style="padding: 0.6rem 0.75rem; font-size: 0.85rem;"><div class="reason-cell" style="max-width: 420px; white-space: pre-wrap; overflow-wrap: anywhere;" title="${escapeHtml(responseMessage)}">${escapeHtml(responseMessage)}</div></td>
                                     `;
                                     ordersTbody.appendChild(tr);
                                 });
@@ -6508,6 +6508,7 @@ async function renderScheduleInfo() {
         }
     } catch (err) {
         console.error('Failed to load schedule status:', err);
+        setStatus(`스케줄 세부 내역 조회 실패: ${err.message}`);
     }
 }
 
