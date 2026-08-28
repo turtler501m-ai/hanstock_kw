@@ -145,6 +145,22 @@ def _available_position_slots(held_symbols: set[str], pending_buy_symbols: set[s
     return max(0, max(0, mistock_config.max_positions) - len(reserved))
 
 
+def _broker_unsupported_symbols() -> set[str]:
+    """Return symbols Kiwoom has explicitly rejected as unknown instruments."""
+    return {
+        str(row["symbol"]).upper()
+        for row in mistock_db.rows(
+            """
+            SELECT DISTINCT symbol
+            FROM managed_orders
+            WHERE status IN ('failed', 'rejected')
+              AND last_error LIKE '%1903:%'
+            """
+        )
+        if row.get("symbol")
+    }
+
+
 def _expire_prior_us_session_orders(now: datetime | None = None) -> int:
     """Release day-order reservations after their US trading date has ended."""
     current = now or datetime.now(KST)
@@ -484,7 +500,19 @@ def run_mistock_scheduled_cycle(mode: str = "execute", strategy_id: str | None =
     }
     
     # Exclude held, pending, and recently exited symbols.
-    exclude_symbols = held_symbols | pending_symbols | active_buy_symbols | recent_exits
+    unsupported_symbols = _broker_unsupported_symbols()
+    if unsupported_symbols:
+        logger.warning(
+            "[MISTOCK SCHEDULER] Skipping Kiwoom-unsupported symbols: "
+            + ", ".join(sorted(unsupported_symbols))
+        )
+    exclude_symbols = (
+        held_symbols
+        | pending_symbols
+        | active_buy_symbols
+        | recent_exits
+        | unsupported_symbols
+    )
     available_position_slots = _available_position_slots(
         held_symbols, pending_buy_symbols | active_buy_symbols
     )
@@ -611,22 +639,28 @@ def run_mistock_scheduled_cycle(mode: str = "execute", strategy_id: str | None =
     except Exception:
         pass
     
-    # 슬랙 알림 발송
+    # 실제 성공/실패 상태와 브로커 응답 원문을 슬랙에 표시한다.
     if os.environ.get("MISTOCK_SCHEDULER_SLACK", "true").lower() not in {"0", "false", "no", "off"}:
-        status_str = "성공"
+        status_str = "성공" if result["ok"] else "실패"
         status_line = f"*[미스톡 VM] 미국주식 자동매매 {status_str}*"
         details_line = (
             f"스캔: {scan['scanned']}개 | 매도: {len(sold_items)}건 | "
             f"매수: {len(bought_items)}건(계획: {len(orders)}건)\n"
-            f"잔고: ${balance['cash']:,.2f} | 평가: ${balance['total_eval']:,.2f} | "
+            f"주문가능금액: ${balance['cash']:,.2f} | 평가: ${balance['total_eval']:,.2f} | "
             f"환경: {mistock_config.trading_env}(dry={mistock_config.dry_run})"
         )
+        error_line = ""
+        if result["errors"]:
+            error_line = "\n" + "\n".join(
+                f"• {item['symbol']} {item['action']}: {item['message']}"
+                for item in result["errors"]
+            )
         send_mistock_slack(
-            text=f"[미스톡 VM] 미장 자동매매 {status_str}",
+            text=f"[미스톡 VM] 미국주식 자동매매 {status_str}{error_line}",
             blocks=[
-                {"type": "section", "text": {"type": "mrkdwn", "text": f"{status_line}\n{details_line}"}},
+                {"type": "section", "text": {"type": "mrkdwn", "text": f"{status_line}\n{details_line}{error_line}"}},
             ],
-            color="#36a64f"
+            color="#36a64f" if result["ok"] else "#d00000"
         )
         
     return result

@@ -528,12 +528,13 @@ def get_balance() -> dict[str, Any]:
             else:
                 summary = {}
 
-            # 키움 외화 예수금 파싱 (USD 기준)
+            # 주문 계획에는 예수금보다 실제 주문 가능 금액을 우선 사용한다.
+            # 미체결 주문이 잡고 있는 금액을 무시하면 키움 RC4025가 발생한다.
             cash = _first_positive(summary, [
-                "frcr_dncl_amt",
-                "frcr_dncl_amt_2",
                 "frcr_drwg_psbl_amt",
                 "frcr_drwg_psbl_amt_1",
+                "frcr_dncl_amt",
+                "frcr_dncl_amt_2",
             ])
 
             # 통합증거금 원화 가용 자원 파싱

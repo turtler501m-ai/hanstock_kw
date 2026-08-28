@@ -6,6 +6,7 @@ from unittest.mock import patch
 from src.dashboard.routes import mistock
 from src.mistock import db as mistock_db
 from src.mistock import trader
+from src.mistock import scheduler
 from src.mistock.config import config
 
 
@@ -69,6 +70,36 @@ class MistockManagedOrdersTests(unittest.TestCase):
             "requested_price", "filled_qty", "avg_fill_price", "status",
             "last_error", "broker_payload", "created_at", "updated_at",
         }.issubset(rows[0]))
+
+    def test_scheduler_excludes_symbols_rejected_by_kiwoom_as_unknown(self):
+        order_id = mistock_db.create_managed_order({
+            "client_order_key": "unsupported-avb",
+            "symbol": "AVB",
+            "action": "buy",
+            "requested_qty": 1,
+            "requested_price": 190,
+            "status": "created",
+        })
+        mistock_db.update_managed_order(
+            order_id,
+            status="failed",
+            last_error="Kiwoom ust20000 failed: 종목 정보가 없습니다[1903:종목 정보가 없습니다.]",
+        )
+        other_id = mistock_db.create_managed_order({
+            "client_order_key": "insufficient-bby",
+            "symbol": "BBY",
+            "action": "buy",
+            "requested_qty": 1,
+            "requested_price": 80,
+            "status": "created",
+        })
+        mistock_db.update_managed_order(
+            other_id,
+            status="failed",
+            last_error="[2000](RC4025:모의투자 주문가능금액을 확인하세요.)",
+        )
+
+        self.assertEqual(scheduler._broker_unsupported_symbols(), {"AVB"})
 
     def test_successful_broker_submission_is_accepted_without_local_fill(self):
         object.__setattr__(config, "trading_env", "demo")

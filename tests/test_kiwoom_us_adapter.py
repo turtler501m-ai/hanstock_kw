@@ -44,6 +44,24 @@ class KiwoomUSStockAdapterTests(unittest.TestCase):
         result = KiwoomUSStockAdapter(client).get_overseas_balance()
         self.assertEqual([row["pdno"] for row in result["output1"]], ["AAPL", "MSFT"])
 
+    def test_mistock_balance_prefers_orderable_cash_over_deposit(self):
+        balance_data = {
+            "output1": [],
+            "output2": {
+                "frcr_dncl_amt": "1000",
+                "frcr_drwg_psbl_amt": "250",
+                "frcr_evlu_tota": "1500",
+            },
+            "output3": {},
+            "_broker": "kiwoom",
+        }
+
+        with patch.object(trader, "_get_overseas_balance_cached", return_value=balance_data), \
+                patch.object(trader.config, "trading_env", "real"):
+            result = trader.get_balance()
+
+        self.assertEqual(result["cash"], 250.0)
+
     def test_demo_buy_uses_official_kiwoom_us_order_tr(self):
         client = Mock()
         client.post.return_value = KiwoomPage(data={"ord_no": "123456789", "return_msg": "accepted"})
