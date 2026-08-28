@@ -290,7 +290,9 @@ def _latest_open_sell_trades_by_symbols(symbols: list[str]) -> dict[str, dict]:
             FROM trades
             WHERE symbol IN ({placeholders})
               AND action = 'sell'
-              AND order_status IN ('open', 'partial')
+              AND order_status IN (
+                  'submitted', 'accepted', 'open', 'partial', 'partially_filled'
+              )
               AND COALESCE(broker_order_id, '') != ''
               AND qty > COALESCE(filled_qty, 0)
             ORDER BY id DESC
@@ -381,7 +383,9 @@ def _approval_retry_eligible(item: dict, trade: dict | None) -> bool:
         return False
     trade_status = str((trade or {}).get("order_status") or "").lower()
     approval_status = str(item.get("status") or "").lower()
-    if trade_status in {"failed", "partial", "submitted", "open"}:
+    if trade_status in {
+        "failed", "submitted", "accepted", "open", "partial", "partially_filled"
+    }:
         return True
     return approval_status == "failed"
 
@@ -558,7 +562,7 @@ def retry_approval_order(approval_id: int):
     symbol = str(item.get("symbol") or "").strip()
     trade_status = str((trade or {}).get("order_status") or "").lower()
     blocking_order = None
-    if trade_status in {"submitted", "open", "partial"}:
+    if trade_status in {"submitted", "accepted", "open", "partial", "partially_filled"}:
         blocking_order = trade
     else:
         api = _get_api()

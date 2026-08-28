@@ -1067,6 +1067,34 @@ class DashboardCoreTests(unittest.TestCase):
         self.assertEqual(message, "전량 체결 · 67/67주 · 평균 49,699원")
         self.assertNotIn("동기화 후 확인", message)
 
+    def test_submitted_sell_is_exposed_as_cancel_retry_blocker(self):
+        from src.dashboard.routes import stock_order
+
+        original_db_path = dashboard.trader.config.trade_db_path
+        try:
+            with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+                dashboard.trader.config.trade_db_path = f"{tmpdir}/trades.sqlite"
+                dashboard.trader.init_db()
+                dashboard.trader.save_trade(
+                    symbol="001450",
+                    name="현대해상",
+                    action="sell",
+                    qty=17,
+                    price=0,
+                    reason="test submitted sell",
+                    ok=True,
+                    order_submission_enabled=True,
+                    broker_order_id="0062020",
+                    order_status="submitted",
+                    filled_qty=0,
+                )
+
+                blockers = stock_order._latest_open_sell_trades_by_symbols(["001450"])
+
+                self.assertEqual(blockers["001450"]["broker_order_id"], "0062020")
+        finally:
+            dashboard.trader.config.trade_db_path = original_db_path
+
     def test_approval_timeout_persists_broker_unknown_trade_for_reconciliation(self):
         original_db_path = dashboard.trader.config.trade_db_path
         original_get_api = dashboard._get_api
