@@ -1055,6 +1055,7 @@ def place_order(
     # Mirror every executable US order into the broker-neutral ledger. The
     # Mistock managed table remains a compatibility projection during rollout.
     from src.application.orders.health import assert_new_risk_allowed
+    from src.application.orders.identity import broker_account_scope_key
     from src.application.orders.models import OrderIntent
     from src.application.orders.repository import OrderLedgerRepository
     from src.db.migrations import apply_migrations
@@ -1075,6 +1076,7 @@ def place_order(
     unified_order = unified_repo.create(OrderIntent(
         client_order_key=key,
         correlation_id=str(uuid.uuid4()),
+        account_key=broker_account_scope_key("US"),
         market="US",
         symbol=symbol,
         name=symbol_name(symbol),
@@ -1098,7 +1100,10 @@ def place_order(
                        message: str = "", payload: dict | None = None) -> None:
         current = unified_repo.get(int(unified_order["id"])) or unified_order
         if broker_order_no:
-            unified_repo.bind_broker_result(int(current["id"]), broker_order_no, message=message)
+            unified_repo.bind_broker_result(
+                int(current["id"]), broker_order_no,
+                broker_order_date=db.now_text()[:10], message=message,
+            )
         current_status = str(current["status"])
         if status in {"filled", "demo_local_filled"}:
             if current_status == "submitting":
@@ -1106,6 +1111,7 @@ def place_order(
             unified_repo.reconcile_snapshot(
                 int(current["id"]), status="filled", cumulative_filled_qty=qty,
                 average_fill_price=price, broker_order_id=broker_order_no or "",
+                broker_order_date=db.now_text()[:10],
                 raw=payload or {},
             )
         elif current_status == "submitting":
@@ -1125,6 +1131,10 @@ def place_order(
             cost = qty * price
             if cost > cash:
                 finish("rejected", error="insufficient cash")
+                unified_repo.transition(
+                    int(unified_order["id"]), "submitting", "rejected",
+                    actor="mistock", reason="insufficient cash",
+                )
                 notify_slack_order(symbol, action, qty, price, "insufficient cash", False)
                 return {"ok": False, "status": "rejected", "message": "insufficient cash", "managed_order_id": managed_order_id, "client_order_key": key}
             _apply_local_filled_order(symbol, action, qty, price)
@@ -1132,6 +1142,10 @@ def place_order(
         elif action == "sell":
             if not existing or float(existing["qty"]) < qty:
                 finish("rejected", error="insufficient holdings")
+                unified_repo.transition(
+                    int(unified_order["id"]), "submitting", "rejected",
+                    actor="mistock", reason="insufficient holdings",
+                )
                 notify_slack_order(symbol, action, qty, price, "insufficient holdings", False)
                 return {"ok": False, "status": "rejected", "message": "insufficient holdings", "managed_order_id": managed_order_id, "client_order_key": key}
             _apply_local_filled_order(symbol, action, qty, price)

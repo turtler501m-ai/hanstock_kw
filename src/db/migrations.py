@@ -152,6 +152,17 @@ MIGRATIONS = (
                WHERE broker_order_id IS NOT NULL AND broker_order_id <> ''""",
         ),
     ),
+    Migration(
+        4,
+        "dated_broker_order_identity",
+        (
+            "ALTER TABLE orders ADD COLUMN broker_order_date TEXT NOT NULL DEFAULT ''",
+            "DROP INDEX IF EXISTS idx_orders_broker_identity_unique",
+            """CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_broker_identity_unique
+               ON orders(account_key, market, broker_order_date, broker_order_id)
+               WHERE broker_order_id IS NOT NULL AND broker_order_id <> ''""",
+        ),
+    ),
 )
 
 

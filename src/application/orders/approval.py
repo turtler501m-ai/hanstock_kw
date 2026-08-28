@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Callable
 
 from src.application.orders.legacy_bridge import ensure_approval_order
+from src.application.orders.identity import broker_account_scope_key
 from src.utils.market_calendar import is_market_session
 
 KST = timezone(timedelta(hours=9))
@@ -93,5 +94,6 @@ def create_domestic_approval(
         "decision_id": decision_id, "expires_at": expires_at,
         "correlation_id": correlation_id, "client_order_key": client_order_key,
         "managed_order_id": managed_order_id,
+        "account_key": broker_account_scope_key("KR"),
     })
     return approval_id

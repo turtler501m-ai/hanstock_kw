@@ -64,6 +64,8 @@ class OrderIntent:
     signal_id: str | None = None
     decision_id: int | None = None
     approval_id: int | None = None
+    broker_order_id: str | None = None
+    broker_order_date: str | None = None
     expires_at: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
 

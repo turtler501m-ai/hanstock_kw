@@ -7,6 +7,7 @@ import uuid
 
 from src.application.orders.models import OrderIntent
 from src.application.orders.repository import OrderLedgerRepository
+from src.application.orders.identity import broker_account_scope_key
 
 
 def _key(approval: dict) -> str:
@@ -29,6 +30,7 @@ def ensure_approval_order(connect, approval: dict) -> dict | None:
     intent = OrderIntent(
         client_order_key=_key(approval),
         correlation_id=str(approval.get("correlation_id") or uuid.uuid4()),
+        account_key=str(approval.get("account_key") or ""),
         symbol=str(approval.get("symbol") or ""),
         name=str(approval.get("name") or ""),
         side=str(approval.get("action") or "").lower(),
@@ -77,3 +79,60 @@ def mirror_status(connect, order: dict | None, target: str, *, actor: str, reaso
         )
         status = next_status
     return current
+
+
+def backfill_active_legacy_orders(connect) -> dict:
+    """Mirror unresolved legacy domestic trades before recovery health checks."""
+    with connect() as conn:
+        conn.row_factory = __import__("sqlite3").Row
+        rows = conn.execute(
+            """SELECT * FROM trades
+               WHERE order_status IN ('submitted','open','partial','broker_unknown')
+               ORDER BY id"""
+        ).fetchall()
+    repository = OrderLedgerRepository(connect)
+    account_key = broker_account_scope_key("KR")
+    imported = 0
+    skipped = 0
+    for raw in rows:
+        trade = dict(raw)
+        trade_id = int(trade["id"])
+        order_date = str(trade.get("ts") or "")[:10]
+        broker_order_id = str(trade.get("broker_order_id") or "").strip()
+        existing = repository.get_by_broker_order_id(
+            broker_order_id, broker_order_date=order_date,
+            account_key=account_key, market="KR",
+        ) if broker_order_id else None
+        if existing is not None:
+            skipped += 1
+            continue
+        status = str(trade.get("order_status") or "broker_unknown")
+        intent = OrderIntent(
+            client_order_key=f"legacy-trade:{trade_id}",
+            correlation_id=f"legacy-trade:{trade_id}",
+            account_key=account_key,
+            market="KR",
+            symbol=str(trade.get("symbol") or ""),
+            name=str(trade.get("name") or trade.get("symbol") or ""),
+            side=str(trade.get("action") or "").lower(),
+            quantity=int(trade.get("qty") or 0),
+            price=float(trade.get("price") or 0),
+            strategy_id=trade.get("strategy_id"),
+            approval_id=int(trade.get("source_approval_id") or 0) or None,
+            broker_order_id=broker_order_id or None,
+            broker_order_date=order_date,
+            metadata={"legacy_trade_id": trade_id, "backfilled": True},
+        )
+        order = repository.create(intent, initial_status=status)
+        filled_qty = int(trade.get("filled_qty") or 0)
+        if filled_qty > 0:
+            repository.reconcile_snapshot(
+                int(order["id"]), status=status,
+                cumulative_filled_qty=filled_qty,
+                average_fill_price=float(trade.get("filled_price") or 0),
+                broker_order_id=broker_order_id,
+                broker_order_date=order_date,
+                raw={"legacy_trade_id": trade_id},
+            )
+        imported += 1
+    return {"checked_count": len(rows), "imported_count": imported, "skipped_count": skipped}

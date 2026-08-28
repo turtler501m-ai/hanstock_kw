@@ -139,6 +139,7 @@ def reconcile_unified_order(order_id: int):
         cumulative_filled_qty=int(snapshot.filled_quantity),
         average_fill_price=float(snapshot.average_fill_price),
         broker_order_id=snapshot.broker_order_id or broker_order_id,
+        broker_order_date=str(item.get("broker_order_date") or ""),
         raw=dict(snapshot.raw),
     )
 

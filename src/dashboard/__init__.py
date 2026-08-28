@@ -76,6 +76,13 @@ async def _dashboard_lifespan(_app):
     from src.db.repository import connect_db, init_db
 
     init_db()
+    from src.application.orders.legacy_bridge import backfill_active_legacy_orders
+
+    backfill = backfill_active_legacy_orders(connect_db)
+    logger.info(
+        "[ORDER_BACKFILL] checked={} imported={} skipped={}",
+        backfill["checked_count"], backfill["imported_count"], backfill["skipped_count"],
+    )
     recovery = run_startup_recovery(connect_db)
     logger.info("[ORDER_RECOVERY] state={} reason={}", recovery["state"], recovery["reason"])
     settings.run_dashboard_startup_tasks()

@@ -34,6 +34,19 @@ def build_order_health(connect, *, stale_minutes: int = 10, include_runtime: boo
             ).fetchone()[0])
         except Exception:
             unprotected_count = 0
+        try:
+            legacy_unmirrored_count = int(conn.execute(
+                """SELECT COUNT(*) FROM trades t
+                   WHERE t.order_status IN ('submitted','open','partial','broker_unknown')
+                     AND NOT EXISTS (
+                       SELECT 1 FROM orders o
+                       WHERE json_extract(o.metadata_json,'$.legacy_trade_id')=t.id
+                          OR (t.source_approval_id IS NOT NULL
+                              AND o.approval_id=t.source_approval_id)
+                     )"""
+            ).fetchone()[0])
+        except Exception:
+            legacy_unmirrored_count = 0
     expected_migrations = {item.version: item.checksum for item in MIGRATIONS}
     applied_migrations = {int(row[0]): str(row[1]) for row in migration_rows}
     schema_ready = applied_migrations == expected_migrations
@@ -46,6 +59,8 @@ def build_order_health(connect, *, stale_minutes: int = 10, include_runtime: boo
         blockers.append({"code": "RECONCILIATION_OPEN", "count": reconciliation_count})
     if unprotected_count:
         blockers.append({"code": "UNPROTECTED_POSITION", "count": unprotected_count})
+    if legacy_unmirrored_count:
+        blockers.append({"code": "LEGACY_ACTIVE_ORDER_UNMIRRORED", "count": legacy_unmirrored_count})
     if Path(".runtime/kill_switch.json").exists():
         blockers.append({"code": "KILL_SWITCH_ACTIVE", "count": 1})
     if not schema_ready:

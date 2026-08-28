@@ -501,7 +501,9 @@ def _approve_pending_approval_serialized(
 
         if ledger_order is not None:
             OrderLedgerRepository(trader.connect_db).bind_broker_result(
-                int(ledger_order["id"]), broker_order_id, message=response_msg
+                int(ledger_order["id"]), broker_order_id,
+                broker_order_date=str(item.get("created_at") or now)[:10],
+                message=response_msg,
             )
         ledger_order = mirror_status(
             trader.connect_db,

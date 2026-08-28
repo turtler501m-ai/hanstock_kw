@@ -115,9 +115,24 @@ class UnifiedOrderLedgerTests(unittest.TestCase):
     def test_broker_identity_is_unique_per_account_and_market(self):
         first = self.repository.create(self.intent("first"), initial_status="approved")
         second = self.repository.create(self.intent("second"), initial_status="approved")
-        self.repository.bind_broker_result(first["id"], "BROKER-1")
+        self.repository.bind_broker_result(
+            first["id"], "BROKER-1", broker_order_date="2026-08-28"
+        )
         with self.assertRaises(sqlite3.IntegrityError):
-            self.repository.bind_broker_result(second["id"], "BROKER-1")
+            self.repository.bind_broker_result(
+                second["id"], "BROKER-1", broker_order_date="2026-08-28"
+            )
+
+    def test_broker_identity_can_be_reused_on_a_later_trading_day(self):
+        first = self.repository.create(self.intent("first"), initial_status="approved")
+        second = self.repository.create(self.intent("second"), initial_status="approved")
+        self.repository.bind_broker_result(
+            first["id"], "BROKER-1", broker_order_date="2026-08-28"
+        )
+        self.repository.bind_broker_result(
+            second["id"], "BROKER-1", broker_order_date="2026-08-31"
+        )
+        self.assertEqual("BROKER-1", self.repository.get(second["id"])["broker_order_id"])
 
     def test_broker_status_alias_is_normalized_and_invalid_status_is_rejected(self):
         order = self.repository.create(self.intent(), initial_status="approved")

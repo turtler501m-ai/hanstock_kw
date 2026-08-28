@@ -24,8 +24,8 @@ class OrderLedgerRepository:
                     client_order_key, correlation_id, account_key, market, symbol, name,
                     side, order_type, time_in_force, requested_qty, order_price, status,
                     strategy_id, strategy_version, signal_id, decision_id, approval_id,
-                    expires_at, metadata_json, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    broker_order_id, broker_order_date, expires_at, metadata_json, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(client_order_key) DO NOTHING
                 """,
                 (
@@ -34,6 +34,7 @@ class OrderLedgerRepository:
                     intent.order_type, intent.time_in_force, intent.quantity, intent.price,
                     initial_status, intent.strategy_id, intent.strategy_version,
                     intent.signal_id, intent.decision_id, intent.approval_id,
+                    intent.broker_order_id, intent.broker_order_date or "",
                     intent.expires_at, json.dumps(intent.metadata, ensure_ascii=False), now, now,
                 ),
             )
@@ -68,14 +69,19 @@ class OrderLedgerRepository:
             ).fetchone()
             return dict(row) if row else None
 
-    def get_by_broker_order_id(self, broker_order_id: str) -> dict | None:
+    def get_by_broker_order_id(
+        self, broker_order_id: str, *, broker_order_date: str = "",
+        account_key: str = "", market: str = "KR",
+    ) -> dict | None:
         if not str(broker_order_id or "").strip():
             return None
         with self._connect() as conn:
             conn.row_factory = __import__("sqlite3").Row
             row = conn.execute(
-                "SELECT * FROM orders WHERE broker_order_id=? ORDER BY id DESC LIMIT 1",
-                (str(broker_order_id),),
+                """SELECT * FROM orders WHERE broker_order_id=?
+                   AND broker_order_date=? AND account_key=? AND market=?
+                   ORDER BY id DESC LIMIT 1""",
+                (str(broker_order_id), broker_order_date, account_key, market),
             ).fetchone()
             return dict(row) if row else None
 
@@ -104,11 +110,15 @@ class OrderLedgerRepository:
             raise RuntimeError("order disappeared after transition")
         return result
 
-    def bind_broker_result(self, order_id: int, broker_order_id: str, *, message="") -> None:
+    def bind_broker_result(
+        self, order_id: int, broker_order_id: str, *, broker_order_date: str = "", message=""
+    ) -> None:
         with self._connect() as conn:
             conn.execute(
-                "UPDATE orders SET broker_order_id=?, last_error_message=?, updated_at=? WHERE id=?",
-                (broker_order_id or None, message or None, _now(), order_id),
+                """UPDATE orders SET broker_order_id=?,
+                   broker_order_date=COALESCE(NULLIF(?,''),broker_order_date),
+                   last_error_message=?, updated_at=? WHERE id=?""",
+                (broker_order_id or None, broker_order_date, message or None, _now(), order_id),
             )
 
     def reconcile_snapshot(
@@ -119,6 +129,7 @@ class OrderLedgerRepository:
         cumulative_filled_qty: int,
         average_fill_price: float = 0,
         broker_order_id: str = "",
+        broker_order_date: str = "",
         raw=None,
     ) -> dict:
         """Apply a monotonic broker snapshot and materialize only its fill delta."""
@@ -162,7 +173,11 @@ class OrderLedgerRepository:
             delta = incoming - old_filled
             if delta:
                 identity = broker_order_id or str(current.get("broker_order_id") or order_id)
-                fill_key = f"snapshot:{identity}:{incoming}"
+                identity_date = broker_order_date or str(current.get("broker_order_date") or "")
+                fill_key = (
+                    f"snapshot:{current['account_key']}:{current['market']}:"
+                    f"{identity_date}:{identity}:{incoming}"
+                )
                 cumulative_value = incoming * float(average_fill_price or 0)
                 previous_value = old_filled * float(current.get("average_fill_price") or 0)
                 delta_price = max(0.0, (cumulative_value - previous_value) / delta)
@@ -195,9 +210,11 @@ class OrderLedgerRepository:
             conn.execute(
                 """UPDATE orders SET status=?, filled_qty=?, average_fill_price=?,
                    broker_order_id=COALESCE(NULLIF(?,''),broker_order_id), last_synced_at=?,
+                   broker_order_date=COALESCE(NULLIF(?,''),broker_order_date),
                    completed_at=COALESCE(?,completed_at), version=version+1, updated_at=?
                    WHERE id=?""",
-                (status, incoming, average_fill_price, broker_order_id, now, completed, now, order_id),
+                (status, incoming, average_fill_price, broker_order_id, now,
+                 broker_order_date, completed, now, order_id),
             )
             if previous_status != status or delta:
                 conn.execute(

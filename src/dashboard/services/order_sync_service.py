@@ -12,7 +12,13 @@ def _mirror_trade_to_unified_ledger(trade: dict, stored: dict | None = None) -> 
     approval_id = _to_int(source.get("source_approval_id"))
     order = repository.get_by_approval(approval_id) if approval_id else None
     if order is None:
-        order = repository.get_by_broker_order_id(str(trade.get("broker_order_id") or ""))
+        from src.application.orders.identity import broker_account_scope_key
+
+        order = repository.get_by_broker_order_id(
+            str(trade.get("broker_order_id") or ""),
+            broker_order_date=str(trade.get("ts") or "")[:10],
+            account_key=broker_account_scope_key("KR"), market="KR",
+        )
     if order is None:
         return
     repository.reconcile_snapshot(
@@ -21,6 +27,7 @@ def _mirror_trade_to_unified_ledger(trade: dict, stored: dict | None = None) -> 
         cumulative_filled_qty=_to_int(trade.get("filled_qty")),
         average_fill_price=float(trade.get("filled_price") or 0),
         broker_order_id=str(trade.get("broker_order_id") or ""),
+        broker_order_date=str(trade.get("ts") or "")[:10],
         raw=trade.get("broker_result") if isinstance(trade.get("broker_result"), dict) else {},
     )
 

@@ -248,7 +248,8 @@ def approve_managed_ai_stock_order(approval_id: int) -> dict[str, Any]:
             )
             if mirrored and submitted.get("broker_order_id"):
                 OrderLedgerRepository(connect_db).bind_broker_result(
-                    int(mirrored["id"]), str(submitted["broker_order_id"])
+                    int(mirrored["id"]), str(submitted["broker_order_id"]),
+                    broker_order_date=str(created or "")[:10],
                 )
         response.update(
             {

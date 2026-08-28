@@ -1,6 +1,7 @@
 import os
 import time
 import uuid
+from datetime import datetime, timedelta, timezone
 
 from src.approval_service import ApprovalService
 from src.broker.base import DomesticStockBroker
@@ -170,6 +171,7 @@ class OrderRouter:
             }
 
         from src.application.orders.health import assert_new_risk_allowed
+        from src.application.orders.identity import broker_account_scope_key
         from src.application.orders.models import OrderIntent
         from src.application.orders.repository import OrderLedgerRepository
 
@@ -179,6 +181,7 @@ class OrderRouter:
         correlation_id = str(uuid.uuid4())
         order = ledger.create(OrderIntent(
             client_order_key=f"router:{correlation_id}", correlation_id=correlation_id,
+            account_key=broker_account_scope_key("KR"),
             symbol=symbol, name=name, side=action, quantity=qty, price=price,
             strategy_id=strategy_id, metadata={"reason": reason, "source": "strategy_router"},
         ), initial_status="approved")
@@ -196,7 +199,11 @@ class OrderRouter:
             or (broker_result.get("output") or {}).get("odno")
             or (broker_result.get("output") or {}).get("ODNO") or ""
         )
-        ledger.bind_broker_result(order["id"], broker_order_id, message=result.message)
+        broker_order_date = datetime.now(timezone(timedelta(hours=9))).strftime("%Y-%m-%d")
+        ledger.bind_broker_result(
+            order["id"], broker_order_id,
+            broker_order_date=broker_order_date, message=result.message,
+        )
         target_status = "submitted" if ok and broker_order_id else (
             "broker_unknown" if ok else "rejected"
         )
