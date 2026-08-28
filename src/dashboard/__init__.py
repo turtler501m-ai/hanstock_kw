@@ -1,5 +1,8 @@
 # -*- coding: utf-8 -*-
 from contextlib import asynccontextmanager
+import os
+import socket
+import subprocess
 
 from fastapi import HTTPException, Request
 from fastapi.exception_handlers import http_exception_handler, request_validation_exception_handler
@@ -7,6 +10,8 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from src.dashboard.core import app
+from src import trader
+from src.utils.logger import logger
 from src.ai_stock import constants as _ai_stock_constants
 from src.ai_stock.schemas import envelope as _ai_stock_envelope
 
@@ -35,13 +40,43 @@ for route_module in [
     app.include_router(route_module.router)
 
 
+def _runtime_revision() -> str:
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"],
+            capture_output=True,
+            check=False,
+            text=True,
+            timeout=2,
+        )
+        return result.stdout.strip() or "unknown"
+    except (OSError, subprocess.SubprocessError):
+        return "unknown"
+
+
+def _log_server_lifecycle(event: str) -> None:
+    flags = trader.runtime_flags()
+    logger.info(
+        "[SERVER_LIFECYCLE] service=dashboard event={} pid={} host={} revision={} "
+        "trading_env={} dry_run={} order_submission_enabled={}",
+        event,
+        os.getpid(),
+        socket.gethostname(),
+        _runtime_revision(),
+        flags.trading_env,
+        flags.dry_run,
+        flags.order_submission_enabled,
+    )
+
+
 @asynccontextmanager
 async def _dashboard_lifespan(_app):
+    _log_server_lifecycle("startup")
     settings.run_dashboard_startup_tasks()
     try:
         yield
     finally:
-        pass
+        _log_server_lifecycle("shutdown")
 
 
 app.router.lifespan_context = _dashboard_lifespan
