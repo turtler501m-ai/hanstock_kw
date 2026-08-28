@@ -294,6 +294,58 @@ class DashboardCoreTests(unittest.TestCase):
                 patch.object(approval_service.trader, "connect_db", return_value=context):
             approval_service._enforce_buy_position_limit(301, pending)
 
+    def test_rsi_can_add_to_existing_holding_without_active_buy(self):
+        approval_service._refresh_dependencies()
+        pending = {
+            "symbol": "005930",
+            "strategy_id": "rsi_limit_strategy",
+            "source": "candidate_order",
+        }
+        connection = Mock()
+        connection.execute.return_value.fetchall.side_effect = [[], [(302, "005930")]]
+        context = Mock()
+        context.__enter__ = Mock(return_value=connection)
+        context.__exit__ = Mock(return_value=False)
+
+        with patch.object(approval_service, "_get_api", return_value=Mock(get_balance=Mock())), \
+                patch.object(approval_service, "_get_balance_data", return_value={}), \
+                patch.object(approval_service, "_parse_balance", return_value={
+                    "holdings": [{"symbol": "005930", "qty": 10}],
+                }), \
+                patch.object(approval_service.trader, "connect_db", return_value=context):
+            approval_service._enforce_buy_position_limit(302, pending)
+
+    def test_rsi_additional_buy_is_blocked_by_outstanding_buy(self):
+        approval_service._refresh_dependencies()
+        pending = {"symbol": "005930", "strategy_id": "rsi_limit_strategy"}
+        read_connection = Mock()
+        read_connection.execute.return_value.fetchall.side_effect = [
+            [("005930",)],
+            [(303, "005930")],
+        ]
+        write_connection = Mock()
+        read_context = Mock()
+        read_context.__enter__ = Mock(return_value=read_connection)
+        read_context.__exit__ = Mock(return_value=False)
+        write_context = Mock()
+        write_context.__enter__ = Mock(return_value=write_connection)
+        write_context.__exit__ = Mock(return_value=False)
+
+        with patch.object(approval_service, "_get_api", return_value=Mock(get_balance=Mock())), \
+                patch.object(approval_service, "_get_balance_data", return_value={}), \
+                patch.object(approval_service, "_parse_balance", return_value={
+                    "holdings": [{"symbol": "005930", "qty": 10}],
+                }), \
+                patch.object(
+                    approval_service.trader, "connect_db",
+                    side_effect=[read_context, write_context],
+                ):
+            with self.assertRaises(dashboard.HTTPException) as raised:
+                approval_service._enforce_buy_position_limit(303, pending)
+
+        self.assertEqual(raised.exception.status_code, 409)
+        self.assertIn("outstanding buy", str(raised.exception.detail))
+
     def test_balance_cache_is_scoped_to_account(self):
         original_cache = dashboard.BALANCE_CACHE
         original_account = dashboard.trader.config.kiwoom_domestic_demo_account

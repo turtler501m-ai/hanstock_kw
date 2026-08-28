@@ -8,6 +8,7 @@ def _refresh_dependencies() -> None:
         "_is_approval_already_claimed", "_auto_approve_pending_approvals",
         "_approve_pending_approval", "_approve_pending_approval_serialized",
         "_buy_approval_capacity_decision", "_enforce_buy_position_limit",
+        "_additional_buy_strategy_id",
     }}
     globals().update({name: value for name, value in vars(core).items() if name not in protected})
 
@@ -119,6 +120,17 @@ def _buy_approval_capacity_decision(
     return True, ""
 
 
+_ADDITIONAL_BUY_STRATEGIES = {"ai_rebalance", "rsi_limit_strategy"}
+
+
+def _additional_buy_strategy_id(pending: dict) -> str | None:
+    """Return the opt-in strategy allowed to add to an existing holding."""
+    strategy_id = str(pending.get("strategy_id") or "").strip()
+    if not strategy_id and str(pending.get("source") or "").strip() == "ai-allocation":
+        strategy_id = "ai_rebalance"
+    return strategy_id if strategy_id in _ADDITIONAL_BUY_STRATEGIES else None
+
+
 def _enforce_buy_position_limit(approval_id: int, pending: dict) -> None:
     api = _get_api()
     parsed = (
@@ -161,14 +173,22 @@ def _enforce_buy_position_limit(approval_id: int, pending: dict) -> None:
         ]
 
     target = str(pending.get("symbol") or "").strip()
-    is_ai_rebalance = (
-        str(pending.get("strategy_id") or "") == "ai_rebalance"
-        or str(pending.get("source") or "") == "ai-allocation"
-    )
-    if is_ai_rebalance and target in held_symbols:
-        if target not in active_buy_symbols:
+    additional_buy_strategy = _additional_buy_strategy_id(pending)
+    if additional_buy_strategy and target in held_symbols:
+        # Scale-ins do not consume another position slot. Limit each strategy
+        # to one outstanding add-on order per symbol; monetary exposure is
+        # capped by the strategy-specific sizing policy when the order is built.
+        earlier_pending_same_symbol = any(
+            int(pending_id) < int(approval_id)
+            and str(pending_symbol or "").strip() == target
+            for pending_id, pending_symbol in pending_buys
+        )
+        if target not in active_buy_symbols and not earlier_pending_same_symbol:
             return
-        reason = f"AI 리밸런싱 추가매수 거절: {target} 종목의 기존 매수 주문이 아직 처리 중입니다."
+        reason = (
+            f"{additional_buy_strategy} additional buy rejected: "
+            f"an outstanding buy already exists for {target}"
+        )
         now = trader.datetime.now(trader.KST).strftime("%Y-%m-%d %H:%M:%S")
         with trader.connect_db() as conn:
             conn.execute(
