@@ -346,6 +346,48 @@ class DashboardCoreTests(unittest.TestCase):
         self.assertEqual(raised.exception.status_code, 409)
         self.assertIn("outstanding buy", str(raised.exception.detail))
 
+    def test_post_order_sync_reconciles_and_clears_balance_cache(self):
+        approval_service._refresh_dependencies()
+        with patch.dict("os.environ", {
+            "HANSTOCK_POST_ORDER_SYNC_DELAY_SECONDS": "0",
+            "HANSTOCK_POST_ORDER_SYNC_ATTEMPTS": "2",
+            "HANSTOCK_POST_ORDER_SYNC_RETRY_SECONDS": "0",
+        }), patch.object(
+            dashboard_core, "_get_api", return_value=Mock()
+        ) as get_api, patch.object(
+            dashboard_core, "_sync_order_status_from_history",
+            return_value={"checked_count": 1, "updated_count": 1},
+        ) as sync, patch.object(
+            dashboard_core, "_clear_balance_cache"
+        ) as clear_cache:
+            approval_service._run_submitted_order_sync()
+
+        get_api.assert_called_once_with()
+        sync.assert_called_once_with(get_api.return_value, days=1)
+        clear_cache.assert_called_once_with()
+
+    def test_post_order_sync_retries_when_history_has_not_updated(self):
+        approval_service._refresh_dependencies()
+        with patch.dict("os.environ", {
+            "HANSTOCK_POST_ORDER_SYNC_DELAY_SECONDS": "0",
+            "HANSTOCK_POST_ORDER_SYNC_ATTEMPTS": "2",
+            "HANSTOCK_POST_ORDER_SYNC_RETRY_SECONDS": "0",
+        }), patch.object(
+            dashboard_core, "_get_api", return_value=Mock()
+        ), patch.object(
+            dashboard_core, "_sync_order_status_from_history",
+            side_effect=[
+                {"checked_count": 1, "updated_count": 0},
+                {"checked_count": 1, "updated_count": 1},
+            ],
+        ) as sync, patch.object(
+            dashboard_core, "_clear_balance_cache"
+        ) as clear_cache:
+            approval_service._run_submitted_order_sync()
+
+        self.assertEqual(sync.call_count, 2)
+        self.assertEqual(clear_cache.call_count, 2)
+
     def test_balance_cache_is_scoped_to_account(self):
         original_cache = dashboard.BALANCE_CACHE
         original_account = dashboard.trader.config.kiwoom_domestic_demo_account

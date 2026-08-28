@@ -1,5 +1,13 @@
 """Approval claiming and execution service extracted from dashboard core."""
 
+import os
+import threading
+import time
+
+
+_order_status_sync_lock = threading.Lock()
+_order_status_sync_thread: threading.Thread | None = None
+
 def _refresh_dependencies() -> None:
     from src.dashboard import core
     protected = {name for name in globals() if name.startswith("_approval") or name in {
@@ -9,6 +17,7 @@ def _refresh_dependencies() -> None:
         "_approve_pending_approval", "_approve_pending_approval_serialized",
         "_buy_approval_capacity_decision", "_enforce_buy_position_limit",
         "_additional_buy_strategy_id",
+        "_schedule_submitted_order_sync", "_run_submitted_order_sync",
     }}
     globals().update({name: value for name, value in vars(core).items() if name not in protected})
 
@@ -39,6 +48,54 @@ def _is_ambiguous_submission_exception(exc: Exception) -> bool:
         return True
     normalized = f"{type(exc).__name__}: {exc}".lower()
     return any(marker in normalized for marker in _AMBIGUOUS_SUBMISSION_MARKERS)
+
+
+def _run_submitted_order_sync() -> None:
+    """Reconcile newly submitted orders after Kiwoom has had time to settle."""
+    initial_delay = max(0.0, float(os.environ.get("HANSTOCK_POST_ORDER_SYNC_DELAY_SECONDS", "3")))
+    retry_delay = max(0.0, float(os.environ.get("HANSTOCK_POST_ORDER_SYNC_RETRY_SECONDS", "5")))
+    attempts = max(1, int(os.environ.get("HANSTOCK_POST_ORDER_SYNC_ATTEMPTS", "3")))
+    days = max(1, int(os.environ.get("HANSTOCK_ORDER_STATUS_SYNC_DAYS", "1")))
+    time.sleep(initial_delay)
+    from src.dashboard import core
+
+    for attempt in range(1, attempts + 1):
+        try:
+            result = core._sync_order_status_from_history(core._get_api(), days=days)
+            core._clear_balance_cache()
+            logger.info(
+                "post-order status sync attempt={} checked={} updated={}",
+                attempt,
+                result.get("checked_count", 0),
+                result.get("updated_count", 0),
+            )
+            if int(result.get("updated_count", 0) or 0) > 0:
+                return
+        except Exception as exc:
+            logger.warning(f"post-order status sync attempt {attempt} failed: {exc}")
+        if attempt < attempts:
+            time.sleep(retry_delay)
+
+
+def _schedule_submitted_order_sync() -> bool:
+    """Start one debounced reconciliation worker for all recent submissions."""
+    global _order_status_sync_thread
+    if os.environ.get("HANSTOCK_TESTING") == "1":
+        return False
+    if os.environ.get("HANSTOCK_ORDER_STATUS_SYNC", "true").lower() in {
+        "0", "false", "no", "off",
+    }:
+        return False
+    with _order_status_sync_lock:
+        if _order_status_sync_thread is not None and _order_status_sync_thread.is_alive():
+            return False
+        _order_status_sync_thread = threading.Thread(
+            target=_run_submitted_order_sync,
+            name="post-order-status-sync",
+            daemon=True,
+        )
+        _order_status_sync_thread.start()
+    return True
 
 
 def _load_pending_approval(approval_id: int) -> dict:
@@ -431,6 +488,7 @@ def _approve_pending_approval_serialized(
     # 다음 read에서 최신 상태를 다시 받아오게 한다.
     if status == "executed":
         _clear_balance_cache()
+        _schedule_submitted_order_sync()
 
     return {"id": approval_id, "status": status, "response_msg": response_msg}
 
