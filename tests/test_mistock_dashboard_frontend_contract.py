@@ -131,6 +131,9 @@ class MistockDashboardFrontendContractTests(unittest.TestCase):
         self.assertIn("interval_minutes", APP_JS)
         self.assertIn("start_hm", APP_JS)
         self.assertIn("end_hm", APP_JS)
+        self.assertIn("row.last_errors", APP_JS)
+        self.assertIn("row.last_status === 'failed'", APP_JS)
+        self.assertIn("상태 및 오류", INDEX_HTML)
         self.assertNotIn("`/api/mistock/schedules/${", APP_JS)
 
         strategy_start = APP_JS.index("const strategyDetailForm =")

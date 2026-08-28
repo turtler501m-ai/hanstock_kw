@@ -2,6 +2,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from src.dashboard.routes import mistock
 from src.mistock import db as mistock_db
@@ -153,6 +154,31 @@ class MistockDashboardConfigurationTests(unittest.TestCase):
         self.assertEqual(row["mode"], "analysis_only")
         self.assertFalse(row["auto_approve"])
         self.assertEqual(loaded["count"], len(loaded["schedules"]))
+
+    def test_schedule_list_includes_exact_latest_failure(self):
+        result_path = Path(self.temp_dir.name) / "latest-result.json"
+        result_path.write_text(json.dumps({
+            "recorded_at": "2026-08-28T04:47:13+09:00",
+            "result": {
+                "strategy_id": "mistock_nasdaq_rule_v1",
+                "status": "failed",
+                "ok": False,
+                "errors": [{
+                    "symbol": "AVB",
+                    "action": "buy",
+                    "message": "키움 오류[1903:종목 정보가 없습니다]",
+                }],
+            },
+        }, ensure_ascii=False), encoding="utf-8")
+
+        with patch.dict("os.environ", {"MISTOCK_SCHEDULER_RESULT_PATH": str(result_path)}):
+            loaded = mistock.mistock_schedules()
+
+        row = next(item for item in loaded["schedules"] if item["strategy_id"] == "mistock_nasdaq_rule_v1")
+        self.assertEqual(row["last_status"], "failed")
+        self.assertFalse(row["last_ok"])
+        self.assertEqual(row["last_result_at"], "2026-08-28T04:47:13+09:00")
+        self.assertEqual(row["last_errors"][0]["message"], "키움 오류[1903:종목 정보가 없습니다]")
 
     def test_schedule_rejects_invalid_payloads(self):
         strategy_id = "mistock_nasdaq_rule_v1"

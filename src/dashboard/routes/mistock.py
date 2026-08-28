@@ -3404,15 +3404,51 @@ def _mistock_schedule_rows() -> list[dict]:
         ORDER BY s.strategy_id
         """
     )
-    return [
-        {
+    latest_by_strategy: dict[str, dict] = {}
+    result_path = Path(os.environ.get(
+        "MISTOCK_SCHEDULER_RESULT_PATH",
+        ".runtime/mistock/daily_auto_last_result.json",
+    ))
+    if result_path.exists():
+        try:
+            payload = json.loads(result_path.read_text(encoding="utf-8"))
+            result = payload.get("result") if isinstance(payload, dict) else None
+            strategy_id = str((result or {}).get("strategy_id") or "").strip()
+            if strategy_id:
+                latest_by_strategy[strategy_id] = {
+                    "last_result_at": payload.get("recorded_at"),
+                    "last_status": (result or {}).get("status") or (
+                        "success" if (result or {}).get("ok") else "failed"
+                    ),
+                    "last_ok": bool((result or {}).get("ok")),
+                    "last_errors": [
+                        {
+                            "symbol": item.get("symbol"),
+                            "action": item.get("action"),
+                            "message": str(item.get("message") or "알 수 없는 오류"),
+                        }
+                        for item in ((result or {}).get("errors") or [])
+                        if isinstance(item, dict)
+                    ],
+                }
+        except (OSError, ValueError, TypeError):
+            logger.exception("Failed to load latest Mistock schedule result")
+
+    enriched = []
+    for row in rows:
+        strategy_id = str(row.get("strategy_id") or "")
+        last = latest_by_strategy.get(strategy_id, {})
+        enriched.append({
             **row,
+            **last,
             "enabled": bool(row.get("enabled")),
             "auto_approve": bool(row.get("auto_approve")),
-            "display_name": row.get("name") or row.get("strategy_id"),
-        }
-        for row in rows
-    ]
+            "display_name": row.get("name") or strategy_id,
+            "last_status": last.get("last_status") or "never_run",
+            "last_ok": last.get("last_ok"),
+            "last_errors": last.get("last_errors") or [],
+        })
+    return enriched
 
 
 @router.get("/api/mistock/schedules")

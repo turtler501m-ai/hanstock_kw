@@ -819,19 +819,28 @@ async function renderMistockSchedules() {
     try {
         const data = await fetchJson('/api/mistock/schedules');
         const rows = Array.isArray(data) ? data : data.schedules || data.items || [];
-        tbody.innerHTML = rows.length ? rows.map((row) => `<tr data-id="${escapeHtml(row.strategy_id || row.id)}">
+        tbody.innerHTML = rows.length ? rows.map((row) => {
+          const errors = Array.isArray(row.last_errors) ? row.last_errors : [];
+          const status = row.last_status === 'success' ? '성공' : (row.last_status === 'failed' ? '실패' : '실행 기록 없음');
+          const statusKind = row.last_status === 'success' ? 'buy' : (row.last_status === 'failed' ? 'sell' : 'hold');
+          const errorText = errors.map((item) => `${item.symbol || '-'} ${toKorAction(item.action || '-')}: ${item.message || '알 수 없는 오류'}`).join('\n');
+          return `<tr data-id="${escapeHtml(row.strategy_id || row.id)}">
           <td><strong>${escapeHtml(row.strategy_name || row.strategy_id || row.id)}</strong></td><td><input name="interval_minutes" type="number" min="1" value="${escapeHtml(row.interval_minutes ?? '')}" aria-label="실행 간격(분)"></td>
           <td><input name="start_hm" type="time" value="${escapeHtml(String(row.start_hm || '').replace(/^(\d{2})(\d{2})$/, '$1:$2'))}" aria-label="시작 시각"> ~ <input name="end_hm" type="time" value="${escapeHtml(String(row.end_hm || '').replace(/^(\d{2})(\d{2})$/, '$1:$2'))}" aria-label="종료 시각"></td>
           <td><input name="weekdays" value="${escapeHtml(row.weekdays || '')}" aria-label="실행 요일"></td>
           <td><select name="mode"><option value="analysis_only" ${row.mode === 'analysis_only' ? 'selected':''}>analysis_only</option><option value="execute" ${row.mode === 'execute' ? 'selected':''}>execute</option></select></td>
-          <td><input name="auto_approve" type="checkbox" ${row.auto_approve ? 'checked':''} aria-label="자동 승인"></td><td><input name="enabled" type="checkbox" ${row.enabled ? 'checked':''} aria-label="활성"></td><td><button type="button" class="btn-save-schedule compact-button">저장</button></td></tr>`).join('') : '<tr><td colspan="8">전략별 스케줄이 없습니다.</td></tr>';
+          <td><input name="auto_approve" type="checkbox" ${row.auto_approve ? 'checked':''} aria-label="자동 승인"></td><td><input name="enabled" type="checkbox" ${row.enabled ? 'checked':''} aria-label="활성"></td>
+          <td>${escapeHtml(row.last_result_at ? formatKstTime(row.last_result_at) : (row.last_run_at ? formatKstTime(row.last_run_at) : '-'))}</td>
+          <td>${pill(status, statusKind)}${errorText ? `<div class="time-muted" style="white-space:pre-wrap;max-width:520px;margin-top:6px;color:var(--danger)">${escapeHtml(errorText)}</div>` : ''}</td>
+          <td><button type="button" class="btn-save-schedule compact-button">저장</button></td></tr>`;
+        }).join('') : '<tr><td colspan="10">전략별 스케줄이 없습니다.</td></tr>';
         tbody.querySelectorAll('.btn-save-schedule').forEach((button) => button.addEventListener('click', async () => {
             const row = button.closest('tr'); const value = (name) => row.querySelector(`[name="${name}"]`);
             setButtonBusy(button, true);
             try { await patchJson('/api/mistock/schedules', { strategy_id:row.dataset.id, interval_minutes:Number(value('interval_minutes').value), start_hm:value('start_hm').value.replace(':','') || null, end_hm:value('end_hm').value.replace(':','') || null, weekdays:value('weekdays').value, mode:value('mode').value, auto_approve:value('auto_approve').checked, enabled:value('enabled').checked }); setElementText('schedules-status','스케줄을 저장했습니다.'); await renderMistockSchedules(); }
             catch(err) { setElementText('schedules-status', err.status === 409 ? `버전 충돌: ${err.message}` : `저장 실패: ${err.message}`); } finally { setButtonBusy(button,false); }
         }));
-    } catch (err) { setTableMessage('#table-mistock-schedules tbody', 8, err.message); }
+    } catch (err) { setTableMessage('#table-mistock-schedules tbody', 10, err.message); }
 }
 
 window.openMistockStrategyDetail = openMistockStrategyDetail;
