@@ -123,6 +123,24 @@ async def require_dashboard_auth(request: Request, call_next):
 
     return await authenticate(request, call_next)
 
+
+@app.post("/api/ui/button-click")
+async def log_dashboard_button_click(payload: dict = Body(...)):
+    def safe(field: str, limit: int) -> str:
+        value = re.sub(r"[\r\n\t]+", " ", str(payload.get(field) or ""))
+        return re.sub(r"\s+", " ", value).strip()[:limit] or "-"
+
+    logger.info(
+        "[버튼클릭] 화면={} 경로={} 버튼={} 기능={} 대상={} 결과={}",
+        safe("page", 100),
+        safe("path", 160),
+        safe("button_name", 100),
+        safe("function", 160),
+        safe("target", 100),
+        safe("result", 40),
+    )
+    return {"ok": True}
+
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 WEB_DIR = BASE_DIR / "web"
 DATA_DIR = BASE_DIR / "data"

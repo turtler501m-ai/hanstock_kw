@@ -272,6 +272,11 @@ class ApiAuditMiddleware:
         if path != "/api" and not path.startswith("/api/"):
             await self.app(scope, receive, send)
             return
+        # Button clicks have their own concise Korean trader.log entry. Keeping
+        # them out of the general mutation audit also prevents Slack noise.
+        if path == "/api/ui/button-click":
+            await self.app(scope, receive, send)
+            return
 
         method = str(scope.get("method") or "UNKNOWN")
         request_id = uuid.uuid4().hex[:12]
