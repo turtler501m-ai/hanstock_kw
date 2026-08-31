@@ -52,12 +52,12 @@ def _record_reconciliation_issue(
     *, symbol: str, broker_qty: int, internal_qty: int, reason: str, snapshot: dict,
 ) -> int:
     import json
-    from src.db.performance_repository import account_scope_key
+    from src.application.orders.identity import broker_account_scope_key
 
     difference = int(broker_qty) - int(internal_qty)
     now_value = trader.datetime.now(trader.KST)
     now = now_value.strftime("%Y-%m-%d %H:%M:%S")
-    account_key = account_scope_key()
+    account_key = broker_account_scope_key("KR")
     with trader.connect_db() as conn:
         existing = conn.execute(
             """SELECT id FROM reconciliation_adjustments
