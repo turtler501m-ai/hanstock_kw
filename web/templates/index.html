@@ -859,6 +859,36 @@
                     </div>
                 </section>
 
+                <section class="card glass panel-reconciliation">
+                    <div class="panel-header split-header">
+                        <div>
+                            <h2>잔고 불일치 관리</h2>
+                            <p class="section-help">키움 실제 보유수량과 내부 통합 원장의 차이입니다. 미해결 항목이 있으면 신규 매수가 제한됩니다.</p>
+                        </div>
+                        <div class="button-row">
+                            <button type="button" id="btn-refresh-reconciliation" class="button-ghost">새로고침</button>
+                            <button type="button" id="btn-apply-broker-balance" class="button-danger">증권사 잔고 기준 일괄 보정</button>
+                        </div>
+                    </div>
+                    <div id="reconciliation-summary" class="section-help" role="status">잔고 불일치를 확인하는 중입니다.</div>
+                    <div class="table-responsive">
+                        <table id="table-reconciliation-issues">
+                            <thead>
+                                <tr>
+                                    <th>항목</th>
+                                    <th>종목</th>
+                                    <th>증권사 수량</th>
+                                    <th>내부 수량</th>
+                                    <th>차이</th>
+                                    <th>원인</th>
+                                    <th>발견 시각</th>
+                                </tr>
+                            </thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
+                </section>
+
                 <section class="card glass panel-approvals">
                     <div class="panel-header split-header">
                         <div>

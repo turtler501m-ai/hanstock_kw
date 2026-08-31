@@ -313,6 +313,79 @@ def reconciliation_issues(status: str = "open", limit: int = 100, offset: int = 
     return {"items": [dict(row) for row in rows], "status": status, "limit": limit, "offset": offset}
 
 
+@router.post("/api/reconciliation/issues/apply-broker-balance")
+def apply_broker_balance_reconciliation(payload: dict = Body(...)):
+    """Align position projections only after revalidating every issue against live balance."""
+    from src.application.orders.position_reconciliation import (
+        apply_latest_open_reconciliation_issues,
+    )
+    from src.application.orders.recovery import run_startup_recovery
+
+    confirmation = str(payload.get("confirmation") or "").strip()
+    reason = str(payload.get("reason") or "").strip()
+    if confirmation != "APPLY_BROKER_BALANCE":
+        raise HTTPException(status_code=400, detail="explicit broker balance confirmation is required")
+    if not reason:
+        raise HTTPException(status_code=400, detail="review reason is required")
+
+    with trader.connect_db() as conn:
+        conn.row_factory = sqlite3.Row
+        latest = conn.execute(
+            """SELECT r.* FROM reconciliation_adjustments r
+               JOIN (
+                 SELECT account_key,market,symbol,MAX(id) AS id
+                 FROM reconciliation_adjustments WHERE status='open'
+                 GROUP BY account_key,market,symbol
+               ) newest ON newest.id=r.id ORDER BY r.symbol"""
+        ).fetchall()
+    if not latest:
+        recovery = run_startup_recovery(trader.connect_db)
+        return {
+            "status": "empty", "applied_count": 0, "items": [],
+            "recovery": recovery, "health": unified_order_health(),
+        }
+
+    try:
+        parsed = _parse_balance(_get_balance_data(_get_api(), allow_cache=False))
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502, detail=f"Kiwoom live balance validation failed: {exc}"
+        ) from exc
+    live_quantities = {
+        str(item.get("symbol") or "").strip(): _to_int(item.get("qty"))
+        for item in parsed.get("holdings", [])
+    }
+    stale = []
+    for row in latest:
+        expected = int(row["broker_qty"])
+        actual = int(live_quantities.get(str(row["symbol"]), 0))
+        if expected != actual:
+            stale.append({
+                "issue_id": int(row["id"]), "symbol": str(row["symbol"]),
+                "recorded_broker_qty": expected, "live_broker_qty": actual,
+            })
+    if stale:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "message": "broker balance changed; synchronize holdings before applying",
+                "stale_count": len(stale),
+                "items": stale,
+            },
+        )
+
+    actor = f"dashboard:{reason[:120]}"
+    applied = apply_latest_open_reconciliation_issues(trader.connect_db, actor=actor)
+    recovery = run_startup_recovery(trader.connect_db)
+    _clear_balance_cache()
+    return {
+        "status": "applied",
+        **applied,
+        "recovery": recovery,
+        "health": unified_order_health(),
+    }
+
+
 @router.post("/api/reconciliation/issues/{issue_id}/review")
 def review_reconciliation_issue(issue_id: int, payload: dict = Body(...)):
     status = str(payload.get("status") or "").strip().lower()

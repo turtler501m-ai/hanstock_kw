@@ -129,6 +129,15 @@ class CommonDashboardFrontendContractTests(unittest.TestCase):
         self.assertIn("`/api/orders/${orderId}`", APP_JS)
         self.assertIn("renderOpenOrders(),", APP_JS)
 
+    def test_orders_tab_exposes_reconciliation_details_and_safe_apply(self):
+        self.assertIn('id="table-reconciliation-issues"', INDEX_HTML)
+        self.assertIn('id="btn-apply-broker-balance"', INDEX_HTML)
+        self.assertIn("async function renderReconciliationIssues()", APP_JS)
+        self.assertIn("async function applyBrokerBalanceReconciliation()", APP_JS)
+        self.assertIn("/api/reconciliation/issues?status=open", APP_JS)
+        self.assertIn("/api/reconciliation/issues/apply-broker-balance", APP_JS)
+        self.assertIn("confirmation: 'APPLY_BROKER_BALANCE'", APP_JS)
+
     def test_holdings_tab_exposes_strategy_value_loss_summary_and_filters(self):
         self.assertIn('id="table-holding-strategies"', INDEX_HTML)
         self.assertIn('id="holding-attribution-coverage"', INDEX_HTML)

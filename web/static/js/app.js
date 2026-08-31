@@ -4207,6 +4207,84 @@ async function processOptimizerBatch() {
 }
 
 const ACTIVE_ORDER_STATUSES = ['submitted', 'open', 'partial', 'cancel_pending', 'broker_unknown'];
+let reconciliationIssueCount = 0;
+
+function reconciliationReasonLabel(reason) {
+    const value = String(reason || '').split(' | ')[0];
+    if (value === 'verified fills contain a position absent from broker balance') {
+        return '증권사 잔고에는 없지만 내부 원장에 수량이 남아 있음';
+    }
+    if (value === 'broker balance differs from verified fills') {
+        return '증권사 수량과 내부 체결 원장 수량이 다름';
+    }
+    return value || '-';
+}
+
+async function renderReconciliationIssues() {
+    const tbody = document.querySelector('#table-reconciliation-issues tbody');
+    if (!tbody) return;
+    try {
+        const data = await fetchJson('/api/reconciliation/issues?status=open&limit=500');
+        const rows = Array.isArray(data.items) ? data.items : [];
+        reconciliationIssueCount = rows.length;
+        const summary = document.getElementById('reconciliation-summary');
+        const applyButton = document.getElementById('btn-apply-broker-balance');
+        if (summary) {
+            summary.textContent = rows.length
+                ? `미해결 ${rows.length}건 · 증권사 실제 잔고와 일치시켜야 READY 전환이 가능합니다.`
+                : '미해결 잔고 불일치가 없습니다. 주문 안전 상태를 다시 확인하세요.';
+            summary.classList.toggle('status-fail', rows.length > 0);
+            summary.classList.toggle('status-ok', rows.length === 0);
+        }
+        if (applyButton) applyButton.disabled = rows.length === 0;
+        if (!rows.length) {
+            setTableMessage('#table-reconciliation-issues tbody', 7, '잔고 불일치가 없습니다.');
+            return;
+        }
+        tbody.innerHTML = rows.map((row) => {
+            const difference = Number(row.difference_qty || 0);
+            return `
+                <tr>
+                    <td>#${escapeHtml(row.id || '-')}</td>
+                    <td><div class="symbol-name">${escapeHtml(row.symbol || '-')}</div></td>
+                    <td>${Number(row.broker_qty || 0).toLocaleString()}주</td>
+                    <td>${Number(row.internal_qty || 0).toLocaleString()}주</td>
+                    <td class="${difference === 0 ? '' : 'text-danger'}">${difference > 0 ? '+' : ''}${difference.toLocaleString()}주</td>
+                    <td><div class="reason-cell" title="${escapeHtml(row.reason || '')}">${escapeHtml(reconciliationReasonLabel(row.reason))}</div></td>
+                    <td>${escapeHtml(formatOrderCheckedAt(row.created_at))}</td>
+                </tr>`;
+        }).join('');
+    } catch (err) {
+        reconciliationIssueCount = 0;
+        setTableMessage('#table-reconciliation-issues tbody', 7, err.message);
+    }
+}
+
+async function applyBrokerBalanceReconciliation() {
+    if (!reconciliationIssueCount) return;
+    const warning = `${reconciliationIssueCount}건의 내부 수량을 현재 키움 실제 잔고에 맞춥니다.\n변경 내용은 감사 원장에 기록되며 현금·손익 기록은 임의로 변경하지 않습니다.\n\n계속할까요?`;
+    if (!window.confirm(warning)) return;
+    const button = document.getElementById('btn-apply-broker-balance');
+    setButtonBusy(button, true);
+    try {
+        const result = await postJson('/api/reconciliation/issues/apply-broker-balance', {
+            confirmation: 'APPLY_BROKER_BALANCE',
+            reason: 'operator confirmed live Kiwoom balance alignment',
+        });
+        const ready = result.health?.new_risk_allowed === true;
+        setStatus(
+            `증권사 잔고 기준 보정 완료: ${Number(result.applied_count || 0)}건 · 주문 상태 ${ready ? 'READY' : '추가 점검 필요'}`,
+            ready
+        );
+        await Promise.all([
+            renderReconciliationIssues(), renderApprovals(), renderOpenOrders(), renderBalance()
+        ]);
+    } catch (err) {
+        setStatus(`잔고 보정 실패: ${err.message} 보유종목 동기화 후 다시 확인하세요.`);
+    } finally {
+        setButtonBusy(button, false);
+    }
+}
 
 function formatOrderCheckedAt(value) {
     if (!value) return '-';
@@ -4823,6 +4901,7 @@ function startTradeSyncPolling() {
             await Promise.all([
                 renderBalance(),
                 renderOpenOrders(),
+                renderReconciliationIssues(),
                 renderApprovals(),
                 renderPeriodicPerformance(),
                 renderExecutionPlan(),
@@ -5686,6 +5765,7 @@ async function fetchDashboardData() {
         renderBalance(),
         renderTrades(),
         renderOpenOrders(),
+        renderReconciliationIssues(),
         renderApprovals(),
         renderCandidateHistory(),
         renderStrategyContext(),
@@ -6027,6 +6107,21 @@ document.addEventListener('DOMContentLoaded', () => {
     const btnSyncOrderHoldings = document.getElementById('btn-sync-order-holdings');
     if (btnSyncOrderHoldings) {
         btnSyncOrderHoldings.addEventListener('click', startBrokerHoldingsSync);
+    }
+    const btnRefreshReconciliation = document.getElementById('btn-refresh-reconciliation');
+    if (btnRefreshReconciliation) {
+        btnRefreshReconciliation.addEventListener('click', async () => {
+            setButtonBusy(btnRefreshReconciliation, true);
+            try {
+                await Promise.all([renderReconciliationIssues(), renderApprovals()]);
+            } finally {
+                setButtonBusy(btnRefreshReconciliation, false);
+            }
+        });
+    }
+    const btnApplyBrokerBalance = document.getElementById('btn-apply-broker-balance');
+    if (btnApplyBrokerBalance) {
+        btnApplyBrokerBalance.addEventListener('click', applyBrokerBalanceReconciliation);
     }
     const btnRetryApprovalsBatch = document.getElementById('btn-retry-approvals-batch');
     if (btnRetryApprovalsBatch) {
