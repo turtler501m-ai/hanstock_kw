@@ -130,15 +130,26 @@ async def log_dashboard_button_click(payload: dict = Body(...)):
         value = re.sub(r"[\r\n\t]+", " ", str(payload.get(field) or ""))
         return re.sub(r"\s+", " ", value).strip()[:limit] or "-"
 
-    logger.info(
-        "[버튼클릭] 화면={} 경로={} 버튼={} 기능={} 대상={} 결과={}",
-        safe("page", 100),
-        safe("path", 160),
-        safe("button_name", 100),
-        safe("function", 160),
-        safe("target", 100),
-        safe("result", 40),
-    )
+    if safe("phase", 20) == "result":
+        logger.info(
+            "[버튼결과] 버튼={} 대상={} API={} HTTP={} 결과={} 내용={}",
+            safe("button_name", 100),
+            safe("target", 100),
+            safe("api", 200),
+            safe("http_status", 10),
+            safe("result", 40),
+            safe("detail", 240),
+        )
+    else:
+        logger.info(
+            "[버튼클릭] 화면={} 경로={} 버튼={} 기능={} 대상={} 결과={}",
+            safe("page", 100),
+            safe("path", 160),
+            safe("button_name", 100),
+            safe("function", 160),
+            safe("target", 100),
+            safe("result", 40),
+        )
     return {"ok": True}
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
