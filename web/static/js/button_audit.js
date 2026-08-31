@@ -89,15 +89,16 @@
     function flushAudit(context) {
         if (!context || context.request_count === 0 || context.results.length === 0) return;
         if (context.flush_timer) window.clearTimeout(context.flush_timer);
-        const failed = context.results.find((item) => item.result !== '성공');
-        const finalItem = failed || context.results[context.results.length - 1];
+        const failed = context.results.find((item) => ['실패', '통신 실패'].includes(item.result));
+        const accepted = context.results.find((item) => item.result === '접수');
+        const finalItem = failed || accepted || context.results[context.results.length - 1];
         sendAudit({
             phase: 'summary',
             audit_id: context.audit_id,
             button_id: context.button_id,
             button_name: context.button_name,
             target: context.target,
-            result: failed ? failed.result : '성공',
+            result: failed ? failed.result : (accepted ? '접수' : '성공'),
             api_count: context.results.length,
             detail: clean(finalItem.detail === '-' ? '정상 처리' : finalItem.detail, 80)
         });
@@ -108,15 +109,9 @@
 
     function responseSummary(data) {
         if (!data || typeof data !== 'object') return '-';
-        return clean(
-            data.detail
-            || data.error
-            || data.message
-            || data.summary
-            || data.status
-            || (data.ok === true ? '정상 처리' : ''),
-            240
-        ) || '-';
+        const candidates = [data.detail, data.error, data.message, data.summary, data.status];
+        const scalar = candidates.find((value) => ['string', 'number', 'boolean'].includes(typeof value));
+        return clean(scalar || (data.ok === true ? '정상 처리' : ''), 240) || '-';
     }
 
     window.fetch = async function auditedFetch(input, init) {
@@ -133,12 +128,11 @@
                 } catch (_error) {
                     data = null;
                 }
-                const businessFailed = data && (
-                    data.ok === false
-                    || ['failed', 'error', 'blocked'].includes(String(data.status || '').toLowerCase())
-                );
+                const status = String(data?.status || '').toLowerCase();
+                const businessFailed = ['failed', 'error', 'blocked', 'rejected'].includes(status);
+                const accepted = ['running', 'pending', 'started', 'accepted'].includes(status);
                 context.results.push({
-                    result: response.ok && !businessFailed ? '성공' : '실패',
+                    result: response.ok && !businessFailed ? (accepted ? '접수' : '성공') : '실패',
                     detail: responseSummary(data)
                 });
                 scheduleFlush(context);
@@ -159,6 +153,7 @@
     document.addEventListener('click', (event) => {
         const button = event.target instanceof Element ? event.target.closest('button') : null;
         if (!button || button.disabled) return;
+        if (button.matches('[role="tab"], .dashboard-tab, .dashboard-tab-sub, .pipeline-tab, .pb-tab, .narrative-tab, .env-tab-button, .close-modal, .sortable-header, .clickable-reason, .trade-sync-run-button')) return;
         auditClick(button);
     }, true);
 }());

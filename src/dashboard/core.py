@@ -130,6 +130,17 @@ async def log_dashboard_button_click(payload: dict = Body(...)):
         value = re.sub(r"[\r\n\t]+", " ", str(payload.get(field) or ""))
         return re.sub(r"\s+", " ", value).strip()[:limit] or "-"
 
+    if safe("phase", 20) != "summary":
+        return {"ok": True, "ignored": True}
+    navigation_targets = {
+        "overview", "portfolio", "watchlist", "ai-strategies", "strategy",
+        "market-regime", "schedule", "orders", "ai", "operations",
+        "insights", "performance", "plunge-bounce", "heikin-ashi",
+        "decisions", "evidence", "risk", "execution", "diagnostics",
+    }
+    if safe("target", 100) in navigation_targets or safe("button_name", 100) in {"보기", "닫기"}:
+        return {"ok": True, "ignored": True}
+
     logger.info(
         "[버튼] ID={} 이름={} 대상={} 결과={} API수={} 요약={}",
         safe("button_id", 60),
