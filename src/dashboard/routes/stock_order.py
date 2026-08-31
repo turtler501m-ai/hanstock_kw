@@ -1686,7 +1686,13 @@ def sell_all_strategy_attribution(payload: dict = Body(...)):
 
 @router.post("/api/approvals/{approval_id}/approve")
 def approve_order(approval_id: int):
-    return _approve_pending_approval(approval_id, "수동승인")
+    from fastapi import HTTPException
+    from src.application.orders.health import NewRiskBlockedError
+
+    try:
+        return _approve_pending_approval(approval_id, "수동승인")
+    except NewRiskBlockedError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 

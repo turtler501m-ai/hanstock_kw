@@ -199,15 +199,27 @@ def approve_managed_ai_stock_order(approval_id: int) -> dict[str, Any]:
         from src.broker.models import CancelOrderRequest, OrderRequest, OrderSide
 
         def submitter(canonical):
+            from src.strategy.seven_split import adjust_tick_size
+
+            requested_price = int(float(canonical.get("requested_price") or 0))
+            normalized_price = (
+                adjust_tick_size(requested_price)
+                if requested_price > 0
+                else requested_price
+            )
             result = api.submit_order(
                 OrderRequest(
                     str(canonical["symbol"]),
                     OrderSide(str(canonical["action"])),
                     int(canonical["requested_qty"]),
-                    int(float(canonical.get("requested_price") or 0)),
+                    normalized_price,
                 )
             )
-            return _order_result_payload(result)
+            return {
+                **_order_result_payload(result),
+                "requested_price": requested_price,
+                "normalized_order_price": normalized_price,
+            }
 
         def canceler(canonical):
             result = api.submit_cancellation(CancelOrderRequest(
