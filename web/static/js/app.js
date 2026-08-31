@@ -4349,6 +4349,25 @@ async function cancelOpenOrder(button) {
     }
 }
 
+async function resolveUnknownOpenOrder(button) {
+    const orderId = Number(button.dataset.id || 0);
+    const symbolName = button.dataset.name || button.dataset.symbol || `주문 #${orderId}`;
+    if (!orderId || !window.confirm(
+        `${symbolName} 주문이 증권사 앱/웹 미체결 목록에 없음을 직접 확인했습니까?\n확인한 경우에만 로컬 미확인 주문을 종결합니다.`
+    )) return;
+    setButtonBusy(button, true);
+    try {
+        await postJson(`/api/orders/${orderId}/resolve-unknown`, {
+            confirmation: 'BROKER_ORDER_NOT_FOUND'
+        });
+        setStatus(`${symbolName} 미확인 주문을 종결했습니다.`, true);
+        await Promise.all([renderOpenOrders(), renderApprovals(), renderBalance()]);
+    } catch (err) {
+        setStatus(`미확인 주문 종결 실패: ${err.message}`);
+        button.disabled = false;
+    }
+}
+
 async function waitForCanceledOrder(orderId, symbolName, attempts = 20) {
     let latest = { status: 'cancel_pending' };
     for (let attempt = 1; attempt <= attempts; attempt += 1) {
@@ -4387,6 +4406,8 @@ async function renderOpenOrders() {
             const status = String(row.status || '');
             const cancellable = ['submitted', 'open', 'partial'].includes(status)
                 && Boolean(row.broker_order_id) && remainingQty > 0;
+            const resolvableUnknown = status === 'broker_unknown'
+                && !row.broker_order_id && remainingQty > 0;
             const side = row.side === 'buy' ? '매수' : '매도';
             const sideKind = row.side === 'buy' ? 'buy' : 'sell';
             return `
@@ -4402,11 +4423,16 @@ async function renderOpenOrders() {
                     <td>${escapeHtml(formatOrderCheckedAt(row.last_synced_at))}</td>
                     <td>${cancellable
                         ? `<button type="button" class="button-danger compact-button cancel-open-order" data-id="${escapeHtml(row.id)}" data-symbol="${escapeHtml(row.symbol || '')}" data-name="${escapeHtml(row.name || row.symbol || '')}" data-side="${escapeHtml(row.side || '')}">주문 취소</button>`
-                        : '<span class="time-muted">현행화 필요</span>'}</td>
+                        : resolvableUnknown
+                            ? `<button type="button" class="button-danger compact-button resolve-unknown-order" data-id="${escapeHtml(row.id)}" data-symbol="${escapeHtml(row.symbol || '')}" data-name="${escapeHtml(row.name || row.symbol || '')}">미확인 종결</button>`
+                            : '<span class="time-muted">현행화 필요</span>'}</td>
                 </tr>`;
         }).join('');
         tbody.querySelectorAll('.cancel-open-order').forEach((button) => {
             button.addEventListener('click', () => cancelOpenOrder(button));
+        });
+        tbody.querySelectorAll('.resolve-unknown-order').forEach((button) => {
+            button.addEventListener('click', () => resolveUnknownOpenOrder(button));
         });
     } catch (err) {
         setTableMessage('#table-open-orders tbody', 10, err.message);

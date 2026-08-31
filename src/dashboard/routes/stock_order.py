@@ -286,6 +286,60 @@ def cancel_unified_order(order_id: int):
     }, "confirmation_started": bool(result.success)}
 
 
+@router.post("/api/orders/{order_id}/resolve-unknown")
+def resolve_unknown_unified_order(order_id: int, payload: dict = Body(...)):
+    """Close a broker-unknown row only after explicit operator verification."""
+    from src.application.orders.repository import OrderLedgerRepository
+
+    if str(payload.get("confirmation") or "") != "BROKER_ORDER_NOT_FOUND":
+        raise HTTPException(status_code=400, detail="증권사 미체결 없음 확인이 필요합니다")
+    repository = OrderLedgerRepository(trader.connect_db)
+    item = repository.get(order_id)
+    if not item:
+        raise HTTPException(status_code=404, detail="주문을 찾을 수 없습니다")
+    if str(item.get("status") or "") != "broker_unknown":
+        raise HTTPException(status_code=409, detail="미확인 주문 상태에서만 종결할 수 있습니다")
+    if str(item.get("broker_order_id") or "").strip():
+        raise HTTPException(status_code=409, detail="증권사 주문번호가 있는 주문은 취소 또는 현행화해야 합니다")
+
+    reason = "운영자가 증권사 미체결 주문 없음 확인 후 종결"
+    managed_order_id = 0
+    approval_id = int(item.get("approval_id") or 0)
+    if approval_id:
+        with trader.connect_db() as conn:
+            row = conn.execute(
+                "SELECT managed_order_id FROM approvals WHERE id=?", (approval_id,)
+            ).fetchone()
+            managed_order_id = int((row[0] if row else 0) or 0)
+    if managed_order_id:
+        from src.db import ai_autonomy_repository as ai_stock_repository
+        from src.strategy.autonomy.order_state import ManagedOrderService, OrderStatus
+
+        managed = ai_stock_repository.get_managed_order(managed_order_id)
+        if managed and str(managed.get("status") or "") == "broker_unknown":
+            ManagedOrderService(repo=ai_stock_repository).reject(
+                managed_order_id, expected=OrderStatus.BROKER_UNKNOWN, reason=reason
+            )
+
+    resolved = repository.transition(
+        order_id, "broker_unknown", "rejected",
+        actor="dashboard", reason=reason,
+        payload={"operator_confirmation": "BROKER_ORDER_NOT_FOUND"},
+    )
+    if approval_id:
+        now = trader.datetime.now(trader.KST).strftime("%Y-%m-%d %H:%M:%S")
+        with trader.connect_db() as conn:
+            conn.execute(
+                "UPDATE approvals SET status='rejected',response_msg=?,updated_at=? "
+                "WHERE id=? AND status NOT IN ('executed','rejected','expired')",
+                (reason, now, approval_id),
+            )
+    from src.application.orders.recovery import run_startup_recovery
+
+    recovery = run_startup_recovery(trader.connect_db)
+    return {"ok": True, "order": resolved, "recovery_state": recovery.get("state")}
+
+
 @router.get("/api/operations/order-health")
 def unified_order_health():
     from src.application.orders.health import build_order_health
