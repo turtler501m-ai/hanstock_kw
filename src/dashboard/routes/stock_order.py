@@ -3,6 +3,7 @@
 import functools
 import inspect
 import threading
+import time
 
 from fastapi import APIRouter
 from src.dashboard.routes import stock as _stock
@@ -144,6 +145,80 @@ def reconcile_unified_order(order_id: int):
     )
 
 
+def _confirm_canceled_order(order_id: int, *, attempts: int = 8, interval_seconds: float = 2.0) -> None:
+    """Confirm one cancellation without running the expensive account-wide history sync."""
+    from src.application.orders.repository import OrderLedgerRepository
+
+    repository = OrderLedgerRepository(trader.connect_db)
+    last_message = ""
+    for attempt in range(1, max(1, attempts) + 1):
+        item = repository.get(order_id)
+        if not item or str(item.get("status") or "") != "cancel_pending":
+            return
+        broker_order_id = str(item.get("broker_order_id") or "")
+        order_date = str(item.get("broker_order_date") or "").replace("-", "")
+        if not order_date:
+            order_date = str(item.get("created_at") or "")[:10].replace("-", "")
+        try:
+            snapshot = _get_api().fetch_order_snapshot(broker_order_id, order_date)
+            status = str(getattr(snapshot.status, "value", snapshot.status))
+            if snapshot.outcome_unknown:
+                last_message = snapshot.message or "order not found in broker history"
+            elif status in {"canceled", "cancelled", "filled"}:
+                repository.reconcile_snapshot(
+                    order_id,
+                    status=status,
+                    cumulative_filled_qty=int(snapshot.filled_quantity),
+                    average_fill_price=float(snapshot.average_fill_price),
+                    broker_order_id=snapshot.broker_order_id or broker_order_id,
+                    broker_order_date=str(item.get("broker_order_date") or ""),
+                    raw=dict(snapshot.raw),
+                )
+                repository.record_event(
+                    order_id,
+                    "cancel_confirmed",
+                    actor="broker_poll",
+                    reason=f"single-order cancellation confirmation attempt={attempt}",
+                    payload={"status": status, "remaining_qty": int(snapshot.remaining_quantity)},
+                )
+                _clear_balance_cache()
+                return
+            else:
+                last_message = f"broker still reports {status or 'unknown'}"
+        except Exception as exc:
+            last_message = str(exc)
+        if attempt < attempts:
+            time.sleep(max(0.0, interval_seconds))
+
+    item = repository.get(order_id)
+    if item and str(item.get("status") or "") == "cancel_pending":
+        repository.transition(
+            order_id,
+            "cancel_pending",
+            "broker_unknown",
+            actor="broker_poll",
+            reason=f"cancellation confirmation timed out: {last_message or 'no terminal snapshot'}",
+            payload={"attempts": attempts},
+        )
+
+
+def resume_cancel_pending_confirmations() -> int:
+    """Resume bounded single-order checks after a dashboard restart."""
+    from src.application.orders.repository import OrderLedgerRepository
+
+    repository = OrderLedgerRepository(trader.connect_db)
+    items = repository.list_orders(statuses=("cancel_pending",), limit=100, offset=0)
+    for item in items:
+        order_id = int(item["id"])
+        threading.Thread(
+            target=_confirm_canceled_order,
+            args=(order_id,),
+            name=f"order-cancel-resume-{order_id}",
+            daemon=True,
+        ).start()
+    return len(items)
+
+
 @router.post("/api/orders/{order_id}/cancel")
 def cancel_unified_order(order_id: int):
     from fastapi import HTTPException
@@ -168,17 +243,37 @@ def cancel_unified_order(order_id: int):
         symbol=str(item["symbol"]),
         quantity=max(0, int(item["requested_qty"]) - int(item["filled_qty"])),
     ))
+    repository.record_event(
+        order_id,
+        "broker_cancel_response",
+        actor="broker",
+        reason=result.message,
+        payload={
+            "success": bool(result.success),
+            "status": str(getattr(result.status, "value", result.status)),
+            "original_broker_order_id": broker_order_id,
+            "cancellation_broker_order_id": result.broker_order_id,
+            "raw": dict(result.raw),
+        },
+    )
     if not result.success:
         # Cancellation outcome may be ambiguous. Reconciliation is required;
         # never restore the prior active state and blindly retry.
         claimed = repository.transition(
             order_id, "cancel_pending", "broker_unknown", actor="broker", reason=result.message
         )
+    else:
+        threading.Thread(
+            target=_confirm_canceled_order,
+            args=(order_id,),
+            name=f"order-cancel-confirm-{order_id}",
+            daemon=True,
+        ).start()
     return {"order": claimed, "broker_result": {
         "success": result.success, "message": result.message,
         "broker_order_id": result.broker_order_id,
         "status": str(getattr(result.status, "value", result.status)),
-    }}
+    }, "confirmation_started": bool(result.success)}
 
 
 @router.get("/api/operations/order-health")

@@ -2,7 +2,14 @@ import unittest
 from dataclasses import dataclass
 
 from src.broker.kiwoom_adapter import KiwoomBrokerAdapter
-from src.broker.models import CancelOrderRequest, OrderRequest, OrderSide, ReviseOrderRequest
+from src.broker.models import (
+    CancelOrderRequest,
+    OrderRequest,
+    OrderSide,
+    OrderStatus,
+    ReviseOrderRequest,
+    TradeExecution,
+)
 
 
 @dataclass
@@ -178,6 +185,51 @@ class KiwoomBrokerAdapterTests(unittest.TestCase):
         self.assertTrue(all(row.filled_quantity == 1 for row in result))
         self.assertTrue(all(row.average_fill_price == 71000 for row in result))
         self.assertEqual(result[0].ordered_at, "20260814")
+
+    def test_trade_execution_recognizes_canceled_order_with_unfilled_remainder(self):
+        result = KiwoomBrokerAdapter._execution({
+            "ord_no": "0001234",
+            "stk_cd": "A005930",
+            "io_tp_nm": "매수",
+            "ord_qty": "10",
+            "cntr_qty": "3",
+            "ord_remnq": "7",
+            "cncl_yn": "Y",
+        })
+
+        self.assertEqual(result.status, OrderStatus.CANCELED)
+        self.assertEqual(result.filled_quantity, 3)
+        self.assertEqual(result.remaining_quantity, 7)
+
+    def test_order_snapshot_maps_separate_cancel_order_to_original_order(self):
+        original = TradeExecution(
+            order_id="0035136",
+            symbol="066970",
+            side=OrderSide.BUY,
+            requested_quantity=31,
+            filled_quantity=0,
+            remaining_quantity=31,
+            status=OrderStatus.OPEN,
+            raw={"ord_no": "0035136", "cncl_yn": "N"},
+        )
+        cancellation = TradeExecution(
+            order_id="0065539",
+            symbol="066970",
+            side=OrderSide.BUY,
+            requested_quantity=31,
+            filled_quantity=0,
+            remaining_quantity=31,
+            status=OrderStatus.CANCELED,
+            raw={"ord_no": "0065539", "orig_ord_no": "0035136", "cncl_yn": "Y"},
+        )
+        self.adapter.fetch_trade_history = lambda *_args: [original, cancellation]
+
+        snapshot = self.adapter.fetch_order_snapshot("0035136", "20260831")
+
+        self.assertEqual(snapshot.status, OrderStatus.CANCELED)
+        self.assertEqual(snapshot.broker_order_id, "0035136")
+        self.assertEqual(snapshot.remaining_quantity, 31)
+        self.assertEqual(snapshot.raw["cancellation_order"]["ord_no"], "0065539")
 
     def test_malformed_numbers_are_zero(self):
         self.client.post = lambda *args, **kwargs: FakePage({"cur_prc": "--", "sel_fpr_bid": None})

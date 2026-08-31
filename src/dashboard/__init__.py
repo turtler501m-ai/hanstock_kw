@@ -20,6 +20,7 @@ import src.dashboard.routes.pages as pages
 import src.dashboard.routes.account as account
 import src.dashboard.routes.settings as settings
 import src.dashboard.routes.stock as stock
+import src.dashboard.routes.stock_order as stock_order
 import src.dashboard.routes.mistock as mistock
 import src.dashboard.routes.plunge_bounce as plunge_bounce
 import src.dashboard.routes.narrative_momentum as narrative_momentum
@@ -85,6 +86,8 @@ async def _dashboard_lifespan(_app):
     )
     recovery = run_startup_recovery(connect_db)
     logger.info("[ORDER_RECOVERY] state={} reason={}", recovery["state"], recovery["reason"])
+    resumed_cancellations = stock_order.resume_cancel_pending_confirmations()
+    logger.info("[ORDER_CANCEL_RECOVERY] resumed={}", resumed_cancellations)
     settings.run_dashboard_startup_tasks()
     try:
         yield

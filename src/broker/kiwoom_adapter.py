@@ -325,7 +325,23 @@ class KiwoomBrokerAdapter:
             remaining = max(0, requested - filled)
         side_text = str(_first(row, "io_tp_nm", "io_tp", "sell_tp", "side")).lower()
         side = OrderSide.SELL if "매도" in side_text or side_text in {"1", "01", "sell"} else OrderSide.BUY
-        status = OrderStatus.FILLED if requested and filled >= requested else OrderStatus.PARTIAL if filled else OrderStatus.OPEN
+        cancel_text = str(_first(
+            row,
+            "cncl_yn", "CNCL_YN",
+            "rvse_cncl_dvsn_name", "RVSE_CNCL_DVSN_NAME",
+            "canceled", "cancel_yn",
+        )).strip()
+        canceled = (
+            cancel_text.upper() in {"Y", "CANCELED", "CANCELLED"}
+            or "취소" in cancel_text
+            or "cancel" in cancel_text.lower()
+        )
+        status = (
+            OrderStatus.CANCELED if canceled
+            else OrderStatus.FILLED if requested and filled >= requested
+            else OrderStatus.PARTIAL if filled
+            else OrderStatus.OPEN
+        )
         return TradeExecution(
             order_id=str(_first(row, "ord_no", "order_no", "ODNO")),
             symbol=_strip_market_prefix(_first(row, "stk_cd", "symbol", "pdno")),
@@ -342,6 +358,29 @@ class KiwoomBrokerAdapter:
     def fetch_order_snapshot(self, order_id: str, order_date: str = "") -> OrderSnapshot:
         history = self.fetch_trade_history(order_date, order_date)
         match = next((row for row in history if row.order_id == order_id), None)
+        cancellation = next((
+            row for row in history
+            if str(_first(
+                row.raw,
+                "orig_ord_no", "orig_odno", "ORIG_ORD_NO", "ORIG_ODNO",
+                "orgn_ord_no", "original_order_no",
+            )).strip() == str(order_id).strip()
+            and row.status == OrderStatus.CANCELED
+        ), None)
+        if cancellation is not None:
+            source = match or cancellation
+            return OrderSnapshot(
+                broker_order_id=str(order_id),
+                status=OrderStatus.CANCELED,
+                requested_quantity=source.requested_quantity,
+                filled_quantity=match.filled_quantity if match else 0,
+                remaining_quantity=match.remaining_quantity if match else source.remaining_quantity,
+                average_fill_price=match.average_fill_price if match else 0,
+                raw={
+                    "original_order": dict(match.raw) if match else {},
+                    "cancellation_order": dict(cancellation.raw),
+                },
+            )
         if match is None:
             return OrderSnapshot(order_id, outcome_unknown=True, message="Order not found")
         return OrderSnapshot(

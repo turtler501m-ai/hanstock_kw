@@ -125,7 +125,8 @@ class CommonDashboardFrontendContractTests(unittest.TestCase):
         self.assertIn("const ACTIVE_ORDER_STATUSES", APP_JS)
         self.assertIn("async function renderOpenOrders()", APP_JS)
         self.assertIn("`/api/orders/${orderId}/cancel`", APP_JS)
-        self.assertIn("await startBrokerHoldingsSync()", APP_JS)
+        self.assertIn("async function waitForCanceledOrder", APP_JS)
+        self.assertIn("`/api/orders/${orderId}`", APP_JS)
         self.assertIn("renderOpenOrders(),", APP_JS)
 
     def test_holdings_tab_exposes_strategy_value_loss_summary_and_filters(self):

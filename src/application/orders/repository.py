@@ -121,6 +121,26 @@ class OrderLedgerRepository:
                 (broker_order_id or None, broker_order_date, message or None, _now(), order_id),
             )
 
+    def record_event(
+        self, order_id: int, event_type: str, *, actor="system", reason="", payload=None,
+    ) -> None:
+        """Append non-transition broker evidence without changing order state."""
+        now = _now()
+        with self._connect() as conn:
+            row = conn.execute("SELECT status FROM orders WHERE id=?", (order_id,)).fetchone()
+            if not row:
+                raise KeyError(f"order not found: {order_id}")
+            status = str(row[0])
+            conn.execute(
+                """INSERT INTO order_events
+                   (order_id,event_type,from_status,to_status,actor,reason,payload_json,created_at)
+                   VALUES(?,?,?,?,?,?,?,?)""",
+                (
+                    order_id, event_type, status, status, actor, reason,
+                    json.dumps(payload or {}, ensure_ascii=False, default=str), now,
+                ),
+            )
+
     def reconcile_snapshot(
         self,
         order_id: int,

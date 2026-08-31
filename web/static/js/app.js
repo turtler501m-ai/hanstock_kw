@@ -4218,7 +4218,7 @@ async function cancelOpenOrder(button) {
     const orderId = Number(button.dataset.id || 0);
     const symbolName = button.dataset.name || button.dataset.symbol || `주문 #${orderId}`;
     const sideLabel = button.dataset.side === 'buy' ? '매수' : '매도';
-    if (!orderId || !window.confirm(`${symbolName} ${sideLabel} 미체결 주문을 취소할까요?\n취소 요청 후 주문·보유 현행화를 자동으로 시작합니다.`)) {
+    if (!orderId || !window.confirm(`${symbolName} ${sideLabel} 미체결 주문을 취소할까요?\n취소 접수 후 해당 주문만 즉시 확인해 최종 상태를 표시합니다.`)) {
         return;
     }
     setButtonBusy(button, true);
@@ -4228,15 +4228,39 @@ async function cancelOpenOrder(button) {
         if (!brokerResult.success) {
             setStatus(`주문 #${orderId} 취소 결과가 불명확합니다. 현행화 후 증권사 상태를 확인하세요: ${brokerResult.message || '-'}`);
         } else {
-            setStatus(`${symbolName} ${sideLabel} 주문 취소가 접수됐습니다. 최종 상태를 현행화합니다.`, true);
+            setStatus(`${symbolName} ${sideLabel} 주문 취소가 접수됐습니다. 원주문 상태를 확인합니다.`, true);
         }
         await Promise.all([renderOpenOrders(), renderApprovals()]);
-        await startBrokerHoldingsSync();
+        if (brokerResult.success) {
+            const terminal = await waitForCanceledOrder(orderId, symbolName);
+            await Promise.all([renderOpenOrders(), renderApprovals(), renderBalance()]);
+            if (terminal.status === 'canceled') {
+                setStatus(`${symbolName} 주문 취소가 증권사 기록에서 확정됐습니다.`, true);
+            } else if (terminal.status === 'filled') {
+                setStatus(`${symbolName} 주문이 취소 전에 체결됐습니다. 보유종목을 확인하세요.`);
+            } else {
+                setStatus(`${symbolName} 취소 확인이 완료되지 않았습니다: ${orderStatusLabel(terminal.status)}`);
+            }
+        }
     } catch (err) {
         setStatus(`주문 취소 실패: ${err.message}`);
     } finally {
         setButtonBusy(button, false);
     }
+}
+
+async function waitForCanceledOrder(orderId, symbolName, attempts = 20) {
+    let latest = { status: 'cancel_pending' };
+    for (let attempt = 1; attempt <= attempts; attempt += 1) {
+        if (attempt > 1) await new Promise((resolve) => setTimeout(resolve, 2000));
+        latest = await fetchJson(`/api/orders/${orderId}`, 10000);
+        const status = String(latest.status || 'broker_unknown');
+        if (['canceled', 'filled', 'rejected', 'expired', 'broker_unknown'].includes(status)) {
+            return latest;
+        }
+        setStatus(`${symbolName} 취소 확인 중… ${attempt}/${attempts}` , true);
+    }
+    return latest;
 }
 
 async function renderOpenOrders() {
