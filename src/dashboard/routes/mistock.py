@@ -2470,9 +2470,14 @@ def mistock_market_regime():
 
 
 def _load_mistock_price_rows(symbols: list[str]) -> dict[str, list[dict]]:
+    from src.mistock.config import config as mistock_config
+
     global _MISTOCK_PRICE_CACHE
     cached_at, cached = _MISTOCK_PRICE_CACHE
-    requested = sorted(set(symbols))
+    requested = sorted({
+        symbol for symbol in symbols
+        if symbol.upper().replace("-", ".") not in mistock_config.excluded_symbols
+    })
     if requested and time.monotonic() - cached_at < 300 and all(symbol in cached for symbol in requested):
         return {symbol: cached[symbol] for symbol in requested}
     if not requested:
@@ -2743,7 +2748,13 @@ def _build_mistock_periodic_performance(
 
 
 def _mistock_holding_daily_change(holdings: dict[str, dict]) -> dict:
-    symbols = [symbol for symbol, item in holdings.items() if float(item.get("qty") or 0) > 0]
+    from src.mistock.config import config as mistock_config
+
+    symbols = [
+        symbol for symbol, item in holdings.items()
+        if float(item.get("qty") or 0) > 0
+        and symbol.upper().replace("-", ".") not in mistock_config.excluded_symbols
+    ]
     if not symbols:
         return {
             "holding_daily_change_pct": None,
