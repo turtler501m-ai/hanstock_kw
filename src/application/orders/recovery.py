@@ -104,6 +104,41 @@ def close_expired_unified_day_orders(connect, *, now: datetime | None = None) ->
     return len(rows)
 
 
+def sync_terminal_approval_orders(connect, *, approval_id: int | None = None) -> int:
+    """Close approval-pending ledger rows after their approval became terminal."""
+    updated_at = _now()
+    params: tuple[object, ...] = ()
+    approval_filter = ""
+    if approval_id is not None:
+        approval_filter = " AND o.approval_id=?"
+        params = (int(approval_id),)
+    with connect() as conn:
+        conn.row_factory = __import__("sqlite3").Row
+        rows = conn.execute(
+            """SELECT o.id,o.status,a.status AS approval_status,
+                      COALESCE(a.response_msg,'') AS response_msg
+               FROM orders o JOIN approvals a ON a.id=o.approval_id
+               WHERE o.status='approval_pending'
+                 AND a.status IN ('rejected','expired')""" + approval_filter,
+            params,
+        ).fetchall()
+        for row in rows:
+            target = "expired" if row["approval_status"] == "expired" else "rejected"
+            reason = row["response_msg"] or f"linked approval {row['approval_status']}"
+            conn.execute(
+                """UPDATE orders SET status=?,completed_at=COALESCE(completed_at,?),
+                   updated_at=?,version=version+1 WHERE id=? AND status='approval_pending'""",
+                (target, updated_at, updated_at, int(row["id"])),
+            )
+            conn.execute(
+                """INSERT INTO order_events
+                   (order_id,event_type,from_status,to_status,actor,reason,payload_json,created_at)
+                   VALUES(?,'approval_terminal_sync','approval_pending',?,'approval_sync',?,'{}',?)""",
+                (int(row["id"]), target, reason, updated_at),
+            )
+    return len(rows)
+
+
 def reconcile_unknown_orders_from_legacy_fills(connect) -> int:
     """Recover response-lost unified orders from a unique verified legacy fill.
 
@@ -193,6 +228,7 @@ def run_startup_recovery(connect) -> dict:
     set_runtime_state(connect, "recovering", reason="checking persisted order invariants")
     expired_legacy_count = close_expired_legacy_day_orders(connect)
     expired_unified_count = close_expired_unified_day_orders(connect)
+    terminal_approval_count = sync_terminal_approval_orders(connect)
     recovered_unknown_count = reconcile_unknown_orders_from_legacy_fills(connect)
     health = build_order_health(connect, include_runtime=False)
     state = "reduce_only" if health["blockers"] else "ready"
@@ -201,5 +237,6 @@ def run_startup_recovery(connect) -> dict:
         "blockers": health["blockers"], "warnings": health["warnings"],
         "expired_legacy_day_orders": expired_legacy_count,
         "expired_unified_day_orders": expired_unified_count,
+        "terminal_approval_orders": terminal_approval_count,
         "recovered_unknown_orders": recovered_unknown_count,
     })
