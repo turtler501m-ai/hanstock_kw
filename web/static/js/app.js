@@ -4449,11 +4449,10 @@ async function renderApprovals() {
         if (healthBanner) {
             const blockers = (orderHealth.blockers || []).map((item) => `${item.code} ${item.count}건`);
             const warnings = (orderHealth.warnings || []).map((item) => `${item.code} ${item.count}건`);
-            healthBanner.textContent = orderHealth.new_risk_allowed
-                ? `주문 안전 상태: READY${warnings.length ? ` · 주의 ${warnings.join(', ')}` : ''}`
-                : `주문 안전 상태: REDUCE ONLY · 신규 매수 차단 · ${blockers.join(', ')}`;
-            healthBanner.classList.toggle('status-fail', !orderHealth.new_risk_allowed);
-            healthBanner.classList.toggle('status-ok', Boolean(orderHealth.new_risk_allowed));
+            const notices = [...blockers, ...warnings];
+            healthBanner.textContent = `주문 상태: 매수 가능${notices.length ? ` · 점검 ${notices.join(', ')}` : ' · 정상'}`;
+            healthBanner.classList.toggle('status-fail', false);
+            healthBanner.classList.toggle('status-ok', !notices.length);
         }
         const tbody = document.querySelector('#table-approvals tbody');
         if (!tbody) return;
