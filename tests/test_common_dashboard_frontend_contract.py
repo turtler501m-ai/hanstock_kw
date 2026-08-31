@@ -118,6 +118,16 @@ class CommonDashboardFrontendContractTests(unittest.TestCase):
             APP_JS,
         )
 
+    def test_orders_tab_exposes_open_order_cancel_and_full_refresh(self):
+        self.assertIn('id="table-open-orders"', INDEX_HTML)
+        self.assertIn('id="btn-refresh-open-orders"', INDEX_HTML)
+        self.assertIn('id="btn-sync-order-holdings"', INDEX_HTML)
+        self.assertIn("const ACTIVE_ORDER_STATUSES", APP_JS)
+        self.assertIn("async function renderOpenOrders()", APP_JS)
+        self.assertIn("`/api/orders/${orderId}/cancel`", APP_JS)
+        self.assertIn("await startBrokerHoldingsSync()", APP_JS)
+        self.assertIn("renderOpenOrders(),", APP_JS)
+
     def test_holdings_tab_exposes_strategy_value_loss_summary_and_filters(self):
         self.assertIn('id="table-holding-strategies"', INDEX_HTML)
         self.assertIn('id="holding-attribution-coverage"', INDEX_HTML)

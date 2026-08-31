@@ -4206,6 +4206,89 @@ async function processOptimizerBatch() {
     renderBalance();
 }
 
+const ACTIVE_ORDER_STATUSES = ['submitted', 'open', 'partial', 'cancel_pending', 'broker_unknown'];
+
+function formatOrderCheckedAt(value) {
+    if (!value) return '-';
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? String(value) : parsed.toLocaleString('ko-KR');
+}
+
+async function cancelOpenOrder(button) {
+    const orderId = Number(button.dataset.id || 0);
+    const symbolName = button.dataset.name || button.dataset.symbol || `주문 #${orderId}`;
+    const sideLabel = button.dataset.side === 'buy' ? '매수' : '매도';
+    if (!orderId || !window.confirm(`${symbolName} ${sideLabel} 미체결 주문을 취소할까요?\n취소 요청 후 주문·보유 현행화를 자동으로 시작합니다.`)) {
+        return;
+    }
+    setButtonBusy(button, true);
+    try {
+        const result = await postJson(`/api/orders/${orderId}/cancel`, {});
+        const brokerResult = result.broker_result || {};
+        if (!brokerResult.success) {
+            setStatus(`주문 #${orderId} 취소 결과가 불명확합니다. 현행화 후 증권사 상태를 확인하세요: ${brokerResult.message || '-'}`);
+        } else {
+            setStatus(`${symbolName} ${sideLabel} 주문 취소가 접수됐습니다. 최종 상태를 현행화합니다.`, true);
+        }
+        await Promise.all([renderOpenOrders(), renderApprovals()]);
+        await startBrokerHoldingsSync();
+    } catch (err) {
+        setStatus(`주문 취소 실패: ${err.message}`);
+    } finally {
+        setButtonBusy(button, false);
+    }
+}
+
+async function renderOpenOrders() {
+    const tbody = document.querySelector('#table-open-orders tbody');
+    if (!tbody) return;
+    try {
+        const statusQuery = encodeURIComponent(ACTIVE_ORDER_STATUSES.join(','));
+        const data = await fetchJson(`/api/orders?status=${statusQuery}&limit=100`);
+        const rows = Array.isArray(data.items) ? data.items : [];
+        const summary = document.getElementById('open-order-summary');
+        const buyCount = rows.filter((row) => row.side === 'buy').length;
+        const sellCount = rows.filter((row) => row.side === 'sell').length;
+        if (summary) {
+            summary.textContent = `미체결 ${rows.length}건 · 매수 ${buyCount}건 · 매도 ${sellCount}건 · 취소 진행 중과 증권사 확인 필요 주문을 포함합니다.`;
+        }
+        if (!rows.length) {
+            setTableMessage('#table-open-orders tbody', 10, '현재 미체결 주문이 없습니다.');
+            return;
+        }
+        tbody.innerHTML = rows.map((row) => {
+            const requestedQty = Number(row.requested_qty || 0);
+            const filledQty = Number(row.filled_qty || 0);
+            const remainingQty = Math.max(0, requestedQty - filledQty);
+            const status = String(row.status || '');
+            const cancellable = ['submitted', 'open', 'partial'].includes(status)
+                && Boolean(row.broker_order_id) && remainingQty > 0;
+            const side = row.side === 'buy' ? '매수' : '매도';
+            const sideKind = row.side === 'buy' ? 'buy' : 'sell';
+            return `
+                <tr>
+                    <td>#${escapeHtml(row.id || '-')}</td>
+                    <td>${escapeHtml(strategyDisplayName(row.strategy_id || 'unattributed'))}</td>
+                    <td>${pill(side, sideKind)}</td>
+                    <td><div class="symbol-name">${escapeHtml(row.name || row.symbol || '-')}</div><div class="symbol-code">${escapeHtml(row.symbol || '-')}</div></td>
+                    <td><div>${requestedQty.toLocaleString()} / ${filledQty.toLocaleString()} / ${remainingQty.toLocaleString()}</div><small class="time-muted">요청 / 체결 / 잔량</small></td>
+                    <td>${Number(row.order_price || 0) > 0 ? formatCurrency(row.order_price) : '시장가'}</td>
+                    <td>${pill(orderStatusLabel(status), status === 'partial' ? 'warn' : 'hold')}</td>
+                    <td>${escapeHtml(row.broker_order_id || '-')}</td>
+                    <td>${escapeHtml(formatOrderCheckedAt(row.last_synced_at))}</td>
+                    <td>${cancellable
+                        ? `<button type="button" class="button-danger compact-button cancel-open-order" data-id="${escapeHtml(row.id)}" data-symbol="${escapeHtml(row.symbol || '')}" data-name="${escapeHtml(row.name || row.symbol || '')}" data-side="${escapeHtml(row.side || '')}">주문 취소</button>`
+                        : '<span class="time-muted">현행화 필요</span>'}</td>
+                </tr>`;
+        }).join('');
+        tbody.querySelectorAll('.cancel-open-order').forEach((button) => {
+            button.addEventListener('click', () => cancelOpenOrder(button));
+        });
+    } catch (err) {
+        setTableMessage('#table-open-orders tbody', 10, err.message);
+    }
+}
+
 async function renderApprovals() {
     try {
         const [data, orderHealth] = await Promise.all([
@@ -4506,6 +4589,7 @@ let tradeSyncLastCompletedRunId = null;
 function updateTradeSyncButton(result) {
     const button = document.getElementById('btn-sync-trades');
     const holdingsButton = document.getElementById('btn-sync-holdings');
+    const orderHoldingsButton = document.getElementById('btn-sync-order-holdings');
     if (!result) return;
     const running = result.status === 'running';
     if (button) {
@@ -4518,13 +4602,22 @@ function updateTradeSyncButton(result) {
         holdingsButton.disabled = running;
         holdingsButton.textContent = running ? '보유종목 동기화 중…' : '보유종목 동기화';
     }
+    if (orderHoldingsButton) {
+        orderHoldingsButton.disabled = running;
+        orderHoldingsButton.textContent = running ? '주문·보유 현행화 중…' : '주문·보유 현행화';
+    }
 }
 
 async function startBrokerHoldingsSync() {
     const holdingsButton = document.getElementById('btn-sync-holdings');
+    const orderHoldingsButton = document.getElementById('btn-sync-order-holdings');
     if (holdingsButton) {
         holdingsButton.disabled = true;
         holdingsButton.textContent = '보유종목 동기화 중…';
+    }
+    if (orderHoldingsButton) {
+        orderHoldingsButton.disabled = true;
+        orderHoldingsButton.textContent = '주문·보유 현행화 중…';
     }
     try {
         const result = await postJson('/api/trades/sync', {});
@@ -4536,6 +4629,10 @@ async function startBrokerHoldingsSync() {
         if (holdingsButton) {
             holdingsButton.disabled = false;
             holdingsButton.textContent = '보유종목 동기화';
+        }
+        if (orderHoldingsButton) {
+            orderHoldingsButton.disabled = false;
+            orderHoldingsButton.textContent = '주문·보유 현행화';
         }
         await loadTradeSyncResult();
     }
@@ -4701,6 +4798,8 @@ function startTradeSyncPolling() {
             tradeSyncLastCompletedRunId = result.run_id;
             await Promise.all([
                 renderBalance(),
+                renderOpenOrders(),
+                renderApprovals(),
                 renderPeriodicPerformance(),
                 renderExecutionPlan(),
             ]);
@@ -5562,6 +5661,7 @@ async function fetchDashboardData() {
         renderRuntime(),
         renderBalance(),
         renderTrades(),
+        renderOpenOrders(),
         renderApprovals(),
         renderCandidateHistory(),
         renderStrategyContext(),
@@ -5888,6 +5988,21 @@ document.addEventListener('DOMContentLoaded', () => {
     const btnApprovals = document.getElementById('btn-approvals');
     if (btnApprovals) {
         btnApprovals.addEventListener('click', renderApprovals);
+    }
+    const btnRefreshOpenOrders = document.getElementById('btn-refresh-open-orders');
+    if (btnRefreshOpenOrders) {
+        btnRefreshOpenOrders.addEventListener('click', async () => {
+            setButtonBusy(btnRefreshOpenOrders, true);
+            try {
+                await Promise.all([renderOpenOrders(), renderApprovals()]);
+            } finally {
+                setButtonBusy(btnRefreshOpenOrders, false);
+            }
+        });
+    }
+    const btnSyncOrderHoldings = document.getElementById('btn-sync-order-holdings');
+    if (btnSyncOrderHoldings) {
+        btnSyncOrderHoldings.addEventListener('click', startBrokerHoldingsSync);
     }
     const btnRetryApprovalsBatch = document.getElementById('btn-retry-approvals-batch');
     if (btnRetryApprovalsBatch) {
