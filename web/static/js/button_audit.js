@@ -53,17 +53,17 @@
             )
         };
         const body = JSON.stringify(payload);
-        if (navigator.sendBeacon) {
-            navigator.sendBeacon('/api/ui/button-click', new Blob([body], { type: 'application/json' }));
-            return;
-        }
         fetch('/api/ui/button-click', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body,
             credentials: 'same-origin',
             keepalive: true
-        }).catch(() => {});
+        }).catch(() => {
+            if (navigator.sendBeacon) {
+                navigator.sendBeacon('/api/ui/button-click', new Blob([body], { type: 'application/json' }));
+            }
+        });
     }
 
     document.addEventListener('click', (event) => {

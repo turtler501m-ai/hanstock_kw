@@ -50,3 +50,116 @@
 | 공통 | 상위 탭, 하위 탭, 정렬, 새로고침, 상세, 닫기 | 화면 전환·정렬·조회·대화상자 제어 |
 
 정적 HTML 기준 버튼은 국내주식 84개, 미스톡 63개, AI 스톡 9개, 내러티브 16개, 환경설정 4개, FinRL 1개로 총 177개다. 테이블 행에 생성되는 동적 버튼은 개수와 관계없이 이벤트 위임으로 모두 기록한다.
+
+## 한스톡 상세 버튼 목록
+
+### 화면·운영·보유종목
+
+1. 개요 탭 — 전체 운영 요약 표시
+2. 보유종목 탭 — 국내 보유종목 표시
+3. 관심종목 탭 — 관심종목 표시
+4. AI 전략 탭 — AI 전략 관리 화면 표시
+5. 전략조회 탭 — 전략 신호와 후보 표시
+6. 시장 국면 탭 — 시장 국면 진단 표시
+7. 스케줄 탭 — 자동매매 스케줄 표시
+8. 주문승인 탭 — 미체결·승인·보정 화면 표시
+9. AI/최적화 탭 — 자산배분과 최적화 표시
+10. 성과 탭 — 계좌와 전략 성과 표시
+11. 급락반등 탭 — 급락반등 전략 표시
+12. 알파 하이킨아시 탭 — 하이킨아시 전략 표시
+13. 총손익 상세 닫기 (`btn-close-total-pnl`)
+14. 모의실행 전환 (`btn-dry-run`)
+15. 자동승인 전환 (`btn-auto-approval`)
+16. 보유종목 동기화 (`btn-sync-holdings`)
+17. 보유종목 새로고침 (`btn-refresh-holdings`)
+18. 전량 매도 요청 (`btn-sell-all-holdings`)
+
+### 전략·시장·스케줄
+
+19. 전략 진단하기 (`btn-signals`)
+20. 후보 찾기 (`btn-candidates`)
+21. 전략조회 새로고침 (`btn-refresh-strategy-lookup`)
+22. 전략 적용 (`btn-apply-strategy`)
+23. 후보 이력 새로고침 (`btn-candidates-history-refresh`)
+24. 실행 계획 불러오기 (`btn-execution-plan`)
+25. 시장 국면 최신 데이터 재계산 (`btn-refresh-market-regime`)
+26. AI 정기 스케줄 저장 (`btn-save-ai-schedule`)
+27. 분석 시작 (`btn-run-analysis-only`)
+28. 전체 사이클 실행 (`btn-run-daily-auto`)
+29. 주문 실행 (`btn-run-execute`)
+30. 스케줄 로그 복사 (`btn-copy-scheduler-log`)
+
+### 주문·승인·잔고 보정
+
+31. 미체결 주문 새로고침 (`btn-refresh-open-orders`) — 증권사 미종결 주문 다시 조회
+32. 주문·보유 현행화 (`btn-sync-order-holdings`)
+33. 잔고 불일치 새로고침 (`btn-refresh-reconciliation`)
+34. 증권사 잔고 기준 일괄 보정 (`btn-apply-broker-balance`)
+35. 전체 불일치 해결 (`btn-resolve-all-reconciliation`)
+36. 승인대기 새로고침 (`btn-approvals`)
+37. 재처리 일괄 (`btn-retry-approvals-batch`)
+38. 취소 후 재처리 일괄 (`btn-cancel-retry-approvals-batch`)
+
+### AI·성과·전략 관리
+
+39. AI 자산배분 계산 (`btn-ai-allocation`)
+40. 포트폴리오 최적화 (`btn-optimizer`)
+41. 최적화 결과 일괄 승인대기 등록 (`btn-optimizer-batch`)
+42. 증권사 기록 동기화 (`btn-sync-trades`)
+43. 일별 성과 (`btn-perf-daily`)
+44. 월별 성과 (`btn-perf-monthly`)
+45. 성과 상세 닫기 (`btn-close-performance-detail`)
+46. 현금흐름 저장 (`btn-save-performance-cashflow`)
+47. AI 전략 목록 새로고침 (`btn-refresh-ai-strategies`)
+48. 선택 전략 스케줄 적용 (`btn-apply-selected-strategies`)
+49. 안정형 전략 프리셋
+50. 균형형 전략 프리셋
+51. 공격형 전략 프리셋
+52. 고급 설정 및 전략 추가 (`btn-toggle-advanced-strategy`)
+53. 전략 변경사항 저장
+54. 전략 감사 새로고침 (`btn-refresh-strategy-audit`)
+55. 신규 AI 전략 등록
+56. 관심종목 정책 저장·적용
+57. 관심종목 추가
+58. AI 자동추가 즉시 스캔 (`btn-watchlist-ai-scan`)
+
+### 급락반등·하이킨아시
+
+59. 급락반등 자동매매·실시간 스캔 탭
+60. 급락반등 성과분석 탭
+61. 급락반등 실전 자동매매 강제 실행 (`btn-pb-run-execute`)
+62. 급락반등 스캔 분석 (`btn-pb-run-analysis`)
+63. 급락반등 설정 저장 (`btn-save-pb-settings`)
+64. 급락반등 실시간 스캔 시작 (`btn-realtime-scan`)
+65. 급락반등 포착 종목 표시 (`btn-show-candidates`)
+66. 급락반등 전체 스캔 대상 표시 (`btn-show-all-scanned`)
+67. 급락반등 스케줄 이력 새로고침 (`btn-refresh-sched-history`)
+68. 급락반등 상세 닫기
+69. 급락반등 스캔 이력 새로고침 (`btn-refresh-scan-history`)
+70. 하이킨아시 자동매매·실시간 스캔 탭
+71. 하이킨아시 전략 성과분석 탭
+72. 하이킨아시 실전 자동매매 실행 (`btn-ha-run-execute`)
+73. 하이킨아시 분석만 실행 (`btn-ha-run-analysis`)
+74. 하이킨아시 설정 저장 (`btn-save-ha-settings`)
+75. 하이킨아시 실시간 스캔 시작 (`btn-ha-realtime-scan`)
+76. 하이킨아시 후보 종목 표시 (`btn-ha-show-candidates`)
+77. 하이킨아시 전체 스캔 표시 (`btn-ha-show-all-scanned`)
+78. 하이킨아시 스케줄 이력 새로고침 (`btn-refresh-ha-sched-history`)
+79. 하이킨아시 스캔 이력 새로고침 (`btn-refresh-ha-scan-history`)
+80. 공통 모달 닫기 1
+81. 공통 모달 닫기 2
+82. 스케줄 상세보기 동적 버튼
+83. 종목 관심추가 동적 버튼
+84. 하이킨아시 승인요청 동적 버튼
+
+### JavaScript 동적 버튼 유형
+
+- 테이블 정렬, 전략 설정 저장
+- 전략 전량매도, 전략 귀속매도, 수동 매수, 승인요청
+- 전략 적용, 성과, 자율 실행, 자가진화, 상세, 삭제
+- 관심종목 삭제, 후보 이력 삭제, 판단 근거 상세보기
+- 미체결 주문 취소, 승인 재처리, 미체결 취소 후 재처리
+- 개별 주문 승인·거절, 동기화 실행 상세
+- 로컬 체결 삭제, 정리 대상 거래 삭제, 전략 검토 저장
+
+이 동적 버튼들은 현재 행 수에 따라 실제 개수가 달라지며 종목코드, 주문 ID 또는 전략 ID를 `대상` 필드에 함께 기록한다.
