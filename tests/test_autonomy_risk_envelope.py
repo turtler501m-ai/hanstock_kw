@@ -81,6 +81,21 @@ class RiskEnvelopeTests(unittest.TestCase):
         self.assertTrue(exit_decision.approved)
         self.assertEqual(exit_decision.quantity, 12)
 
+    def test_regime_multiplier_does_not_double_scale_requested_cap(self):
+        decision = self.gate.evaluate(
+            {
+                "action": "enter_long",
+                "entry_price": 1000,
+                "stop_price": 900,
+                "quantity": 40,
+            },
+            self.snapshot(market_risk_multiplier=0.5),
+        )
+
+        self.assertTrue(decision.approved)
+        self.assertEqual(decision.quantity, 40)
+        self.assertEqual(decision.caps["requested"], 40)
+
     def test_trade_action_enum_is_supported(self):
         decision = self.gate.evaluate(
             {

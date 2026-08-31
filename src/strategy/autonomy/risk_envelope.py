@@ -284,8 +284,16 @@ class RiskEnvelope:
         if requested is not None:
             rooms["requested"] = float(requested)
         assert regime_multiplier is not None
+        # The requested quantity is an upper bound, not another risk budget.
+        # Every exposure/risk room is already reduced by the regime multiplier;
+        # scaling ``requested`` as well halves an already risk-sized quantity
+        # again during approval revalidation.
         rooms = {
-            name: value * regime_multiplier
+            name: (
+                value
+                if name == "requested"
+                else value * regime_multiplier
+            )
             for name, value in rooms.items()
         }
         caps = {name: max(0, math.floor(value)) for name, value in rooms.items()}
