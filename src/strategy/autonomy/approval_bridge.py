@@ -29,6 +29,20 @@ class ApprovalBridgeError(RuntimeError):
     pass
 
 
+def _exception_detail(exc: Exception) -> str:
+    """Preserve the useful causal message instead of only the wrapper type."""
+    parts = []
+    current: BaseException | None = exc
+    while current is not None and len(parts) < 4:
+        label = type(current).__name__
+        message = str(current).strip()
+        detail = f"{label}: {message}" if message else label
+        if detail not in parts:
+            parts.append(detail)
+        current = current.__cause__ or current.__context__
+    return " <- ".join(parts)
+
+
 @dataclass(frozen=True)
 class ApprovalPlanResult:
     order_id: int
@@ -191,6 +205,7 @@ class ManagedApprovalBridge:
             )
             return approved_order
         except Exception as exc:
+            failure_detail = _exception_detail(exc)
             current = self.repo.get_managed_order(order_id)
             if current and current.get("status") in {
                 OrderStatus.APPROVAL_QUEUED.value,
@@ -199,13 +214,13 @@ class ManagedApprovalBridge:
                 self.orders.reject(
                     order_id,
                     expected=OrderStatus(current["status"]),
-                    reason=f"approval revalidation failed: {type(exc).__name__}",
+                    reason=f"approval revalidation failed: {failure_detail}",
                 )
             try:
                 self.approvals.transition_pending(
                     approval_id,
                     status="rejected",
-                    response_msg=f"approval revalidation failed: {type(exc).__name__}",
+                    response_msg=f"approval revalidation failed: {failure_detail}",
                 )
             except ApprovalStatusError:
                 pass

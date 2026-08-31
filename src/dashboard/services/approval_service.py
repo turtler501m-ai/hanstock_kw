@@ -444,6 +444,9 @@ def _approve_pending_approval_serialized(
             from src.application.orders.recovery import sync_terminal_approval_orders
 
             sync_terminal_approval_orders(trader.connect_db, approval_id=approval_id)
+            logger.exception(
+                f"managed auto approval failed approval_id={approval_id}: {exc}"
+            )
             raise HTTPException(
                 status_code=409,
                 detail=f"managed AI-stock approval failed closed: {exc}",
