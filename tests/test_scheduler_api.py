@@ -567,6 +567,82 @@ class SchedulerApiTests(unittest.TestCase):
         self.assertEqual(captured["allowed_categories"], {"candidate"})
         self.assertNotIn("force_strategy_id", captured)
 
+    @patch("src.dashboard.services.scheduler_service.PersistentRuntimeState")
+    def test_scheduler_refresh_expires_legacy_running_state_without_limit(self, runtime_state):
+        class FakeState(dict):
+            def refresh(self):
+                return self
+
+            def replace(self, payload):
+                self.clear()
+                self.update(payload)
+
+        runtime_state.return_value = FakeState({
+            "is_running": True,
+            "started_at": "2026-08-31T08:00:00+09:00",
+            "run_id": "stale-run",
+            "max_runtime_seconds": None,
+        })
+        service = DashboardSchedulerService(
+            "test", now_fn=lambda: "2026-08-31T09:01:00+09:00"
+        )
+
+        state = service.refresh()
+
+        self.assertFalse(state["is_running"])
+        self.assertIn("maximum runtime", state["error"])
+
+    @patch("src.dashboard.services.scheduler_service.PersistentRuntimeState")
+    def test_scheduler_run_clears_state_for_unexpected_error(self, runtime_state):
+        class FakeState(dict):
+            def refresh(self):
+                return self
+
+            def replace(self, payload):
+                self.clear()
+                self.update(payload)
+
+        runtime_state.return_value = FakeState({"is_running": True, "run_id": "run-1"})
+        service = DashboardSchedulerService("test", now_fn=lambda: "2026-08-31T09:00:00+09:00")
+
+        service.run(
+            lambda **_kwargs: (_ for _ in ()).throw(Exception("unexpected")),
+            mode="execute",
+            include_ai_rebalance=False,
+            auto_approve=False,
+            run_id="run-1",
+        )
+
+        self.assertFalse(service.state["is_running"])
+        self.assertEqual(service.state["error"], "unexpected")
+
+    @patch("src.db.repository.load_strategy_universe", return_value=[])
+    @patch("src.db.repository.list_strategy_schedules", return_value=[{
+        "strategy_id": "heikin_ashi_scalping_strategy", "enabled": 1,
+        "interval_minutes": 15, "start_hm": "0900", "end_hm": "1530",
+        "weekdays": "1-5", "mode": "execute", "auto_approve": 1,
+        "last_run_at": "2026-08-31 09:30:00",
+    }])
+    @patch("src.db.repository.load_ai_strategies", return_value=[])
+    @patch("src.db.repository.load_recent_scheduler_results")
+    def test_latest_success_does_not_expose_older_strategy_error(
+        self, load_results, _strategies, _schedules, _universe
+    ):
+        load_results.return_value = {
+            "result": {
+                "execution_runs": [
+                    {"strategy_id": "heikin_ashi_scalping_strategy", "status": "failed", "message": "old failure", "recorded_at": "2026-08-31T09:00:00+09:00"},
+                    {"strategy_id": "heikin_ashi_scalping_strategy", "status": "success", "message": "", "recorded_at": "2026-08-31T09:30:00+09:00"},
+                ],
+                "errors": [{"strategy_id": "heikin_ashi_scalping_strategy", "message": "old failure"}],
+            }
+        }
+
+        schedule = get_scheduler_status()["strategy_dispatch"]["schedules"][0]
+
+        self.assertEqual(schedule["last_status"], "success")
+        self.assertEqual(schedule["last_errors"], [])
+
     @patch("src.dashboard.core._run_scheduled_cycles_for_strategies")
     def test_multiple_strategy_runner_does_not_receive_force_strategy_id(
         self, runner
