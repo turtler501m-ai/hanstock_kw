@@ -310,19 +310,25 @@ class RiskEnvelope:
             approved_price=entry,
             risk_budget=round(risk_budget * regime_multiplier, 2),
             risk_amount=round((entry - stop) * quantity, 2),
-            account_risk_reservation_limit=round(account_reservation_limit, 2),
+            account_risk_reservation_limit=round(
+                account_reservation_limit * regime_multiplier, 2
+            ),
             exposure_reservation_limits={
                 "position": round(
-                    max(0.0, total * self.limits.max_position_pct / 100.0 - position_value), 2
+                    max(0.0, total * self.limits.max_position_pct / 100.0 - position_value)
+                    * regime_multiplier, 2
                 ),
                 "market": round(
-                    max(0.0, total * self.limits.max_market_exposure_pct / 100.0 - market_value), 2
+                    max(0.0, total * self.limits.max_market_exposure_pct / 100.0 - market_value)
+                    * regime_multiplier, 2
                 ),
                 "sector": round(
-                    max(0.0, total * self.limits.max_sector_exposure_pct / 100.0 - sector_value), 2
+                    max(0.0, total * self.limits.max_sector_exposure_pct / 100.0 - sector_value)
+                    * regime_multiplier, 2
                 ),
                 "strategy": round(
-                    max(0.0, total * self.limits.max_strategy_exposure_pct / 100.0 - strategy_value), 2
+                    max(0.0, total * self.limits.max_strategy_exposure_pct / 100.0 - strategy_value)
+                    * regime_multiplier, 2
                 ),
             },
             estimated_cost=round(entry * quantity, 2),

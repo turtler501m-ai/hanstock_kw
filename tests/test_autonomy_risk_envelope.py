@@ -96,6 +96,19 @@ class RiskEnvelopeTests(unittest.TestCase):
         self.assertEqual(decision.quantity, 40)
         self.assertEqual(decision.caps["requested"], 40)
 
+    def test_regime_multiplier_scales_atomic_reservation_limits(self):
+        decision = self.gate.evaluate(
+            {"action": "enter_long", "entry_price": 1000, "stop_price": 900},
+            self.snapshot(market_risk_multiplier=0.5),
+        )
+
+        self.assertTrue(decision.approved)
+        self.assertEqual(decision.account_risk_reservation_limit, 15000)
+        self.assertEqual(decision.exposure_reservation_limits["position"], 50000)
+        self.assertEqual(decision.exposure_reservation_limits["market"], 200000)
+        self.assertEqual(decision.exposure_reservation_limits["sector"], 75000)
+        self.assertEqual(decision.exposure_reservation_limits["strategy"], 105000)
+
     def test_trade_action_enum_is_supported(self):
         decision = self.gate.evaluate(
             {
