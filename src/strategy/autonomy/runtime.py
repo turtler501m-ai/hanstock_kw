@@ -227,7 +227,8 @@ def build_runtime_contexts(
         reservations = [
             item
             for item in reservations
-            if int(item.get("id") or 0) != int(exclude_reservation_id)
+            if int(item.get("reservation_id") or item.get("id") or 0)
+            != int(exclude_reservation_id)
         ]
     symbols.update(str(item.get("symbol") or "") for item in reservations)
     if not symbols or "" in symbols:
