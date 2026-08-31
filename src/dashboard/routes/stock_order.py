@@ -1486,14 +1486,18 @@ def _strategy_attribution_sell_orders(
     strategy_id: str,
     *,
     symbol: str | None = None,
+    parsed_balance: dict | None = None,
+    active_symbols: set[str] | None = None,
 ) -> tuple[list[dict], list[dict]]:
     strategy_id = str(strategy_id or "").strip()
     if not strategy_id:
         raise HTTPException(status_code=400, detail="strategy_id is required")
 
     try:
-        api = _get_api()
-        parsed = _parse_balance(_get_balance_data(api, allow_cache=False))
+        parsed = parsed_balance
+        if parsed is None:
+            api = _get_api()
+            parsed = _parse_balance(_get_balance_data(api, allow_cache=False))
         from src.dashboard.routes.account import _attach_holding_strategies
 
         _attach_holding_strategies(parsed)
@@ -1505,7 +1509,8 @@ def _strategy_attribution_sell_orders(
     target_symbol = str(symbol or "").strip()
     orders = []
     skipped = []
-    active_symbols = _unsubmitted_dashboard_sell_symbols()
+    if active_symbols is None:
+        active_symbols = _unsubmitted_dashboard_sell_symbols()
     source = "dashboard_strategy_holding_sell" if target_symbol else "dashboard_strategy_sell_all"
     for holding in parsed.get("holdings", []):
         holding_symbol = str(holding.get("symbol") or "").strip()
@@ -1521,6 +1526,7 @@ def _strategy_attribution_sell_orders(
         if not allocation:
             continue
         allocated_qty = _to_int(allocation.get("allocated_qty"))
+        holding_qty = _to_int(holding.get("qty"))
         sellable_qty = _to_int(holding.get("sellable_qty", holding.get("qty")))
         qty = min(allocated_qty, sellable_qty)
         if holding_symbol in active_symbols:
@@ -1529,6 +1535,7 @@ def _strategy_attribution_sell_orders(
                 "name": str(holding.get("name") or holding_symbol),
                 "strategy_id": strategy_id,
                 "qty": allocated_qty,
+                "sellable_qty": sellable_qty,
                 "reason": "active sell request already exists",
             })
             continue
@@ -1538,6 +1545,7 @@ def _strategy_attribution_sell_orders(
                 "name": str(holding.get("name") or holding_symbol),
                 "strategy_id": strategy_id,
                 "qty": allocated_qty,
+                "sellable_qty": sellable_qty,
                 "reason": "sellable attributed quantity is zero",
             })
             continue
@@ -1551,6 +1559,15 @@ def _strategy_attribution_sell_orders(
             "reason": f"dashboard strategy attribution sell: {strategy_name}",
             "source": source,
             "strategy_id": None if strategy_id == "unattributed" else strategy_id,
+            # Snapshot metadata is returned to the operator and deliberately not
+            # used as authority at fill time.  Broker quantity remains the
+            # account truth while strategy attribution identifies only this
+            # strategy's portion of a shared holding.
+            "broker_qty_snapshot": holding_qty,
+            "sellable_qty_snapshot": sellable_qty,
+            "allocated_qty_snapshot": allocated_qty,
+            "shared_qty_snapshot": max(0, holding_qty - allocated_qty),
+            "expected_remaining_attribution": max(0, allocated_qty - qty),
         })
     if target_symbol and not orders and not skipped:
         raise HTTPException(
@@ -1560,9 +1577,56 @@ def _strategy_attribution_sell_orders(
     return orders, skipped
 
 
-def _queue_strategy_attribution_sells(orders: list[dict], skipped: list[dict]) -> dict:
-    with _holding_sell_request_lock:
-        approval_ids = [_create_approval_row(order) for order in orders]
+def _prepare_strategy_attribution_sells(
+    strategy_id: str,
+    *,
+    symbol: str | None = None,
+) -> tuple[list[dict], list[dict], list[dict]]:
+    """Create a fail-closed liquidation snapshot without submitting an order.
+
+    Open buys are canceled first so a late buy fill cannot recreate exposure
+    after the strategy liquidation.  A fresh, uncached broker balance is then
+    combined with the strategy ledger while the request lock protects the
+    duplicate-approval check and subsequent approval creation.
+    """
+    try:
+        api = _get_api()
+        canceled_buy_orders = _cancel_open_buy_orders_before_liquidation(api)
+        cancel_failures = [
+            item for item in canceled_buy_orders
+            if str(item.get("status") or "") == "cancel_failed"
+        ]
+        if cancel_failures:
+            order_ids = ", ".join(
+                str(item.get("broker_order_id") or "unknown") for item in cancel_failures
+            )
+            raise HTTPException(
+                status_code=409,
+                detail=f"open buy cancellation must be confirmed before strategy liquidation: {order_ids}",
+            )
+        parsed = _parse_balance(_get_balance_data(api, allow_cache=False))
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"strategy liquidation preflight failed: {exc}") from exc
+
+    active_symbols = _unsubmitted_dashboard_sell_symbols()
+    orders, skipped = _strategy_attribution_sell_orders(
+        strategy_id,
+        symbol=symbol,
+        parsed_balance=parsed,
+        active_symbols=active_symbols,
+    )
+    return orders, skipped, canceled_buy_orders
+
+
+def _queue_strategy_attribution_sells(
+    orders: list[dict],
+    skipped: list[dict],
+    *,
+    canceled_buy_orders: list[dict] | None = None,
+) -> dict:
+    approval_ids = [_create_approval_row(order) for order in orders]
     auto_approval_queued = False
     if approval_ids and _auto_approval_enabled():
         _run_auto_approval_batch_async(approval_ids)
@@ -1574,6 +1638,15 @@ def _queue_strategy_attribution_sells(orders: list[dict], skipped: list[dict]) -
         "pending_count": len(approval_ids),
         "skipped_count": len(skipped),
         "skipped": skipped,
+        "canceled_buy_orders": canceled_buy_orders or [],
+        "preflight_snapshot": [{
+            key: order.get(key) for key in (
+                "symbol", "broker_qty_snapshot", "sellable_qty_snapshot",
+                "allocated_qty_snapshot", "shared_qty_snapshot",
+                "expected_remaining_attribution",
+            )
+        } for order in orders],
+        "post_fill_verification_required": bool(approval_ids),
         "orders": [{"id": approval_id, "status": "pending"} for approval_id in approval_ids],
         "auto_approval_queued": auto_approval_queued,
         "fill_status_note": "키움 주문 접수 후 실제 체결 여부는 주문내역 동기화에서 확정됩니다.",
@@ -1589,8 +1662,11 @@ def sell_holding_strategy_attribution(payload: dict = Body(...)):
     symbol = str(payload.get("symbol") or "").strip()
     if not symbol:
         raise HTTPException(status_code=400, detail="symbol is required")
-    orders, skipped = _strategy_attribution_sell_orders(strategy_id, symbol=symbol)
-    return _queue_strategy_attribution_sells(orders, skipped)
+    with _holding_sell_request_lock:
+        orders, skipped, canceled = _prepare_strategy_attribution_sells(strategy_id, symbol=symbol)
+        return _queue_strategy_attribution_sells(
+            orders, skipped, canceled_buy_orders=canceled
+        )
 
 
 @router.post("/api/holdings/strategy-sell-all")
@@ -1599,8 +1675,11 @@ def sell_all_strategy_attribution(payload: dict = Body(...)):
     if missing:
         raise HTTPException(status_code=503, detail=f"Missing environment variables: {', '.join(missing)}")
     strategy_id = str(payload.get("strategy_id") or "").strip()
-    orders, skipped = _strategy_attribution_sell_orders(strategy_id)
-    return _queue_strategy_attribution_sells(orders, skipped)
+    with _holding_sell_request_lock:
+        orders, skipped, canceled = _prepare_strategy_attribution_sells(strategy_id)
+        return _queue_strategy_attribution_sells(
+            orders, skipped, canceled_buy_orders=canceled
+        )
 
 
 
@@ -1874,6 +1953,8 @@ def _save_trade_sync_result(result: dict) -> None:
             "removed_mismatch_count",
             "history_error",
             "order_status_error",
+            "terminal_regression_count",
+            "review_required_count",
             "sync_items",
             "status",
             "error",
@@ -1891,6 +1972,45 @@ def _save_trade_sync_result(result: dict) -> None:
         "completed_at": completed_at,
     })
     save_trade_sync_run(payload)
+
+
+def _classify_trade_sync_outcome(
+    *,
+    sync_items: list[dict],
+    history_sync: dict | None,
+    order_status_sync: dict | None,
+    history_error: str | None,
+    order_status_error: str | None,
+) -> dict:
+    """Return a fail-closed outcome for a completed reconciliation attempt."""
+    terminal_regression_count = (
+        _to_int((history_sync or {}).get("terminal_regression_count"))
+        + _to_int((order_status_sync or {}).get("terminal_regression_count"))
+    )
+    review_required_count = sum(
+        1 for item in sync_items
+        if str(item.get("sync_result") or "") == "review_required"
+    )
+    component_errors = any(
+        str(error or "").strip()
+        for error in (history_error, order_status_error)
+    )
+    component_unhealthy = any(
+        component is not None and not bool(component.get("ok", False))
+        for component in (history_sync, order_status_sync)
+    )
+    if review_required_count:
+        status = "review_required"
+    elif component_errors or component_unhealthy or terminal_regression_count:
+        status = "partial"
+    else:
+        status = "success"
+    return {
+        "status": status,
+        "ok": status == "success",
+        "terminal_regression_count": terminal_regression_count,
+        "review_required_count": review_required_count,
+    }
 
 
 def _migrate_trade_sync_file_to_db() -> None:
@@ -2160,11 +2280,18 @@ def _execute_trade_sync(*, days: int, run_id: str, started_at: str) -> dict:
         ]
         response_loss_items = list(response_loss_reconciliation.get("items") or [])
         sync_items = history_items + order_status_items + response_loss_items + balance_sync_items + list(cleanup.get("items") or [])
+        outcome = _classify_trade_sync_outcome(
+            sync_items=sync_items,
+            history_sync=history_sync,
+            order_status_sync=order_status_sync,
+            history_error=history_error,
+            order_status_error=order_status_error,
+        )
         response = {
             "run_id": run_id,
             "started_at": started_at,
-            "status": "completed",
-            "ok": True,
+            "status": outcome["status"],
+            "ok": outcome["ok"],
             "synced_count": synced_count + imported_count,
             "balance_synced_count": synced_count,
             "history_imported_count": imported_count,
@@ -2174,6 +2301,8 @@ def _execute_trade_sync(*, days: int, run_id: str, started_at: str) -> dict:
             "history_error": history_error,
             "order_status_sync": order_status_sync,
             "order_status_error": order_status_error,
+            "terminal_regression_count": outcome["terminal_regression_count"],
+            "review_required_count": outcome["review_required_count"],
             "removed_mismatch_count": cleanup["removed_count"],
             "cleanup": cleanup,
             "sync_items": sync_items,

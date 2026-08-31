@@ -1,6 +1,7 @@
 """Order reconciliation services extracted from the dashboard application module."""
 
 MIN_ORDER_HISTORY_SYNC_DAYS = 30
+TERMINAL_ORDER_STATUSES = frozenset({"filled", "canceled", "failed", "rejected", "expired"})
 
 
 def _mirror_trade_to_unified_ledger(trade: dict, stored: dict | None = None) -> None:
@@ -110,6 +111,8 @@ def _sync_filled_trades_from_history(
     imported_count = 0
     skipped_count = 0
     updated_count = 0
+    terminal_regression_count = 0
+    terminal_regressions = []
     items = []
     ledger_mirrors: list[tuple[dict, dict | None]] = []
 
@@ -173,6 +176,38 @@ def _sync_filled_trades_from_history(
                     filled_qty,
                     _to_int(trade.get("filled_price")),
                 )
+                stored_status = str(stored.get("order_status") or "").lower()
+                if (
+                    stored_status in TERMINAL_ORDER_STATUSES
+                    and incoming_status != stored_status
+                ):
+                    terminal_regression_count += 1
+                    warning = {
+                        "sync_type": "history",
+                        "sync_result": "ignored_terminal_regression",
+                        "ts": trade["ts"],
+                        "symbol": trade["symbol"],
+                        "name": trade["name"],
+                        "action": trade["action"],
+                        "qty": _to_int(stored.get("filled_qty")),
+                        "price": _to_int(stored.get("filled_price")),
+                        "broker_order_id": trade["broker_order_id"],
+                        "order_status": stored_status,
+                        "incoming_order_status": incoming_status,
+                        "message": (
+                            "Ignored stale broker history snapshot that would regress "
+                            f"terminal order: {stored_status} -> {incoming_status}"
+                        ),
+                    }
+                    terminal_regressions.append(warning)
+                    items.append(warning)
+                    skipped_count += 1
+                    logger.warning(
+                        "trade history sync ignored stale terminal snapshot "
+                        f"broker_order_id={broker_order_id} symbol={trade.get('symbol', '')} "
+                        f"status={stored_status}->{incoming_status}"
+                    )
+                    continue
                 needs_account_key = not str(stored.get("account_key") or "").strip()
                 if trade["broker_order_id"] and (stored_state != incoming_state or needs_account_key):
                     stored_id = _to_int(stored.get("id"))
@@ -303,7 +338,32 @@ def _sync_filled_trades_from_history(
             })
 
     for trade, stored in ledger_mirrors:
-        _mirror_trade_to_unified_ledger(trade, stored)
+        try:
+            _mirror_trade_to_unified_ledger(trade, stored)
+        except ValueError as exc:
+            if "broker snapshot cannot regress terminal order" not in str(exc):
+                raise
+            terminal_regression_count += 1
+            warning = {
+                "sync_type": "history",
+                "sync_result": "ignored_terminal_regression",
+                "ts": trade.get("ts", ""),
+                "symbol": trade.get("symbol", ""),
+                "name": trade.get("name", ""),
+                "action": trade.get("action", ""),
+                "qty": _to_int((stored or trade).get("filled_qty")),
+                "price": _to_int((stored or trade).get("filled_price")),
+                "broker_order_id": trade.get("broker_order_id", ""),
+                "order_status": str((stored or trade).get("order_status") or ""),
+                "message": str(exc),
+            }
+            terminal_regressions.append(warning)
+            items.append(warning)
+            logger.warning(
+                "trade history ledger mirror ignored stale terminal snapshot "
+                f"broker_order_id={trade.get('broker_order_id', '')} "
+                f"symbol={trade.get('symbol', '')} error={exc}"
+            )
 
     return {
         "ok": True,
@@ -313,6 +373,8 @@ def _sync_filled_trades_from_history(
         "imported_count": imported_count,
         "updated_count": updated_count,
         "skipped_count": skipped_count,
+        "terminal_regression_count": terminal_regression_count,
+        "terminal_regressions": terminal_regressions,
         "items": items,
     }
 
@@ -378,6 +440,7 @@ def _sync_order_status_from_history(
             }
     orders = []
     updated_count = 0
+    terminal_regression_count = 0
     unmatched = []
     for trade in tracked:
         order_id = str(trade.get("broker_order_id") or "")
@@ -423,6 +486,7 @@ def _sync_order_status_from_history(
                 "order status sync ignored stale terminal snapshot "
                 f"broker_order_id={order_id} symbol={trade.get('symbol', '')} error={exc}"
             )
+            terminal_regression_count += 1
             orders.append({
                 "broker_order_id": order_id,
                 "symbol": trade.get("symbol", ""),
@@ -473,6 +537,7 @@ def _sync_order_status_from_history(
         "history_count": len(history),
         "unmatched_count": len(unmatched),
         "balance_checked_count": int(balance_sync.get("checked_count", 0) or 0),
+        "terminal_regression_count": terminal_regression_count,
         "orders": orders,
     }
 

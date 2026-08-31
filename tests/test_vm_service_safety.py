@@ -76,6 +76,13 @@ class VmServiceSafetyTest(unittest.TestCase):
         update_script = (ROOT / "scripts/vm/update.sh").read_text(encoding="utf-8")
         self.assertIn("tools/verify-instance-isolation.py", update_script)
 
+    def test_deploy_runs_post_restart_operations_smoke_check(self):
+        update_script = (ROOT / "scripts/vm/update.sh").read_text(encoding="utf-8")
+        restart_position = update_script.index('"$ROOT_DIR/scripts/vm/server.sh" restart')
+        smoke_position = update_script.index("tools/deployment-smoke.py")
+        self.assertLess(restart_position, smoke_position)
+        self.assertIn("--base-url \"http://127.0.0.1:8001\"", update_script)
+
     def test_local_vm_dashboard_uses_loopback_tunnel(self):
         tunnel_script = (ROOT / "scripts/local/vm-dashboard.ps1").read_text(
             encoding="utf-8"

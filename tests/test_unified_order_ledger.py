@@ -4,7 +4,11 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from src.application.orders.health import NewRiskBlockedError, assert_new_risk_allowed
+from src.application.orders.health import (
+    NewRiskBlockedError,
+    assert_new_risk_allowed,
+    build_order_health,
+)
 from src.application.orders.approval import KST, default_domestic_expiry
 from src.application.orders.models import OrderIntent
 from src.application.orders.position_reconciliation import apply_latest_open_reconciliation_issues
@@ -14,6 +18,7 @@ from src.application.orders.recovery import (
     close_expired_unified_day_orders,
     reconcile_unknown_orders_from_legacy_fills,
     run_startup_recovery,
+    sync_terminal_approval_orders,
 )
 from src.db.connection import open_sqlite
 from src.db.migrations import apply_migrations
@@ -53,6 +58,9 @@ class UnifiedOrderLedgerTests(unittest.TestCase):
         self.assertEqual(first["id"], second["id"])
         detail = self.repository.detail(first["id"])
         self.assertEqual(1, len(detail["events"]))
+
+    def test_terminal_approval_sync_is_safe_before_legacy_table_exists(self):
+        self.assertEqual(0, sync_terminal_approval_orders(self.connect))
 
     def test_after_close_approval_expires_at_next_market_session_close(self):
         from datetime import datetime
@@ -94,6 +102,48 @@ class UnifiedOrderLedgerTests(unittest.TestCase):
         recovery = run_startup_recovery(self.connect)
         self.assertEqual("ready", recovery["state"])
         assert_new_risk_allowed(self.connect)
+
+    def test_health_surfaces_stale_and_expired_pending_approval_as_degraded(self):
+        with self.connect() as conn:
+            conn.execute(
+                """CREATE TABLE approvals (
+                       id INTEGER PRIMARY KEY, created_at TEXT, updated_at TEXT,
+                       symbol TEXT, name TEXT, action TEXT, qty INTEGER, price INTEGER,
+                       status TEXT, expires_at TEXT
+                   )"""
+            )
+            conn.execute(
+                """INSERT INTO approvals (
+                       created_at,updated_at,symbol,name,action,qty,price,status,expires_at
+                   ) VALUES (?,?,?,?,?,?,?,?,?)""",
+                (
+                    "2000-01-01 00:00:00", "2000-01-01 00:00:00", "005930",
+                    "Samsung", "buy", 1, 70000, "pending", "2000-01-01 15:30:00",
+                ),
+            )
+        health = build_order_health(self.connect, include_runtime=False)
+        self.assertEqual("ready", health["state"])
+        self.assertTrue(health["new_risk_allowed"])
+        self.assertEqual("degraded", health["operational_status"])
+        self.assertEqual(
+            {"pending": 1, "stale_pending": 1, "expired_pending": 1},
+            health["approvals"],
+        )
+        self.assertEqual(
+            {"STALE_PENDING_APPROVAL", "EXPIRED_PENDING_APPROVAL"},
+            {item["code"] for item in health["warnings"]},
+        )
+
+    def test_health_is_blocked_when_persisted_runtime_disagrees_with_clean_ledger(self):
+        from src.application.orders.recovery import set_runtime_state
+
+        set_runtime_state(self.connect, "reduce_only", reason="operator review")
+        health = build_order_health(self.connect)
+        self.assertEqual("reduce_only", health["state"])
+        self.assertEqual("blocked", health["operational_status"])
+        self.assertFalse(health["new_risk_allowed"])
+        mismatch = next(item for item in health["warnings"] if item["code"] == "RUNTIME_STATE_MISMATCH")
+        self.assertEqual("ready", mismatch["computed_state"])
 
     def test_stale_active_order_forces_reduce_only(self):
         order = self.repository.create(self.intent())

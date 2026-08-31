@@ -7,7 +7,13 @@ from src.db.migrations import MIGRATIONS
 
 
 def build_order_health(connect, *, stale_minutes: int = 10, include_runtime: bool = True) -> dict:
-    threshold = (datetime.now(timezone.utc) - timedelta(minutes=stale_minutes)).isoformat(timespec="seconds")
+    checked_at = datetime.now(timezone.utc)
+    threshold = (checked_at - timedelta(minutes=stale_minutes)).isoformat(timespec="seconds")
+    kst = timezone(timedelta(hours=9))
+    legacy_threshold = (checked_at.astimezone(kst) - timedelta(minutes=stale_minutes)).strftime(
+        "%Y-%m-%d %H:%M:%S"
+    )
+    legacy_now = checked_at.astimezone(kst).strftime("%Y-%m-%d %H:%M:%S")
     with connect() as conn:
         status_rows = conn.execute(
             "SELECT status, COUNT(*) FROM orders GROUP BY status ORDER BY status"
@@ -47,6 +53,33 @@ def build_order_health(connect, *, stale_minutes: int = 10, include_runtime: boo
             ).fetchone()[0])
         except Exception:
             legacy_unmirrored_count = 0
+        # Legacy approvals remain operator-visible even though unified orders are
+        # the execution ledger. Surface backlog here so a nominally ready engine
+        # cannot hide approvals that will never be acted on.
+        approval_counts = {"pending": 0, "stale": 0, "expired": 0}
+        approval_queries = {
+            "pending": ("SELECT COUNT(*) FROM approvals WHERE status='pending'", ()),
+            "stale": (
+                "SELECT COUNT(*) FROM approvals WHERE status='pending' AND updated_at < ?",
+                (legacy_threshold,),
+            ),
+            "expired": (
+                """SELECT COUNT(*) FROM approvals
+                   WHERE status='pending' AND expires_at IS NOT NULL
+                     AND expires_at <> '' AND expires_at < ?""",
+                (legacy_now,),
+            ),
+        }
+        for key, (query, params) in approval_queries.items():
+            try:
+                approval_counts[key] = int(conn.execute(query, params).fetchone()[0])
+            except Exception:
+                # Older installations may not have every optional approval
+                # column yet. Preserve the diagnostics that are available.
+                pass
+        pending_approval_count = approval_counts["pending"]
+        stale_pending_approval_count = approval_counts["stale"]
+        expired_pending_approval_count = approval_counts["expired"]
     expected_migrations = {item.version: item.checksum for item in MIGRATIONS}
     applied_migrations = {int(row[0]): str(row[1]) for row in migration_rows}
     schema_ready = applied_migrations == expected_migrations
@@ -65,6 +98,11 @@ def build_order_health(connect, *, stale_minutes: int = 10, include_runtime: boo
         blockers.append({"code": "KILL_SWITCH_ACTIVE", "count": 1})
     if not schema_ready:
         blockers.append({"code": "SCHEMA_NOT_READY", "count": 1})
+    warnings = []
+    if stale_pending_approval_count:
+        warnings.append({"code": "STALE_PENDING_APPROVAL", "count": stale_pending_approval_count})
+    if expired_pending_approval_count:
+        warnings.append({"code": "EXPIRED_PENDING_APPROVAL", "count": expired_pending_approval_count})
     computed_state = "reduce_only" if blockers else "ready"
     runtime = None
     if include_runtime:
@@ -73,18 +111,32 @@ def build_order_health(connect, *, stale_minutes: int = 10, include_runtime: boo
     state = runtime["state"] if runtime and runtime["state"] != "ready" else computed_state
     if runtime and runtime["state"] == "ready" and blockers:
         state = "reduce_only"
+    if runtime and runtime["state"] != computed_state:
+        warnings.append({
+            "code": "RUNTIME_STATE_MISMATCH", "count": 1,
+            "runtime_state": runtime["state"], "computed_state": computed_state,
+        })
+    operational_status = "blocked" if blockers or state != "ready" else (
+        "degraded" if warnings else "healthy"
+    )
     return {
         "state": state,
+        "operational_status": operational_status,
         "new_risk_allowed": state == "ready" and not blockers,
         "blockers": blockers,
-        "warnings": [],
+        "warnings": warnings,
+        "approvals": {
+            "pending": pending_approval_count,
+            "stale_pending": stale_pending_approval_count,
+            "expired_pending": expired_pending_approval_count,
+        },
         "orders_by_status": {str(row[0]): int(row[1]) for row in status_rows},
         "schema": {
             "ready": schema_ready,
             "expected_version": max(expected_migrations, default=0),
             "applied_version": max(applied_migrations, default=0),
         },
-        "checked_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "checked_at": checked_at.isoformat(timespec="seconds"),
         "runtime": runtime,
     }
 

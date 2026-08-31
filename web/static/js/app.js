@@ -4920,7 +4920,7 @@ function startTradeSyncPolling() {
         updateTradeSyncButton(result);
         if (bulkReconciliationRunId && result.run_id === bulkReconciliationRunId) {
             const bulkButton = document.getElementById('btn-resolve-all-reconciliation');
-            if (result.status === 'completed') {
+            if (['success', 'completed'].includes(result.status)) {
                 setStatus('전체 불일치 해결 2/2: 최신 증권사 잔고로 내부 원장을 보정 중입니다.', true);
                 await renderReconciliationIssues();
                 await applyBrokerBalanceReconciliation({
@@ -4945,10 +4945,10 @@ function startTradeSyncPolling() {
             ]);
             const removed = Number(result.removed_mismatch_count || 0);
             setStatus(
-                result.status === 'completed'
+                ['success', 'completed'].includes(result.status)
                     ? `증권사 기록 동기화 완료 (추가 ${Number(result.synced_count || 0)}건, 불일치 정리 ${removed}건)`
                     : `증권사 기록 동기화 실패: ${result.error || '알 수 없는 오류'}`,
-                result.status === 'completed'
+                ['success', 'completed'].includes(result.status)
             );
         }
     };

@@ -1,4 +1,7 @@
 import unittest
+import sqlite3
+import tempfile
+from contextlib import closing
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
@@ -6,6 +9,53 @@ from src.dashboard.services import order_sync_service
 
 
 class OrderSyncTerminalIsolationTests(unittest.TestCase):
+    def test_filled_history_import_preserves_canceled_legacy_order(self):
+        from src.dashboard import core as dashboard
+
+        original_db_path = dashboard.trader.config.trade_db_path
+        original_fetch_cloud_trades = dashboard.fetch_cloud_trades
+
+        class _FakeAPI:
+            def get_trade_history(self, _start_date, _end_date):
+                return [{
+                    "odno": "C12345",
+                    "pdno": "005930",
+                    "prdt_name": "Samsung",
+                    "sll_buy_dvsn_cd": "01",
+                    "ord_dt": "20260831",
+                    "ord_tmd": "100000",
+                    "ord_qty": "10",
+                    "tot_ccld_qty": "4",
+                    "rmn_qty": "6",
+                    "avg_prvs": "70100",
+                }]
+
+        try:
+            with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+                dashboard.trader.config.trade_db_path = f"{tmpdir}/trades.sqlite"
+                dashboard.fetch_cloud_trades = lambda: []
+                dashboard.trader.save_trade(
+                    "005930", "Samsung", "sell", 10, 0, "canceled sell",
+                    True, True, broker_order_id="C12345", order_status="canceled",
+                    filled_qty=0,
+                )
+
+                result = dashboard._sync_filled_trades_from_history(_FakeAPI(), days=1)
+
+                with closing(sqlite3.connect(dashboard.trader.config.trade_db_path)) as conn:
+                    row = conn.execute(
+                        "SELECT order_status,filled_qty FROM trades WHERE broker_order_id='C12345'"
+                    ).fetchone()
+                self.assertEqual(row, ("canceled", 0))
+                self.assertEqual(result["terminal_regression_count"], 1)
+                self.assertEqual(
+                    result["items"][0]["sync_result"],
+                    "ignored_terminal_regression",
+                )
+        finally:
+            dashboard.trader.config.trade_db_path = original_db_path
+            dashboard.fetch_cloud_trades = original_fetch_cloud_trades
+
     def test_terminal_regression_does_not_block_following_order(self):
         order_sync_service._refresh_dependencies()
         tracked = [
@@ -48,9 +98,54 @@ class OrderSyncTerminalIsolationTests(unittest.TestCase):
             )
 
         self.assertEqual(result["updated_count"], 1)
+        self.assertEqual(result["terminal_regression_count"], 1)
         self.assertEqual(result["orders"][0]["sync_result"], "ignored_terminal_regression")
         self.assertEqual(result["orders"][1]["order_status"], "filled")
         update_status.assert_called_once()
+
+    def test_sync_outcome_is_partial_when_history_failed(self):
+        from src.dashboard.routes import stock_order
+
+        result = stock_order._classify_trade_sync_outcome(
+            sync_items=[],
+            history_sync=None,
+            order_status_sync=None,
+            history_error="history 500",
+            order_status_error="history 500",
+        )
+
+        self.assertEqual(result["status"], "partial")
+        self.assertFalse(result["ok"])
+
+    def test_sync_outcome_requires_review_for_balance_mismatch(self):
+        from src.dashboard.routes import stock_order
+
+        result = stock_order._classify_trade_sync_outcome(
+            sync_items=[{"sync_result": "review_required"}],
+            history_sync={"ok": True},
+            order_status_sync={"ok": True},
+            history_error=None,
+            order_status_error=None,
+        )
+
+        self.assertEqual(result["status"], "review_required")
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["review_required_count"], 1)
+
+    def test_sync_outcome_is_partial_for_isolated_terminal_snapshot(self):
+        from src.dashboard.routes import stock_order
+
+        result = stock_order._classify_trade_sync_outcome(
+            sync_items=[{"sync_result": "ignored_terminal_regression"}],
+            history_sync={"ok": True, "terminal_regression_count": 1},
+            order_status_sync={"ok": True, "terminal_regression_count": 1},
+            history_error=None,
+            order_status_error=None,
+        )
+
+        self.assertEqual(result["status"], "partial")
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["terminal_regression_count"], 2)
 
 
 if __name__ == "__main__":

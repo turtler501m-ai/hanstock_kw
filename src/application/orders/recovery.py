@@ -114,14 +114,24 @@ def sync_terminal_approval_orders(connect, *, approval_id: int | None = None) ->
         params = (int(approval_id),)
     with connect() as conn:
         conn.row_factory = __import__("sqlite3").Row
-        rows = conn.execute(
-            """SELECT o.id,o.status,a.status AS approval_status,
-                      COALESCE(a.response_msg,'') AS response_msg
-               FROM orders o JOIN approvals a ON a.id=o.approval_id
-               WHERE o.status='approval_pending'
-                 AND a.status IN ('rejected','expired')""" + approval_filter,
-            params,
-        ).fetchall()
+        try:
+            rows = conn.execute(
+                """SELECT o.id,o.status,a.status AS approval_status,
+                          COALESCE(a.response_msg,'') AS response_msg
+                   FROM orders o JOIN approvals a ON a.id=o.approval_id
+                   WHERE o.status='approval_pending'
+                     AND a.status IN ('rejected','expired')""" + approval_filter,
+                params,
+            ).fetchall()
+        except Exception as exc:
+            # The unified ledger can be initialized before the optional legacy
+            # approvals projection (for example in a clean worker or test DB).
+            # There is nothing to synchronize until that compatibility table
+            # exists, and startup recovery must remain safe and idempotent.
+            message = str(exc).lower()
+            if "no such table" in message or "does not exist" in message:
+                return 0
+            raise
         for row in rows:
             target = "expired" if row["approval_status"] == "expired" else "rejected"
             reason = row["response_msg"] or f"linked approval {row['approval_status']}"

@@ -59,4 +59,8 @@ bash "$ROOT_DIR/scripts/vm/server.sh" status
 sudo systemctl restart hanstock-kw-condition-monitor.service
 sudo systemctl status hanstock-kw-condition-monitor.service --no-pager
 
+echo "[update] running post-restart dashboard and operations smoke check"
+"$PYTHON" "$ROOT_DIR/tools/deployment-smoke.py" \
+    --base-url "http://127.0.0.1:8001" --attempts 15 --interval 2
+
 echo "[update] done"
