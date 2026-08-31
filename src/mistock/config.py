@@ -51,6 +51,7 @@ class MistockConfig:
     trade_db_path: Path = Path(os.environ.get("MISTOCK_TRADE_DB_PATH", ".runtime/mistock/trades.sqlite"))
     usdkrw_fallback_rate: float = float(os.environ.get("USDKRW_FALLBACK_RATE", "1380.0"))
     universe_list: list[str] = None
+    excluded_symbols: set[str] = None
 
     def __post_init__(self):
         default_universe = (
@@ -67,6 +68,14 @@ class MistockConfig:
         )
         raw_univ = os.environ.get("MISTOCK_UNIVERSE", default_universe)
         self.universe_list = [s.strip().upper() for s in raw_univ.split(",") if s.strip()]
+        raw_excluded = os.environ.get("MISTOCK_EXCLUDED_SYMBOLS", "AVB,BF.B,CBOE")
+        self.excluded_symbols = {
+            s.strip().upper().replace("-", ".") for s in raw_excluded.split(",") if s.strip()
+        }
+        self.universe_list = [
+            symbol for symbol in self.universe_list
+            if symbol.replace("-", ".") not in self.excluded_symbols
+        ]
 
 
 config = MistockConfig()

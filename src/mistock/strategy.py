@@ -480,11 +480,15 @@ def strategy_profile(
 
 
 def fetch_history(symbol: str, period: str = "6mo") -> dict[str, list[float]]:
+    normalized_symbol = normalize_symbol(symbol)
+    if normalized_symbol.replace("-", ".") in config.excluded_symbols:
+        return {"open": [], "high": [], "low": [], "close": [], "volume": []}
+
     from src.online_access import require_online_access
 
     require_online_access("Mistock market-data download")
     # Yahoo Finance uses '-' for share classes (BRK-B/BF-B), while broker symbols may use '.'.
-    yahoo_symbol = normalize_symbol(symbol).replace(".", "-")
+    yahoo_symbol = normalized_symbol.replace(".", "-")
     data = yf.download(
         yahoo_symbol,
         period=period,

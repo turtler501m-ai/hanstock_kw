@@ -498,6 +498,36 @@ _auto_approval_sweeper_stop = threading.Event()
 _approval_submission_lock = threading.Lock()
 
 
+def _expire_stale_pending_approvals() -> int:
+    """Expire legacy approvals whose explicit trading-day deadline has passed."""
+    now = trader.datetime.now(trader.KST).strftime("%Y-%m-%d %H:%M:%S")
+    try:
+        _init_approval_db()
+        with trader.connect_db() as conn:
+            cursor = conn.execute(
+                """
+                UPDATE approvals
+                SET status = 'expired',
+                    response_msg = 'Approval expired at the end of its trading day. Create a fresh order.',
+                    updated_at = ?
+                WHERE status = 'pending'
+                  AND expires_at IS NOT NULL
+                  AND expires_at <> ''
+                  AND expires_at <= ?
+                """,
+                (now, now),
+            )
+            expired = cursor.rowcount or 0
+        if expired:
+            from src.application.orders.recovery import sync_terminal_approval_orders
+
+            sync_terminal_approval_orders(trader.connect_db)
+        return expired
+    except DashboardOperationError as exc:
+        logger.warning(f"expire stale pending approvals failed: {exc}")
+        return 0
+
+
 def _reclaim_stale_executing_approvals(max_age_seconds: int | None = None) -> int:
     """프로세스 중단 등으로 'executing'에 고아처럼 멈춘 승인을 failed로 정리한다.
 
@@ -530,6 +560,9 @@ def _reclaim_stale_executing_approvals(max_age_seconds: int | None = None) -> in
 def _auto_approval_sweeper_loop() -> None:
     while not _auto_approval_sweeper_stop.wait(AUTO_APPROVAL_SWEEP_INTERVAL_SECONDS):
         try:
+            expired = _expire_stale_pending_approvals()
+            if expired:
+                logger.info(f"auto-approval sweeper: expired {expired} stale pending approval(s)")
             reclaimed = _reclaim_stale_executing_approvals()
             if reclaimed:
                 logger.info(f"auto-approval sweeper: reclaimed {reclaimed} stale executing approval(s)")
@@ -551,6 +584,9 @@ def _auto_approval_sweeper_loop() -> None:
 def start_auto_approval_sweeper() -> bool:
     """자동승인 주기 스위퍼를 시작한다(비활성이거나 이미 켜져 있으면 no-op)."""
     global _auto_approval_sweeper_thread
+    expired = _expire_stale_pending_approvals()
+    if expired:
+        logger.info(f"startup approval cleanup: expired {expired} stale pending approval(s)")
     if not AUTO_APPROVAL_SWEEP_ENABLED:
         return False
     if _auto_approval_sweeper_thread is not None and _auto_approval_sweeper_thread.is_alive():
