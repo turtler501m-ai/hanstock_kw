@@ -2050,35 +2050,22 @@ def _execute_trade_sync(*, days: int, run_id: str, started_at: str) -> dict:
         strategy_positions = _strategy_position_quantities(local_trades)
         from src.application.orders.identity import broker_account_scope_key
 
-        # Reconstruct verified fills and then include immutable reconciliation
-        # adjustments. Ignoring the adjustments would recreate an issue that an
-        # operator already aligned to the authoritative broker balance.
-        db_holdings = {}
+        # positions is the canonical current projection. Replaying every legacy
+        # trade and then adding all historical alignment deltas double-counts
+        # repeated reconciliations and recreates ever-larger false mismatches.
         names = {}
         for t in trades:
-
             if not t.get("ok", False): continue
             sym = t["symbol"]
-            qty = t["qty"]
             names[sym] = t.get("name", sym)
-            if sym not in db_holdings:
-                db_holdings[sym] = 0
-            if t["action"] == "buy":
-                db_holdings[sym] += qty
-            elif t["action"] == "sell":
-                db_holdings[sym] = max(0, db_holdings[sym] - qty)
 
         with trader.connect_db() as conn:
             rows = conn.execute(
-                """SELECT symbol,COALESCE(SUM(quantity_delta),0)
-                   FROM position_quantity_adjustments
-                   WHERE account_key=? AND market='KR' GROUP BY symbol""",
+                """SELECT symbol,quantity FROM positions
+                   WHERE account_key=? AND market='KR' AND quantity>0""",
                 (broker_account_scope_key("KR"),),
             ).fetchall()
-        for symbol, quantity_delta in rows:
-            db_holdings[str(symbol)] = max(
-                0, int(db_holdings.get(str(symbol), 0)) + int(quantity_delta)
-            )
+        db_holdings = {str(symbol): int(quantity) for symbol, quantity in rows}
 
         synced_count = 0
         balance_sync_items = []
