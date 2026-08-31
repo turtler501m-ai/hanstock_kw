@@ -2066,7 +2066,7 @@ class DashboardCoreTests(unittest.TestCase):
                     "pdno": "005930",
                     "prdt_name": "Samsung",
                     "sll_buy_dvsn_cd": "01",
-                    "ord_dt": "20260731",
+                    "ord_dt": datetime.now(dashboard.trader.KST).strftime("%Y%m%d"),
                     "ord_tmd": "110000",
                     "ord_qty": "10",
                     "tot_ccld_qty": "4",
@@ -2168,11 +2168,11 @@ class DashboardCoreTests(unittest.TestCase):
             def get_trade_history(self, start_date, end_date):
                 return [{
                     "ord_no": "K12345", "stk_cd": "A005930", "stk_nm": "Samsung",
-                    "io_tp_nm": "매수", "ord_dt": "20260820", "ord_tm": "091530",
+                    "io_tp_nm": "매수", "ord_dt": datetime.now(dashboard.trader.KST).strftime("%Y%m%d"), "ord_tm": "091530",
                     "ord_qty": "10", "cntr_qty": "4", "oso_qty": "6", "avg_prc": "70100",
                 }, {
                     "ord_no": "K12346", "stk_cd": "A000660", "stk_nm": "SK Hynix",
-                    "io_tp_nm": "매도", "ord_dt": "20260820", "ord_tm": "091600",
+                    "io_tp_nm": "매도", "ord_dt": datetime.now(dashboard.trader.KST).strftime("%Y%m%d"), "ord_tm": "091600",
                     "ord_qty": "2", "cntr_qty": "0", "oso_qty": "2", "avg_prc": "0",
                 }]
 
@@ -2192,7 +2192,8 @@ class DashboardCoreTests(unittest.TestCase):
                 self.assertEqual(rows[0]["filled_qty"], 4)
                 self.assertEqual(rows[0]["filled_price"], 70100)
                 self.assertEqual(rows[0]["order_status"], "partial")
-                self.assertEqual(rows[0]["ts"], "2026-08-20 09:15:30")
+                expected_date = datetime.now(dashboard.trader.KST).strftime("%Y-%m-%d")
+                self.assertEqual(rows[0]["ts"], f"{expected_date} 09:15:30")
                 self.assertEqual(rows[1]["action"], "sell")
                 self.assertEqual(rows[1]["order_status"], "open")
                 self.assertEqual(rows[1]["filled_qty"], 0)

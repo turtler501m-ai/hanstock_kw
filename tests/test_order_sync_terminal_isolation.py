@@ -117,6 +117,45 @@ class OrderSyncTerminalIsolationTests(unittest.TestCase):
         self.assertEqual(result["status"], "partial")
         self.assertFalse(result["ok"])
 
+    def test_invalid_transition_for_terminal_order_is_quarantined(self):
+        order_sync_service._refresh_dependencies()
+        trade = {
+            "id": 1, "broker_order_id": "OLD", "symbol": "000001", "name": "old",
+            "action": "sell", "qty": 1, "order_status": "canceled", "filled_qty": 0,
+        }
+        history = [{"id": "OLD", "remaining": 0, "filled": 1}]
+        trader = SimpleNamespace(
+            update_trade_order_status=Mock(return_value=1),
+            datetime=SimpleNamespace(now=lambda _tz: SimpleNamespace(strftime=lambda _fmt: "2026-08-31")),
+            KST=object(),
+        )
+        replacements = {
+            "_refresh_dependencies": Mock(),
+            "_load_trackable_order_trades": Mock(return_value=[trade]),
+            "_order_history_window": Mock(return_value=("20260801", "20260831")),
+            "_history_matches_tracked_order": lambda _row, _trade: True,
+            "_history_fill_qty": lambda row: row["filled"],
+            "_history_fill_price": lambda _row: 100,
+            "_history_remaining_qty": lambda row: row["remaining"],
+            "_history_timestamp": lambda _row: "2026-08-31 10:00:00",
+            "_history_order_is_canceled": lambda _row: False,
+            "_history_order_is_expired_with_remainder": lambda _row: False,
+            "_history_order_is_rejected": lambda _row: False,
+            "_normalize_history_cancellations": lambda rows: rows,
+            "_mirror_trade_to_unified_ledger": Mock(
+                side_effect=ValueError("invalid broker order transition: canceled -> filled")
+            ),
+            "_to_int": lambda value: int(value or 0),
+            "trader": trader,
+        }
+        with patch.multiple(order_sync_service, **replacements):
+            result = order_sync_service._sync_order_status_from_history(
+                object(), days=1, history=history
+            )
+
+        self.assertEqual(result["terminal_regression_count"], 1)
+        self.assertEqual(result["orders"][0]["sync_result"], "ignored_terminal_regression")
+
     def test_sync_outcome_requires_review_for_balance_mismatch(self):
         from src.dashboard.routes import stock_order
 

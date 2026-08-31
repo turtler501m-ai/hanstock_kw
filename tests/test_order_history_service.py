@@ -3,6 +3,7 @@ import unittest
 from src.dashboard.services.order_history_service import (
     _history_fill_price,
     _history_remaining_qty,
+    _history_row_to_trade,
     _normalize_history_cancellations,
 )
 
@@ -30,6 +31,19 @@ class OrderHistoryServiceTests(unittest.TestCase):
     def test_keeps_unrelated_history_rows(self):
         history = [{"ord_no": "100", "ord_qty": "1"}]
         self.assertIs(_normalize_history_cancellations(history), history)
+
+    def test_expired_order_with_remainder_is_canceled(self):
+        row = {
+            "ord_no": "100",
+            "pdno": "005930",
+            "sll_buy_dvsn_cd": "02",
+            "ord_dt": "20260818",
+            "ord_qty": "10",
+            "cntr_qty": "4",
+            "ord_remnq": "6",
+        }
+
+        self.assertEqual(_history_row_to_trade(row)["order_status"], "canceled")
 
 
 if __name__ == "__main__":

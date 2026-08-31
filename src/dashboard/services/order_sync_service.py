@@ -1,6 +1,9 @@
 """Order reconciliation services extracted from the dashboard application module."""
 
-from src.dashboard.services.order_history_service import _normalize_history_cancellations
+from src.dashboard.services.order_history_service import (
+    _history_order_is_expired_with_remainder,
+    _normalize_history_cancellations,
+)
 
 MIN_ORDER_HISTORY_SYNC_DAYS = 30
 TERMINAL_ORDER_STATUSES = frozenset({"filled", "canceled", "failed", "rejected", "expired"})
@@ -162,7 +165,7 @@ def _sync_filled_trades_from_history(
                 requested_qty = _history_requested_qty(row) or _to_int(stored.get("qty"))
                 filled_qty = _to_int(trade.get("filled_qty"))
                 remaining_qty = _history_remaining_qty(row)
-                if _history_order_is_canceled(row):
+                if _history_order_is_canceled(row) or _history_order_is_expired_with_remainder(row):
                     incoming_status = "canceled"
                 elif _history_order_is_rejected(row) and filled_qty <= 0:
                     incoming_status = "failed"
@@ -457,10 +460,7 @@ def _sync_order_status_from_history(
         filled_qty = _history_fill_qty(row)
         filled_price = _history_fill_price(row)
         remaining_qty = _history_remaining_qty(row)
-        order_date = _history_timestamp(row)[:10]
-        today = trader.datetime.now(trader.KST).strftime("%Y-%m-%d")
-        expired_with_remainder = bool(order_date and order_date < today and remaining_qty > 0)
-        if _history_order_is_canceled(row) or expired_with_remainder:
+        if _history_order_is_canceled(row) or _history_order_is_expired_with_remainder(row):
             order_status = "canceled"
         elif _history_order_is_rejected(row) and filled_qty <= 0:
             order_status = "failed"
@@ -484,7 +484,15 @@ def _sync_order_status_from_history(
             # row must not regress a terminal order or mutate its legacy mirror.
             _mirror_trade_to_unified_ledger(snapshot, trade)
         except ValueError as exc:
-            if "broker snapshot cannot regress terminal order" not in str(exc):
+            terminal_status = str(trade.get("order_status") or "").lower()
+            is_terminal_regression = (
+                terminal_status in TERMINAL_ORDER_STATUSES
+                and (
+                    "broker snapshot cannot regress terminal order" in str(exc)
+                    or "invalid broker order transition" in str(exc)
+                )
+            )
+            if not is_terminal_regression:
                 raise
             logger.warning(
                 "order status sync ignored stale terminal snapshot "

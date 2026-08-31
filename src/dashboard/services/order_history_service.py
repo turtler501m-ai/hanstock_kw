@@ -104,6 +104,12 @@ def _history_order_is_rejected(row: dict) -> bool:
     return _history_int(row, "rjct_qty", "RJCT_QTY") > 0
 
 
+def _history_order_is_expired_with_remainder(row: dict) -> bool:
+    order_date = _history_timestamp(row)[:10]
+    today = trader.datetime.now(trader.KST).strftime("%Y-%m-%d")
+    return bool(order_date and order_date < today and _history_remaining_qty(row) > 0)
+
+
 def _history_text(row: dict, *keys: str) -> str:
     for key in keys:
         value = row.get(key)
@@ -210,7 +216,7 @@ def _history_row_to_trade(row: dict) -> dict:
     price = _history_fill_price(row)
     if not symbol or action not in {"buy", "sell"} or requested_qty <= 0:
         return {}
-    if _history_order_is_canceled(row):
+    if _history_order_is_canceled(row) or _history_order_is_expired_with_remainder(row):
         order_status = "canceled"
     elif _history_order_is_rejected(row) and filled_qty <= 0:
         order_status = "failed"
