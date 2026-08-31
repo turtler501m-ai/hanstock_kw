@@ -4629,12 +4629,23 @@ async function executeApprovalBatch(action) {
         });
         setStatus(`${actionLabel} 일괄 작업을 시작했습니다. 0/${started.total_count}건`);
         let state = started;
+        const jobId = String(started.job_id || '');
+        const pollingDeadline = Date.now() + 15 * 60 * 1000;
         while (state.status === 'running') {
+            if (Date.now() >= pollingDeadline) {
+                throw new Error('일괄 작업 상태 확인 시간이 초과되었습니다. 주문 현황을 새로고침해 확인해 주세요.');
+            }
             await new Promise((resolve) => setTimeout(resolve, 1500));
-            state = await fetchJson('/api/approvals/batch/status', 10000);
+            state = await fetchJson(`/api/approvals/batch/status?job_id=${encodeURIComponent(jobId)}`, 10000);
+            if (jobId && String(state.job_id || '') !== jobId) {
+                throw new Error('다른 일괄 작업의 상태가 반환되었습니다. 주문 현황을 새로고침해 주세요.');
+            }
             setStatus(
                 `${actionLabel} 처리 중: ${state.processed_count || 0}/${state.total_count || started.total_count}건`
             );
+        }
+        if (state.status !== 'completed') {
+            throw new Error(state.error || '일괄 작업이 서버 재기동 또는 중단으로 완료되지 않았습니다.');
         }
         const failures = (state.results || []).filter((item) => !item.ok);
         const failureNote = failures.length

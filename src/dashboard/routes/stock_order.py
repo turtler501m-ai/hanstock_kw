@@ -935,14 +935,28 @@ def start_approval_batch(payload: dict = Body(...)):
 
 
 @router.get("/api/approvals/batch/status")
-def get_approval_batch_status():
+def get_approval_batch_status(job_id: str = ""):
     with _approval_batch_lock:
         if _approval_batch_state:
-            return {"available": True, **dict(_approval_batch_state)}
+            current = dict(_approval_batch_state)
+            if job_id and str(current.get("job_id") or "") != job_id:
+                raise HTTPException(status_code=409, detail="approval batch job was replaced")
+            return {"available": True, **current}
     if APPROVAL_BATCH_RESULT_PATH.exists():
         try:
             saved = json.loads(APPROVAL_BATCH_RESULT_PATH.read_text(encoding="utf-8"))
+            if job_id and str(saved.get("job_id") or "") != job_id:
+                raise HTTPException(status_code=409, detail="approval batch job was replaced")
+            if saved.get("status") == "running":
+                saved.update({
+                    "status": "interrupted",
+                    "completed_at": trader.datetime.now(trader.KST).isoformat(),
+                    "error": "서버 재기동으로 일괄 작업이 중단되었습니다. 주문 현황을 확인한 뒤 다시 실행해 주세요.",
+                })
+                _save_approval_batch_state(saved)
             return {"available": True, **saved}
+        except HTTPException:
+            raise
         except (OSError, ValueError, TypeError):
             pass
     return {"available": False, "status": "idle"}
