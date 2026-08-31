@@ -163,6 +163,27 @@ MIGRATIONS = (
                WHERE broker_order_id IS NOT NULL AND broker_order_id <> ''""",
         ),
     ),
+    Migration(
+        5,
+        "audited_position_quantity_adjustments",
+        (
+            """
+            CREATE TABLE IF NOT EXISTS position_quantity_adjustments (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                account_key TEXT NOT NULL DEFAULT '',
+                market TEXT NOT NULL,
+                symbol TEXT NOT NULL,
+                quantity_delta INTEGER NOT NULL,
+                reconciliation_id INTEGER NOT NULL UNIQUE,
+                reason TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY(reconciliation_id) REFERENCES reconciliation_adjustments(id)
+            )
+            """,
+            """CREATE INDEX IF NOT EXISTS idx_position_quantity_adjustments_scope
+               ON position_quantity_adjustments(account_key,market,symbol)""",
+        ),
+    ),
 )
 
 

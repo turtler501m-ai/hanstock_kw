@@ -327,11 +327,31 @@ def _is_approval_already_claimed(exc: Exception) -> bool:
 
 def _auto_approve_pending_approvals(limit: int = 200) -> list[dict]:
     from src.dashboard import core
+    from src.application.orders.health import build_order_health
+    from src.application.orders.recovery import run_startup_recovery
 
     results = []
+    health = build_order_health(core.trader.connect_db)
+    runtime = health.get("runtime") or {}
+    if health["state"] == "recovering" and runtime.get("updated_at") is None:
+        run_startup_recovery(core.trader.connect_db)
+        health = build_order_health(core.trader.connect_db)
+    blocked = not health["new_risk_allowed"]
+    if blocked:
+        codes = ", ".join(str(item.get("code")) for item in health["blockers"])
+        if not codes:
+            codes = str((health.get("runtime") or {}).get("reason") or "RUNTIME_NOT_READY")
+        logger.warning(
+            "auto approval paused for pending buy orders: "
+            f"new risk is blocked until recovery completes: {codes}"
+        )
     for approval_id in core._pending_approval_ids(
         limit, exclude_sources=AUTO_APPROVAL_EXCLUDED_SOURCES
     ):
+        if blocked:
+            approval = core._load_pending_approval(approval_id)
+            if str(approval.get("action") or "").lower() == "buy":
+                continue
         try:
             results.append(core._approve_pending_approval(approval_id, "자동승인"))
         except Exception as exc:

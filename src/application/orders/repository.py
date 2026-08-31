@@ -198,13 +198,19 @@ class OrderLedgerRepository:
                         WHERE o.account_key=? AND o.market=? AND o.symbol=?""",
                     (current["account_key"], current["market"], current["symbol"]),
                 ).fetchone()
+                adjustment_quantity = conn.execute(
+                    """SELECT COALESCE(SUM(quantity_delta),0)
+                       FROM position_quantity_adjustments
+                       WHERE account_key=? AND market=? AND symbol=?""",
+                    (current["account_key"], current["market"], current["symbol"]),
+                ).fetchone()[0]
                 conn.execute(
                     """INSERT INTO positions(account_key,market,symbol,quantity,net_cash_flow,updated_at)
                        VALUES(?,?,?,?,?,?) ON CONFLICT(account_key,market,symbol) DO UPDATE SET
                        quantity=excluded.quantity, net_cash_flow=excluded.net_cash_flow,
                        updated_at=excluded.updated_at""",
                     (current["account_key"], current["market"], current["symbol"],
-                     projection[0], float(projection[1]), now),
+                     int(projection[0]) + int(adjustment_quantity), float(projection[1]), now),
                 )
             completed = now if status in {"filled", "canceled", "rejected", "expired"} else None
             conn.execute(
