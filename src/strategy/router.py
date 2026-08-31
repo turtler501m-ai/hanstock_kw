@@ -195,7 +195,9 @@ class OrderRouter:
         ok = result.success
         broker_result = dict(result.raw)
         broker_order_id = str(
-            broker_result.get("odno") or broker_result.get("ODNO")
+            result.broker_order_id
+            or broker_result.get("ord_no") or broker_result.get("order_no")
+            or broker_result.get("odno") or broker_result.get("ODNO")
             or (broker_result.get("output") or {}).get("odno")
             or (broker_result.get("output") or {}).get("ODNO") or ""
         )
