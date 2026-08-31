@@ -75,6 +75,21 @@
         };
         activeClick = payload;
         window.setTimeout(() => {
+            if (payload.request_count > 0) return;
+            const isTab = button.matches('[role="tab"], .dashboard-tab, .dashboard-tab-sub, .pipeline-tab, .pb-tab, .narrative-tab, .env-tab-button');
+            const tabApplied = button.classList.contains('active') || button.getAttribute('aria-selected') === 'true';
+            sendAudit({
+                ...payload,
+                phase: 'result',
+                api: '화면 내부 동작',
+                http_status: '-',
+                result: isTab && tabApplied ? '화면 반영 확인' : '클릭 처리 확인',
+                detail: isTab
+                    ? (tabApplied ? '선택한 화면이 활성 상태로 변경됨' : '탭 활성 상태를 확인하지 못함')
+                    : 'API 호출이 없는 화면 기능의 클릭 처리'
+            });
+        }, 800);
+        window.setTimeout(() => {
             if (activeClick?.audit_id === payload.audit_id) activeClick = null;
         }, 120000);
         sendAudit(payload);

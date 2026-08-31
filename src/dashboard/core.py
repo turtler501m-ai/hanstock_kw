@@ -132,7 +132,9 @@ async def log_dashboard_button_click(payload: dict = Body(...)):
 
     if safe("phase", 20) == "result":
         logger.info(
-            "[버튼결과] 버튼={} 대상={} API={} HTTP={} 결과={} 내용={}",
+            "[버튼결과] 추적ID={} 버튼ID={} 버튼={} 대상={} API={} HTTP={} 결과={} 내용={}",
+            safe("audit_id", 40),
+            safe("button_id", 100),
             safe("button_name", 100),
             safe("target", 100),
             safe("api", 200),
@@ -142,9 +144,11 @@ async def log_dashboard_button_click(payload: dict = Body(...)):
         )
     else:
         logger.info(
-            "[버튼클릭] 화면={} 경로={} 버튼={} 기능={} 대상={} 결과={}",
+            "[버튼클릭] 추적ID={} 화면={} 경로={} 버튼ID={} 버튼={} 기능={} 대상={} 결과={}",
+            safe("audit_id", 40),
             safe("page", 100),
             safe("path", 160),
+            safe("button_id", 100),
             safe("button_name", 100),
             safe("function", 160),
             safe("target", 100),
