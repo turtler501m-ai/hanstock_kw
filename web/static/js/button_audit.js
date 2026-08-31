@@ -50,9 +50,10 @@
     }
 
     function auditClick(button) {
+        if (activeClick) flushAudit(activeClick);
         const name = buttonName(button);
         const payload = {
-            phase: 'click',
+            phase: 'summary',
             audit_id: `${Date.now()}-${Math.random().toString(16).slice(2, 10)}`,
             page: clean(document.title || window.location.pathname, 100),
             path: clean(window.location.pathname, 160),
@@ -60,7 +61,6 @@
             button_class: clean(button.className, 160),
             button_name: name,
             function: buttonFunction(button, name),
-            result: '클릭 접수',
             target: clean(
                 button.dataset.symbol
                 || button.dataset.id
@@ -71,28 +71,39 @@
                 || button.dataset.view,
                 100
             ),
-            request_count: 0
+            request_count: 0,
+            results: [],
+            flush_timer: null
         };
         activeClick = payload;
         window.setTimeout(() => {
-            if (payload.request_count > 0) return;
-            const isTab = button.matches('[role="tab"], .dashboard-tab, .dashboard-tab-sub, .pipeline-tab, .pb-tab, .narrative-tab, .env-tab-button');
-            const tabApplied = button.classList.contains('active') || button.getAttribute('aria-selected') === 'true';
-            sendAudit({
-                ...payload,
-                phase: 'result',
-                api: '화면 내부 동작',
-                http_status: '-',
-                result: isTab && tabApplied ? '화면 반영 확인' : '클릭 처리 확인',
-                detail: isTab
-                    ? (tabApplied ? '선택한 화면이 활성 상태로 변경됨' : '탭 활성 상태를 확인하지 못함')
-                    : 'API 호출이 없는 화면 기능의 클릭 처리'
-            });
-        }, 800);
-        window.setTimeout(() => {
-            if (activeClick?.audit_id === payload.audit_id) activeClick = null;
+            if (activeClick?.audit_id === payload.audit_id) flushAudit(payload);
         }, 120000);
-        sendAudit(payload);
+    }
+
+    function scheduleFlush(context) {
+        if (context.flush_timer) window.clearTimeout(context.flush_timer);
+        context.flush_timer = window.setTimeout(() => flushAudit(context), 2500);
+    }
+
+    function flushAudit(context) {
+        if (!context || context.request_count === 0 || context.results.length === 0) return;
+        if (context.flush_timer) window.clearTimeout(context.flush_timer);
+        const failed = context.results.find((item) => item.result !== '성공');
+        const finalItem = failed || context.results[context.results.length - 1];
+        sendAudit({
+            phase: 'summary',
+            audit_id: context.audit_id,
+            button_id: context.button_id,
+            button_name: context.button_name,
+            target: context.target,
+            result: failed ? failed.result : '성공',
+            api_count: context.results.length,
+            detail: clean(finalItem.detail === '-' ? '정상 처리' : finalItem.detail, 80)
+        });
+        context.results = [];
+        context.request_count = 0;
+        if (activeClick?.audit_id === context.audit_id) activeClick = null;
     }
 
     function responseSummary(data) {
@@ -126,26 +137,20 @@
                     data.ok === false
                     || ['failed', 'error', 'blocked'].includes(String(data.status || '').toLowerCase())
                 );
-                sendAudit({
-                    ...context,
-                    phase: 'result',
-                    api: clean(url, 200),
-                    http_status: response.status,
+                context.results.push({
                     result: response.ok && !businessFailed ? '성공' : '실패',
                     detail: responseSummary(data)
                 });
+                scheduleFlush(context);
             }
             return response;
         } catch (error) {
             if (isAuditableApi) {
-                sendAudit({
-                    ...context,
-                    phase: 'result',
-                    api: clean(url, 200),
-                    http_status: 0,
+                context.results.push({
                     result: '통신 실패',
                     detail: clean(error?.message || error, 240)
                 });
+                scheduleFlush(context);
             }
             throw error;
         }
