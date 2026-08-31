@@ -355,24 +355,26 @@ def apply_broker_balance_reconciliation(payload: dict = Body(...)):
         str(item.get("symbol") or "").strip(): _to_int(item.get("qty"))
         for item in parsed.get("holdings", [])
     }
-    stale = []
+    refreshed = []
     for row in latest:
         expected = int(row["broker_qty"])
         actual = int(live_quantities.get(str(row["symbol"]), 0))
         if expected != actual:
-            stale.append({
-                "issue_id": int(row["id"]), "symbol": str(row["symbol"]),
+            issue_id = _record_reconciliation_issue(
+                symbol=str(row["symbol"]),
+                broker_qty=actual,
+                internal_qty=int(row["internal_qty"]),
+                reason="live broker balance refreshed before operator alignment",
+                snapshot={
+                    "supersedes_issue_id": int(row["id"]),
+                    "recorded_broker_qty": expected,
+                    "live_broker_qty": actual,
+                },
+            )
+            refreshed.append({
+                "issue_id": issue_id, "symbol": str(row["symbol"]),
                 "recorded_broker_qty": expected, "live_broker_qty": actual,
             })
-    if stale:
-        raise HTTPException(
-            status_code=409,
-            detail={
-                "message": "broker balance changed; synchronize holdings before applying",
-                "stale_count": len(stale),
-                "items": stale,
-            },
-        )
 
     actor = f"dashboard:{reason[:120]}"
     applied = apply_latest_open_reconciliation_issues(trader.connect_db, actor=actor)
@@ -381,6 +383,8 @@ def apply_broker_balance_reconciliation(payload: dict = Body(...)):
     return {
         "status": "applied",
         **applied,
+        "refreshed_count": len(refreshed),
+        "refreshed_items": refreshed,
         "recovery": recovery,
         "health": unified_order_health(),
     }
@@ -2044,7 +2048,11 @@ def _execute_trade_sync(*, days: int, run_id: str, started_at: str) -> dict:
         merged_values = sorted(merged_trades.values(), key=lambda x: x.get("ts", ""))
         trades = _account_trades(merged_values)
         strategy_positions = _strategy_position_quantities(local_trades)
+        from src.application.orders.identity import broker_account_scope_key
 
+        # Reconstruct verified fills and then include immutable reconciliation
+        # adjustments. Ignoring the adjustments would recreate an issue that an
+        # operator already aligned to the authoritative broker balance.
         db_holdings = {}
         names = {}
         for t in trades:
@@ -2059,6 +2067,18 @@ def _execute_trade_sync(*, days: int, run_id: str, started_at: str) -> dict:
                 db_holdings[sym] += qty
             elif t["action"] == "sell":
                 db_holdings[sym] = max(0, db_holdings[sym] - qty)
+
+        with trader.connect_db() as conn:
+            rows = conn.execute(
+                """SELECT symbol,COALESCE(SUM(quantity_delta),0)
+                   FROM position_quantity_adjustments
+                   WHERE account_key=? AND market='KR' GROUP BY symbol""",
+                (broker_account_scope_key("KR"),),
+            ).fetchall()
+        for symbol, quantity_delta in rows:
+            db_holdings[str(symbol)] = max(
+                0, int(db_holdings.get(str(symbol), 0)) + int(quantity_delta)
+            )
 
         synced_count = 0
         balance_sync_items = []

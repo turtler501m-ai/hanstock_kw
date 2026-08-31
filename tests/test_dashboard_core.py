@@ -2403,6 +2403,14 @@ class DashboardCoreTests(unittest.TestCase):
                     True, True, order_status="filled", filled_qty=4,
                     filled_price=70000, strategy_id="beta",
                 )
+                from src.application.orders.identity import broker_account_scope_key
+                with dashboard.trader.connect_db() as conn:
+                    conn.execute(
+                        """INSERT INTO positions
+                           (account_key,market,symbol,quantity,net_cash_flow,updated_at)
+                           VALUES(?,'KR','005930',10,-700000,'2026-08-05')""",
+                        (broker_account_scope_key("KR"),),
+                    )
                 stock_routes._get_api = lambda: _FakeAPI()
                 stock_routes._get_balance_data = lambda api, allow_cache=False: {
                     "output1": [{
@@ -2441,6 +2449,22 @@ class DashboardCoreTests(unittest.TestCase):
                 self.assertEqual(rows[0]["difference_qty"], -5)
                 self.assertIn('"alpha": 6', rows[0]["snapshot_json"])
                 self.assertIn('"beta": 4', rows[0]["snapshot_json"])
+
+                from src.application.orders.position_reconciliation import (
+                    apply_latest_open_reconciliation_issues,
+                )
+                apply_latest_open_reconciliation_issues(
+                    dashboard.trader.connect_db, actor="test operator"
+                )
+                stock_routes._execute_trade_sync(
+                    days=1, run_id="strategy-attribution-3",
+                    started_at="2026-08-05T10:02:00+09:00",
+                )
+                with sqlite3.connect(db_path) as conn:
+                    open_count = conn.execute(
+                        "SELECT COUNT(*) FROM reconciliation_adjustments WHERE status='open'"
+                    ).fetchone()[0]
+                self.assertEqual(open_count, 0)
         finally:
             dashboard.trader.config.trade_db_path = original_db_path
             stock_routes._get_api = original_get_api
