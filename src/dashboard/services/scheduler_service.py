@@ -22,14 +22,7 @@ DEFAULT_SCHEDULER_STATE = {
     "max_runtime_seconds": None,
 }
 
-SchedulerExecutionError = (
-    OSError,
-    RuntimeError,
-    ValueError,
-    TypeError,
-    KeyError,
-)
-
+DEFAULT_MAX_RUNTIME_SECONDS = 3600
 
 class DashboardSchedulerService:
     def __init__(
@@ -44,14 +37,21 @@ class DashboardSchedulerService:
 
     def refresh(self) -> dict[str, Any]:
         self.state.refresh()
-        if self.state.get("is_running") and self.state.get("max_runtime_seconds"):
+        if self.state.get("is_running"):
+            max_runtime_seconds = self.state.get("max_runtime_seconds")
+            try:
+                max_runtime_seconds = int(
+                    max_runtime_seconds or DEFAULT_MAX_RUNTIME_SECONDS
+                )
+            except (TypeError, ValueError):
+                max_runtime_seconds = DEFAULT_MAX_RUNTIME_SECONDS
             try:
                 started_at = datetime.fromisoformat(str(self.state.get("started_at")))
                 now = datetime.fromisoformat(self.now_fn())
                 elapsed = (now - started_at).total_seconds()
             except (TypeError, ValueError):
-                elapsed = 0
-            if elapsed > int(self.state["max_runtime_seconds"]):
+                elapsed = max_runtime_seconds + 1
+            if elapsed > max_runtime_seconds:
                 self.fail(
                     TimeoutError("scheduler run exceeded its maximum runtime"),
                     run_id=str(self.state.get("run_id") or ""),
@@ -137,7 +137,7 @@ class DashboardSchedulerService:
                 kwargs["allowed_categories"] = allowed_categories
             kwargs.update(extra_kwargs)
             result = runner(**kwargs)
-        except SchedulerExecutionError as exc:
+        except Exception as exc:
             self.fail(exc, run_id=run_id)
             return
         self.complete(result, run_id=run_id)

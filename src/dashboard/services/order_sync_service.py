@@ -5,6 +5,7 @@ MIN_ORDER_HISTORY_SYNC_DAYS = 30
 
 def _mirror_trade_to_unified_ledger(trade: dict, stored: dict | None = None) -> None:
     """Project a normalized broker history row into the unified ledger."""
+    _refresh_dependencies()
     from src.application.orders.repository import OrderLedgerRepository
 
     repository = OrderLedgerRepository(trader.connect_db)
@@ -21,6 +22,31 @@ def _mirror_trade_to_unified_ledger(trade: dict, stored: dict | None = None) -> 
         )
     if order is None:
         return
+    # Some legacy executions predate the point where the unified order was
+    # advanced past approval.  A broker order number in broker history proves
+    # submission, so reconstruct the missing lifecycle before applying the
+    # snapshot instead of leaving an approval_pending order permanently stale.
+    current_status = str(order.get("status") or "")
+    if str(trade.get("broker_order_id") or "").strip() and current_status in {
+        "created", "risk_approved", "approval_pending", "approved", "submitting",
+    }:
+        if current_status in {"created", "risk_approved", "approval_pending"}:
+            order = repository.transition(
+                int(order["id"]), current_status, "approved",
+                actor="reconciliation", reason="broker history proves legacy approval executed",
+            )
+            current_status = "approved"
+        if current_status == "approved":
+            order = repository.transition(
+                int(order["id"]), "approved", "submitting",
+                actor="reconciliation", reason="reconstructing legacy broker submission",
+            )
+            current_status = "submitting"
+        if current_status == "submitting":
+            order = repository.transition(
+                int(order["id"]), "submitting", "submitted",
+                actor="reconciliation", reason="broker history confirms submission",
+            )
     repository.reconcile_snapshot(
         int(order["id"]),
         status=str(trade.get("order_status") or "open"),
@@ -85,6 +111,7 @@ def _sync_filled_trades_from_history(
     skipped_count = 0
     updated_count = 0
     items = []
+    ledger_mirrors: list[tuple[dict, dict | None]] = []
 
     with trader.connect_db() as conn:
         for row in history:
@@ -210,7 +237,11 @@ def _sync_filled_trades_from_history(
                     "order_status": trade["order_status"],
                     "message": item_message,
                 })
-                _mirror_trade_to_unified_ledger(trade, stored)
+                # Mirror only after the legacy transaction commits.  Opening a
+                # second SQLite writer here leaves the unified ledger stale (or
+                # raises ``database is locked``) while ``conn`` owns the write
+                # transaction above.
+                ledger_mirrors.append((trade, stored))
                 skipped_count += 1
                 continue
 
@@ -254,7 +285,7 @@ def _sync_filled_trades_from_history(
                 f"filled_qty={trade['filled_qty']} filled_price={trade['filled_price']} "
                 f"broker_order_id={trade['broker_order_id'] or '-'}"
             )
-            _mirror_trade_to_unified_ledger(trade)
+            ledger_mirrors.append((trade, None))
             existing[key] = trade
             imported_count += 1
             items.append({
@@ -270,6 +301,9 @@ def _sync_filled_trades_from_history(
                 "order_status": trade["order_status"],
                 "message": "증권사 체결 기록 신규 추가",
             })
+
+    for trade, stored in ledger_mirrors:
+        _mirror_trade_to_unified_ledger(trade, stored)
 
     return {
         "ok": True,
@@ -383,6 +417,17 @@ def _sync_order_status_from_history(
                 response_msg=response_msg,
                 broker_result=row,
             )
+        _mirror_trade_to_unified_ledger(
+            {
+                **trade,
+                "ts": _history_timestamp(row),
+                "order_status": order_status,
+                "filled_qty": filled_qty,
+                "filled_price": filled_price,
+                "broker_result": row,
+            },
+            trade,
+        )
         orders.append({
             "broker_order_id": order_id,
             "symbol": trade.get("symbol", ""),
@@ -484,6 +529,22 @@ def _sync_order_status_from_balance(
                         "sellable_qty": sellable_qty,
                     },
                 )
+                _mirror_trade_to_unified_ledger(
+                    {
+                        **trade,
+                        "order_status": order_status,
+                        "filled_qty": inferred_filled_qty,
+                        "filled_price": current_price if inferred_filled_qty > 0 else 0,
+                        "broker_result": {
+                            "fallback": "balance",
+                            "history_error": reason,
+                            "pre_order_qty": pre_order_qty,
+                            "current_qty": current_qty,
+                            "sellable_qty": sellable_qty,
+                        },
+                    },
+                    trade,
+                )
                 orders.append({
                     "broker_order_id": order_id,
                     "symbol": symbol,
@@ -520,6 +581,21 @@ def _sync_order_status_from_balance(
                 "pre_order_qty": pre_order_qty,
                 "current_qty": current_qty,
             },
+        )
+        _mirror_trade_to_unified_ledger(
+            {
+                **trade,
+                "order_status": "filled",
+                "filled_qty": requested_qty,
+                "filled_price": current_price,
+                "broker_result": {
+                    "fallback": "balance",
+                    "history_error": reason,
+                    "pre_order_qty": pre_order_qty,
+                    "current_qty": current_qty,
+                },
+            },
+            trade,
         )
         orders.append({
             "broker_order_id": order_id,

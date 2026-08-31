@@ -13,7 +13,7 @@ import json
 from typing import Any
 
 
-CALC_VERSION = "daily-nav-v1"
+CALC_VERSION = "daily-nav-v2"
 BLOCKING_ISSUES = {
     "missing_market_close",
     "strategy_ownership_mismatch",
@@ -131,10 +131,20 @@ def _daily_nav_series(
 
         market_value = 0.0
         missing_symbols = []
+        carried_symbols = []
         for symbol, position in holdings.items():
             if position["qty"] <= 0:
                 continue
-            close = _exact_close(price_rows.get(symbol, []), session_date)
+            symbol_prices = price_rows.get(symbol, [])
+            close = _exact_close(symbol_prices, session_date)
+            if close is None:
+                # A suspended symbol or a partial market-data import can omit a
+                # session close.  Carrying the last *recorded* close preserves
+                # a reproducible, conservative valuation without inventing a
+                # price.  A symbol with no price evidence remains blocking.
+                close = _close_before(symbol_prices, session_date)
+                if close is not None:
+                    carried_symbols.append(symbol)
             if close is None:
                 missing_symbols.append(symbol)
             else:
@@ -142,9 +152,11 @@ def _daily_nav_series(
         issues = []
         if missing_symbols:
             issues.append("missing_market_close")
+        if carried_symbols:
+            issues.append("carried_forward_market_close")
         if ownership_mismatch:
             issues.append("strategy_ownership_mismatch")
-        equity = None if issues else cash + market_value
+        equity = None if missing_symbols or ownership_mismatch else cash + market_value
         denominator = previous_equity + external_flow
         daily_return = None
         if chain_available and equity is not None and denominator > 0:

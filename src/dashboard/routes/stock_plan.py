@@ -264,7 +264,10 @@ def get_scheduler_status(
             if not run:
                 return {"last_status": "never_run", "last_ok": None, "last_result_at": None, "last_errors": errors_by_strategy.get(strategy_key, [])}
             status = str(run.get("status") or "unknown")
-            run_errors = list(errors_by_strategy.get(strategy_key, []))
+            # The schedule card describes the latest run, not period history.
+            # Period errors remain available in last_result. Carrying every old
+            # error here made a successful recovery continue to look broken.
+            run_errors = []
             message = str(run.get("message") or "").strip()
             if message and status in {"failed", "partial", "blocked"}:
                 run_errors.insert(0, {"symbol": None, "action": None, "message": message})

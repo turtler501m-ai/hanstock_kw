@@ -195,6 +195,22 @@ class ForwardPerformanceTests(unittest.TestCase):
         self.assertEqual(row["quality"]["status"], "blocked")
         self.assertIn("missing_market_close", row["quality"]["blocking_issues"])
 
+    def test_missing_session_close_carries_last_recorded_close_without_fabricating_price(self):
+        trades = [{"ts": "2026-01-02", "strategy_id": "alpha", "symbol": "A", "action": "buy", "qty": 1, "price": 100}]
+        prices = {"A": [{"date": "2026-01-02", "close": 100}]}
+        benchmarks = {
+            "KOSPI": [{"date": "2026-01-02", "close": 100}, {"date": "2026-01-03", "close": 100}],
+            "KOSDAQ": [{"date": "2026-01-02", "close": 100}, {"date": "2026-01-03", "close": 100}],
+        }
+
+        row = build_strategy_forward_performance(trades, prices, benchmarks, as_of="2026-01-03")[0]
+
+        self.assertTrue(row["nav"]["available"])
+        self.assertEqual(row["returns"]["twr_pct"], 0.0)
+        self.assertEqual(row["daily_nav"][1]["nav"], 100.0)
+        self.assertIn("carried_forward_market_close", row["quality"]["warnings"])
+        self.assertNotIn("missing_market_close", row["quality"]["blocking_issues"])
+
 
 class PerformanceReviewRepositoryTests(unittest.TestCase):
     def test_manual_review_is_persisted_without_strategy_state_change(self):

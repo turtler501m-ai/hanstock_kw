@@ -2105,6 +2105,61 @@ class DashboardCoreTests(unittest.TestCase):
             dashboard.trader.config.trade_db_path = original_db_path
             dashboard.fetch_cloud_trades = original_fetch_cloud_trades
 
+    def test_order_history_status_sync_updates_unified_order_ledger(self):
+        from src.application.orders.identity import broker_account_scope_key
+        from src.application.orders.models import OrderIntent
+        from src.application.orders.repository import OrderLedgerRepository
+
+        original_db_path = dashboard.trader.config.trade_db_path
+
+        try:
+            with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+                dashboard.trader.config.trade_db_path = f"{tmpdir}/trades.sqlite"
+                dashboard.trader.init_db()
+                repository = OrderLedgerRepository(dashboard.trader.connect_db)
+                order = repository.create(OrderIntent(
+                    client_order_key="history-ledger-sync",
+                    correlation_id="history-ledger-sync",
+                    account_key=broker_account_scope_key("KR"),
+                    market="KR",
+                    symbol="005930",
+                    side="buy",
+                    quantity=3,
+                    price=70000,
+                    approval_id=98765,
+                    broker_order_id="U12345",
+                    broker_order_date=datetime.now(dashboard.trader.KST).strftime("%Y-%m-%d"),
+                ))
+                repository.transition(order["id"], "approval_pending", "approved")
+                repository.transition(order["id"], "approved", "submitting")
+                repository.transition(order["id"], "submitting", "submitted")
+                dashboard.trader.save_trade(
+                    "005930", "Samsung", "buy", 3, 70000, "history sync",
+                    True, True, broker_order_id="U12345", order_status="submitted",
+                    filled_qty=0, source_approval_id=98765,
+                )
+
+                today = datetime.now(dashboard.trader.KST).strftime("%Y%m%d")
+                result = dashboard._sync_order_status_from_history(
+                    object(),
+                    days=1,
+                    history=[{
+                        "odno": "U12345", "pdno": "005930",
+                        "sll_buy_dvsn_cd": "02", "ord_dt": today,
+                        "ord_tmd": "093015", "ord_qty": "3",
+                        "tot_ccld_qty": "3", "avg_prvs": "70100",
+                    }],
+                )
+
+                unified = repository.get(order["id"])
+                self.assertEqual(1, result["updated_count"])
+                self.assertEqual("filled", unified["status"])
+                self.assertEqual(3, unified["filled_qty"])
+                self.assertEqual(70100, unified["average_fill_price"])
+                self.assertEqual(1, len(repository.detail(order["id"])["fills"]))
+        finally:
+            dashboard.trader.config.trade_db_path = original_db_path
+
     def test_broker_sync_imports_native_kiwoom_fields_and_open_orders(self):
         original_db_path = dashboard.trader.config.trade_db_path
         original_fetch_cloud_trades = dashboard.fetch_cloud_trades
