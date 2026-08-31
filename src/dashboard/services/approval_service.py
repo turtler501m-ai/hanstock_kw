@@ -368,6 +368,15 @@ def _auto_approve_pending_approvals(limit: int = 200) -> list[dict]:
             if _is_approval_already_claimed(exc):
                 logger.debug(f"auto approval skipped approval_id={approval_id}: {exc}")
                 continue
+            if (
+                isinstance(exc, HTTPException)
+                and exc.status_code == 409
+                and "Approval expired at the end of its trading day" in str(exc.detail)
+            ):
+                logger.info(
+                    f"auto approval expired normally approval_id={approval_id}: {exc.detail}"
+                )
+                continue
             logger.warning(f"auto approval failed for approval_id={approval_id}: {exc}")
             continue
     return results
