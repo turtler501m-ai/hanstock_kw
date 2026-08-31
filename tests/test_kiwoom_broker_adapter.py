@@ -194,7 +194,7 @@ class KiwoomBrokerAdapterTests(unittest.TestCase):
             "ord_qty": "10",
             "cntr_qty": "3",
             "ord_remnq": "7",
-            "cncl_yn": "Y",
+            "mdfy_cncl": "취소",
         })
 
         self.assertEqual(result.status, OrderStatus.CANCELED)
@@ -220,7 +220,7 @@ class KiwoomBrokerAdapterTests(unittest.TestCase):
             filled_quantity=0,
             remaining_quantity=31,
             status=OrderStatus.CANCELED,
-            raw={"ord_no": "0065539", "orig_ord_no": "0035136", "cncl_yn": "Y"},
+            raw={"ord_no": "0065539", "ori_ord": "0035136", "mdfy_cncl": "취소"},
         )
         self.adapter.fetch_trade_history = lambda *_args: [original, cancellation]
 

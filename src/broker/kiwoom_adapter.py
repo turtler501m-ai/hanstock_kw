@@ -329,6 +329,7 @@ class KiwoomBrokerAdapter:
             row,
             "cncl_yn", "CNCL_YN",
             "rvse_cncl_dvsn_name", "RVSE_CNCL_DVSN_NAME",
+            "mdfy_cncl", "MDFY_CNCL",
             "canceled", "cancel_yn",
         )).strip()
         canceled = (
@@ -363,7 +364,7 @@ class KiwoomBrokerAdapter:
             if str(_first(
                 row.raw,
                 "orig_ord_no", "orig_odno", "ORIG_ORD_NO", "ORIG_ODNO",
-                "orgn_ord_no", "original_order_no",
+                "orgn_ord_no", "original_order_no", "ori_ord", "ORI_ORD",
             )).strip() == str(order_id).strip()
             and row.status == OrderStatus.CANCELED
         ), None)

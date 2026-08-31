@@ -153,7 +153,7 @@ def _confirm_canceled_order(order_id: int, *, attempts: int = 8, interval_second
     last_message = ""
     for attempt in range(1, max(1, attempts) + 1):
         item = repository.get(order_id)
-        if not item or str(item.get("status") or "") != "cancel_pending":
+        if not item or str(item.get("status") or "") not in {"cancel_pending", "broker_unknown"}:
             return
         broker_order_id = str(item.get("broker_order_id") or "")
         order_date = str(item.get("broker_order_date") or "").replace("-", "")
@@ -207,7 +207,17 @@ def resume_cancel_pending_confirmations() -> int:
     from src.application.orders.repository import OrderLedgerRepository
 
     repository = OrderLedgerRepository(trader.connect_db)
-    items = repository.list_orders(statuses=("cancel_pending",), limit=100, offset=0)
+    items = repository.list_orders(
+        statuses=("cancel_pending", "broker_unknown"), limit=100, offset=0
+    )
+    items = [
+        item for item in items
+        if str(item.get("status") or "") == "cancel_pending"
+        or any(
+            str(event.get("to_status") or "") == "cancel_pending"
+            for event in (repository.detail(int(item["id"])) or {}).get("events", [])
+        )
+    ]
     for item in items:
         order_id = int(item["id"])
         threading.Thread(
