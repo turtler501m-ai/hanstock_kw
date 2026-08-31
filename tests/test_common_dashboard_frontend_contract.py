@@ -109,6 +109,15 @@ class CommonDashboardFrontendContractTests(unittest.TestCase):
         self.assertIn('id="btn-refresh-holdings"', INDEX_HTML)
         self.assertIn("await renderBalance()", APP_JS)
 
+    def test_holdings_tab_exposes_broker_authoritative_sync(self):
+        self.assertIn('id="btn-sync-holdings"', INDEX_HTML)
+        self.assertIn("async function startBrokerHoldingsSync()", APP_JS)
+        self.assertIn("postJson('/api/trades/sync', {})", APP_JS)
+        self.assertIn(
+            "btnSyncHoldings.addEventListener('click', startBrokerHoldingsSync)",
+            APP_JS,
+        )
+
     def test_holdings_tab_exposes_strategy_value_loss_summary_and_filters(self):
         self.assertIn('id="table-holding-strategies"', INDEX_HTML)
         self.assertIn('id="holding-attribution-coverage"', INDEX_HTML)

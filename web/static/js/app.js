@@ -4505,12 +4505,40 @@ let tradeSyncLastCompletedRunId = null;
 
 function updateTradeSyncButton(result) {
     const button = document.getElementById('btn-sync-trades');
-    if (!button || !result) return;
+    const holdingsButton = document.getElementById('btn-sync-holdings');
+    if (!result) return;
     const running = result.status === 'running';
-    button.disabled = running;
-    button.textContent = running ? '동기화 진행 중…' : '증권사 기록 동기화';
-    button.style.backgroundColor = running ? '#f59e0b' : '';
-    button.style.color = running ? 'white' : '';
+    if (button) {
+        button.disabled = running;
+        button.textContent = running ? '동기화 진행 중…' : '증권사 기록 동기화';
+        button.style.backgroundColor = running ? '#f59e0b' : '';
+        button.style.color = running ? 'white' : '';
+    }
+    if (holdingsButton) {
+        holdingsButton.disabled = running;
+        holdingsButton.textContent = running ? '보유종목 동기화 중…' : '보유종목 동기화';
+    }
+}
+
+async function startBrokerHoldingsSync() {
+    const holdingsButton = document.getElementById('btn-sync-holdings');
+    if (holdingsButton) {
+        holdingsButton.disabled = true;
+        holdingsButton.textContent = '보유종목 동기화 중…';
+    }
+    try {
+        const result = await postJson('/api/trades/sync', {});
+        renderTradeSyncResult(result);
+        setStatus('증권사 체결내역과 실제 잔고의 동기화를 시작했습니다.', true);
+        startTradeSyncPolling();
+    } catch (err) {
+        setStatus(`보유종목 동기화 실패: ${err.message}`);
+        if (holdingsButton) {
+            holdingsButton.disabled = false;
+            holdingsButton.textContent = '보유종목 동기화';
+        }
+        await loadTradeSyncResult();
+    }
 }
 
 function renderTradeSyncResult(result) {
@@ -5888,6 +5916,10 @@ document.addEventListener('DOMContentLoaded', () => {
     const btnSellAllHoldings = document.getElementById('btn-sell-all-holdings');
     if (btnSellAllHoldings) {
         btnSellAllHoldings.addEventListener('click', sellAllHoldings);
+    }
+    const btnSyncHoldings = document.getElementById('btn-sync-holdings');
+    if (btnSyncHoldings) {
+        btnSyncHoldings.addEventListener('click', startBrokerHoldingsSync);
     }
     const btnRefreshHoldings = document.getElementById('btn-refresh-holdings');
     if (btnRefreshHoldings) {
