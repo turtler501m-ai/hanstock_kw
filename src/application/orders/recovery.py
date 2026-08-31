@@ -142,16 +142,11 @@ def reconcile_unknown_orders_from_legacy_fills(connect) -> int:
                      AND COALESCE(t.broker_order_id,'')<>''
                      AND abs((julianday(replace(t.ts,'T',' ')) -
                               (julianday(?) + 0.375)) * 86400) <= 300
-                     AND NOT EXISTS (
-                       SELECT 1 FROM orders linked
-                       WHERE linked.id<>? AND linked.broker_order_date=substr(t.ts,1,10)
-                         AND linked.broker_order_id=t.broker_order_id
-                     )
                    ORDER BY t.id""",
                 (
                     order["symbol"], str(order["side"]).lower(),
                     int(order["requested_qty"]), int(order["requested_qty"]),
-                    order["created_at"], int(order["id"]),
+                    order["created_at"],
                 ),
             ).fetchall()
         if len(matches) != 1:
@@ -159,18 +154,36 @@ def reconcile_unknown_orders_from_legacy_fills(connect) -> int:
         trade = dict(matches[0])
         broker_order_id = str(trade["broker_order_id"])
         broker_order_date = str(trade["ts"])[:10]
-        repository.bind_broker_result(
-            int(order["id"]), broker_order_id,
-            broker_order_date=broker_order_date,
-            message="Recovered from verified legacy broker history",
+        linked = repository.get_by_broker_order_id(
+            broker_order_id, broker_order_date=broker_order_date,
+            account_key=str(order["account_key"]), market=str(order["market"]),
         )
+        target = linked or order
+        target_status = str(target["status"])
+        if target_status == "submitted":
+            target = repository.transition(
+                int(target["id"]), "submitted", "open",
+                actor="startup_recovery", reason="verified legacy broker history linked",
+            )
+        elif target_status == "broker_unknown" and not linked:
+            repository.bind_broker_result(
+                int(target["id"]), broker_order_id,
+                broker_order_date=broker_order_date,
+                message="Recovered from verified legacy broker history",
+            )
         repository.reconcile_snapshot(
-            int(order["id"]), status="filled",
+            int(target["id"]), status="filled",
             cumulative_filled_qty=int(trade["filled_qty"]),
             average_fill_price=float(trade["filled_price"] or trade["price"] or 0),
             broker_order_id=broker_order_id, broker_order_date=broker_order_date,
             raw={"legacy_trade_id": int(trade["id"]), "startup_recovery": True},
         )
+        if linked and int(linked["id"]) != int(order["id"]):
+            repository.transition(
+                int(order["id"]), "broker_unknown", "rejected",
+                actor="startup_recovery",
+                reason=f"duplicate representation merged into order {linked['id']}",
+            )
         recovered += 1
     return recovered
 
