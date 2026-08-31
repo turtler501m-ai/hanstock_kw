@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from src.application.orders.health import build_order_health
 
@@ -43,10 +43,45 @@ def get_runtime_state(connect) -> dict:
     return {"state": row[0], "reason": row[1], "details": details, "updated_at": row[3]}
 
 
+def close_expired_legacy_day_orders(connect, *, now: datetime | None = None) -> int:
+    """Close domestic legacy DAY orders whose KRX order date has ended.
+
+    Imported partial fills remain intact; only the impossible remainder is
+    released. Current-session orders and outcome-unknown rows are untouched.
+    """
+    kst = timezone(timedelta(hours=9))
+    current = now or datetime.now(kst)
+    cutoff = current.astimezone(kst).strftime("%Y-%m-%d")
+    with connect() as conn:
+        try:
+            cursor = conn.execute(
+                """UPDATE trades
+                   SET order_status='canceled',
+                       response_msg=CASE
+                         WHEN COALESCE(response_msg,'')='' THEN
+                           'Startup recovery: prior-session DAY order expired'
+                         ELSE response_msg || '; startup recovery: prior-session DAY order expired'
+                       END
+                   WHERE order_status IN ('submitted','open','partial')
+                     AND substr(COALESCE(ts,''),1,10) <> ''
+                     AND substr(ts,1,10) < ?""",
+                (cutoff,),
+            )
+        except Exception as exc:
+            if "no such table" in str(exc).lower():
+                return 0
+            raise
+    return int(cursor.rowcount or 0)
+
+
 def run_startup_recovery(connect) -> dict:
     """Assess persisted invariants without making a broker network call."""
     set_runtime_state(connect, "recovering", reason="checking persisted order invariants")
+    expired_legacy_count = close_expired_legacy_day_orders(connect)
     health = build_order_health(connect, include_runtime=False)
     state = "reduce_only" if health["blockers"] else "ready"
     reason = "startup blockers require reconciliation" if health["blockers"] else "persisted order invariants are healthy"
-    return set_runtime_state(connect, state, reason=reason, details={"blockers": health["blockers"], "warnings": health["warnings"]})
+    return set_runtime_state(connect, state, reason=reason, details={
+        "blockers": health["blockers"], "warnings": health["warnings"],
+        "expired_legacy_day_orders": expired_legacy_count,
+    })

@@ -1,13 +1,14 @@
 import sqlite3
 import tempfile
 import unittest
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from src.application.orders.health import NewRiskBlockedError, assert_new_risk_allowed
 from src.application.orders.approval import KST, default_domestic_expiry
 from src.application.orders.models import OrderIntent
 from src.application.orders.repository import OrderLedgerRepository
-from src.application.orders.recovery import run_startup_recovery
+from src.application.orders.recovery import close_expired_legacy_day_orders, run_startup_recovery
 from src.db.connection import open_sqlite
 from src.db.migrations import apply_migrations
 
@@ -147,6 +148,30 @@ class UnifiedOrderLedgerTests(unittest.TestCase):
             self.repository.reconcile_snapshot(
                 order["id"], status="mystery", cumulative_filled_qty=2,
             )
+
+    def test_startup_closes_only_prior_session_legacy_day_orders(self):
+        with self.connect() as conn:
+            conn.execute(
+                """CREATE TABLE trades (
+                       id INTEGER PRIMARY KEY, ts TEXT, order_status TEXT,
+                       filled_qty REAL, response_msg TEXT
+                   )"""
+            )
+            conn.execute(
+                "INSERT INTO trades VALUES(1,'2026-08-28 10:00:00','partial',2,'imported')"
+            )
+            conn.execute(
+                "INSERT INTO trades VALUES(2,'2026-08-31 09:00:00','open',0,'imported')"
+            )
+        closed = close_expired_legacy_day_orders(
+            self.connect,
+            now=datetime(2026, 8, 31, 9, 5, tzinfo=timezone(timedelta(hours=9))),
+        )
+        self.assertEqual(1, closed)
+        with self.connect() as conn:
+            rows = conn.execute("SELECT id,order_status,filled_qty FROM trades ORDER BY id").fetchall()
+        self.assertEqual((1, "canceled", 2), tuple(rows[0]))
+        self.assertEqual((2, "open", 0), tuple(rows[1]))
 
 
 if __name__ == "__main__":
