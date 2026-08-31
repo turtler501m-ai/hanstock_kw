@@ -6659,7 +6659,10 @@ async function renderScheduleInfo() {
             const runsContainer = document.getElementById('scheduler-runs-container');
             if (runsContainer) {
                 runsContainer.innerHTML = '';
-                if (runErrors.length) {
+                // Daily summaries retain earlier failures for audit. Do not
+                // present those historical entries as a current execution
+                // error after the latest aggregate status has recovered.
+                if (runErrors.length && aggregateStatus !== 'success') {
                     const errorPanel = document.createElement('div');
                     errorPanel.className = 'scheduler-status-message is-error';
                     errorPanel.style.cssText = 'margin-bottom:1rem;white-space:pre-wrap;color:var(--danger);';
