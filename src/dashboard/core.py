@@ -134,7 +134,6 @@ AUTO_APPROVAL_STATE = trader.RUNTIME_DIR / "auto_approval.json"
 DEFAULT_AUTO_APPROVAL_STATE = AUTO_APPROVAL_STATE
 AUTO_APPROVAL_EXCLUDED_SOURCES = {
     "narrative_momentum",
-    "autonomous_strategy",
     "strategy_lookup_manual",
 }
 ENV_PATH = BASE_DIR / ".env"
