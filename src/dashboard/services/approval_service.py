@@ -325,6 +325,16 @@ def _is_approval_already_claimed(exc: Exception) -> bool:
     return "approval is already" in detail
 
 
+def _demo_new_risk_block_bypass() -> bool:
+    """Allow demo approvals to continue while preserving every real-account guard."""
+    flags = trader.runtime_flags()
+    return (
+        str(flags.trading_env).lower() == "demo"
+        and not bool(flags.real_orders_enabled)
+        and not bool(getattr(trader.config, "enable_live_trading", False))
+    )
+
+
 def _auto_approve_pending_approvals(limit: int = 200) -> list[dict]:
     from src.dashboard import core
     from src.application.orders.health import build_order_health
@@ -336,7 +346,7 @@ def _auto_approve_pending_approvals(limit: int = 200) -> list[dict]:
     if health["state"] == "recovering" and runtime.get("updated_at") is None:
         run_startup_recovery(core.trader.connect_db)
         health = build_order_health(core.trader.connect_db)
-    blocked = not health["new_risk_allowed"]
+    blocked = not health["new_risk_allowed"] and not _demo_new_risk_block_bypass()
     if blocked:
         codes = ", ".join(str(item.get("code")) for item in health["blockers"])
         if not codes:
@@ -430,7 +440,8 @@ def _approve_pending_approval_serialized(
     if str(pending.get("action") or "").lower() == "buy":
         from src.application.orders.health import assert_new_risk_allowed
 
-        assert_new_risk_allowed(trader.connect_db)
+        if not _demo_new_risk_block_bypass():
+            assert_new_risk_allowed(trader.connect_db)
         _enforce_buy_position_limit(approval_id, pending)
     if pending.get("managed_order_id"):
         from src.strategy.autonomy.ai_stock_integration import (
