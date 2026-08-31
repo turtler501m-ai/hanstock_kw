@@ -1,5 +1,7 @@
 """Order reconciliation services extracted from the dashboard application module."""
 
+from src.dashboard.services.order_history_service import _normalize_history_cancellations
+
 MIN_ORDER_HISTORY_SYNC_DAYS = 30
 TERMINAL_ORDER_STATUSES = frozenset({"filled", "canceled", "failed", "rejected", "expired"})
 
@@ -79,6 +81,7 @@ def _sync_filled_trades_from_history(
     start_date, end_date = _order_history_window(days)
     if history is None:
         history = api.get_trade_history(start_date, end_date)
+    history = _normalize_history_cancellations(history)
     trader.init_db()
 
     merged_trades = _load_merged_trades()
@@ -438,6 +441,7 @@ def _sync_order_status_from_history(
                 "history_count": 0,
                 "fallback": "balance",
             }
+    history = _normalize_history_cancellations(history)
     orders = []
     updated_count = 0
     terminal_regression_count = 0

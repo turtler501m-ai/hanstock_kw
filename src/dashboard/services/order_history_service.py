@@ -64,8 +64,40 @@ def _history_order_is_canceled(row: dict) -> bool:
         "CNCL_YN",
         "rvse_cncl_dvsn_name",
         "RVSE_CNCL_DVSN_NAME",
+        "mdfy_cncl",
+        "MDFY_CNCL",
+        "canceled",
+        "cancel_yn",
     ).strip()
     return value.upper() == "Y" or "취소" in value or "cancel" in value.lower()
+def _history_original_order_id(row: dict) -> str:
+    return _history_text(
+        row,
+        "orig_ord_no", "orig_odno", "ORIG_ORD_NO", "ORIG_ODNO",
+        "orgn_ord_no", "original_order_no", "ori_ord", "ORI_ORD",
+    )
+
+
+def _normalize_history_cancellations(history: list[dict]) -> list[dict]:
+    """Fold Kiwoom's separate cancellation rows into their original orders."""
+    canceled_original_ids = {
+        _history_original_order_id(row)
+        for row in history
+        if _history_original_order_id(row) and _history_order_is_canceled(row)
+    }
+    if not canceled_original_ids:
+        return history
+
+    normalized = []
+    for row in history:
+        original_order_id = _history_original_order_id(row)
+        if original_order_id and _history_order_is_canceled(row):
+            continue
+        order_id = _broker_order_id_from_history(row)
+        if order_id in canceled_original_ids and not _history_order_is_canceled(row):
+            row = {**row, "cncl_yn": "Y"}
+        normalized.append(row)
+    return normalized
 
 
 def _history_order_is_rejected(row: dict) -> bool:
