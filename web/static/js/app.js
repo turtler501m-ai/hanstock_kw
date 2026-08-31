@@ -4260,11 +4260,12 @@ async function renderReconciliationIssues() {
     }
 }
 
-async function applyBrokerBalanceReconciliation() {
+async function applyBrokerBalanceReconciliation(options = {}) {
     if (!reconciliationIssueCount) return;
+    const skipConfirm = options.skipConfirm === true;
     const warning = `${reconciliationIssueCount}건의 내부 수량을 현재 키움 실제 잔고에 맞춥니다.\n변경 내용은 감사 원장에 기록되며 현금·손익 기록은 임의로 변경하지 않습니다.\n\n계속할까요?`;
-    if (!window.confirm(warning)) return;
-    const button = document.getElementById('btn-apply-broker-balance');
+    if (!skipConfirm && !window.confirm(warning)) return;
+    const button = document.getElementById(options.buttonId || 'btn-apply-broker-balance');
     setButtonBusy(button, true);
     try {
         const result = await postJson('/api/reconciliation/issues/apply-broker-balance', {
@@ -4283,6 +4284,27 @@ async function applyBrokerBalanceReconciliation() {
         setStatus(`잔고 보정 실패: ${err.message} 보유종목 동기화 후 다시 확인하세요.`);
     } finally {
         setButtonBusy(button, false);
+    }
+}
+
+let bulkReconciliationRunId = null;
+
+async function resolveAllReconciliationIssues() {
+    if (!reconciliationIssueCount) return;
+    const warning = `주문 상태와 키움 보유잔고를 먼저 현행화한 뒤 ${reconciliationIssueCount}건의 잔고 불일치를 최신 증권사 수량으로 일괄 해결합니다.\n\n계속할까요?`;
+    if (!window.confirm(warning)) return;
+    const button = document.getElementById('btn-resolve-all-reconciliation');
+    setButtonBusy(button, true);
+    try {
+        const result = await postJson('/api/trades/sync', {});
+        bulkReconciliationRunId = result.run_id;
+        renderTradeSyncResult(result);
+        setStatus('전체 불일치 해결 1/2: 주문·보유 현행화 진행 중입니다.', true);
+        startTradeSyncPolling();
+    } catch (err) {
+        bulkReconciliationRunId = null;
+        setButtonBusy(button, false);
+        setStatus(`전체 불일치 해결 시작 실패: ${err.message}`);
     }
 }
 
@@ -4896,6 +4918,21 @@ function startTradeSyncPolling() {
         clearInterval(tradeSyncPollInterval);
         tradeSyncPollInterval = null;
         updateTradeSyncButton(result);
+        if (bulkReconciliationRunId && result.run_id === bulkReconciliationRunId) {
+            const bulkButton = document.getElementById('btn-resolve-all-reconciliation');
+            if (result.status === 'completed') {
+                setStatus('전체 불일치 해결 2/2: 최신 증권사 잔고로 내부 원장을 보정 중입니다.', true);
+                await renderReconciliationIssues();
+                await applyBrokerBalanceReconciliation({
+                    skipConfirm: true,
+                    buttonId: 'btn-resolve-all-reconciliation',
+                });
+            } else {
+                setStatus(`전체 불일치 해결 실패: ${result.error || '주문·보유 현행화 실패'}`);
+            }
+            bulkReconciliationRunId = null;
+            setButtonBusy(bulkButton, false);
+        }
         if (result.run_id && result.run_id !== tradeSyncLastCompletedRunId) {
             tradeSyncLastCompletedRunId = result.run_id;
             await Promise.all([
@@ -6121,7 +6158,11 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     const btnApplyBrokerBalance = document.getElementById('btn-apply-broker-balance');
     if (btnApplyBrokerBalance) {
-        btnApplyBrokerBalance.addEventListener('click', applyBrokerBalanceReconciliation);
+        btnApplyBrokerBalance.addEventListener('click', () => applyBrokerBalanceReconciliation());
+    }
+    const btnResolveAllReconciliation = document.getElementById('btn-resolve-all-reconciliation');
+    if (btnResolveAllReconciliation) {
+        btnResolveAllReconciliation.addEventListener('click', resolveAllReconciliationIssues);
     }
     const btnRetryApprovalsBatch = document.getElementById('btn-retry-approvals-batch');
     if (btnRetryApprovalsBatch) {
