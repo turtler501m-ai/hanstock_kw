@@ -404,6 +404,36 @@ def _sync_order_status_from_history(
         else:
             order_status = "filled"
         response_msg = f"Kiwoom order history sync: {order_status}"
+        snapshot = {
+            **trade,
+            "ts": _history_timestamp(row),
+            "order_status": order_status,
+            "filled_qty": filled_qty,
+            "filled_price": filled_price,
+            "broker_result": row,
+        }
+        try:
+            # Reconcile the authoritative unified ledger first. A stale broker
+            # row must not regress a terminal order or mutate its legacy mirror.
+            _mirror_trade_to_unified_ledger(snapshot, trade)
+        except ValueError as exc:
+            if "broker snapshot cannot regress terminal order" not in str(exc):
+                raise
+            logger.warning(
+                "order status sync ignored stale terminal snapshot "
+                f"broker_order_id={order_id} symbol={trade.get('symbol', '')} error={exc}"
+            )
+            orders.append({
+                "broker_order_id": order_id,
+                "symbol": trade.get("symbol", ""),
+                "name": trade.get("name", ""),
+                "action": trade.get("action", ""),
+                "order_status": str(trade.get("order_status") or ""),
+                "filled_qty": _to_int(trade.get("filled_qty")),
+                "filled_price": _to_int(trade.get("filled_price")),
+                "sync_result": "ignored_terminal_regression",
+            })
+            continue
         status_changed = str(trade.get("order_status") or "") != order_status
         quantity_changed = _to_int(trade.get("filled_qty")) != filled_qty
         price_changed = filled_price > 0 and _to_int(trade.get("filled_price")) != filled_price
@@ -417,17 +447,6 @@ def _sync_order_status_from_history(
                 response_msg=response_msg,
                 broker_result=row,
             )
-        _mirror_trade_to_unified_ledger(
-            {
-                **trade,
-                "ts": _history_timestamp(row),
-                "order_status": order_status,
-                "filled_qty": filled_qty,
-                "filled_price": filled_price,
-                "broker_result": row,
-            },
-            trade,
-        )
         orders.append({
             "broker_order_id": order_id,
             "symbol": trade.get("symbol", ""),
