@@ -2513,6 +2513,9 @@ def _mistock_strategy_forward(trades: list[dict], index_rows: dict[str, list[dic
         return []
 
     symbols = sorted({str(row.get("symbol") or "") for row in trades if row.get("symbol")})
+    _, cached_prices = _MISTOCK_PRICE_CACHE
+    if not symbols or not all(symbol in cached_prices for symbol in symbols):
+        return []
     names = {
         str(row["id"]): str(row.get("name") or row["id"])
         for row in mistock_db.rows("SELECT id, name FROM ai_strategies")
@@ -2522,7 +2525,7 @@ def _mistock_strategy_forward(trades: list[dict], index_rows: dict[str, list[dic
     completed_trades = [row for row in trades if not as_of or str(row.get("ts") or "")[:10] <= as_of]
     rows = build_strategy_forward_performance(
         completed_trades,
-        _load_mistock_price_rows(symbols),
+        {symbol: cached_prices[symbol] for symbol in symbols},
         {"KOSPI": index_rows.get("sp500", []), "KOSDAQ": index_rows.get("nasdaq", [])},
         strategy_names=names,
         as_of=as_of,
