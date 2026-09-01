@@ -3003,6 +3003,7 @@ def mistock_performance(strategy_id: str = ""):
                 
         return {
             "total_trades": total_trades,
+            "record_started_at": account_trades[0].get("ts") if account_trades else None,
             "success_rate": round(success_rate, 2),
             "realized_pnl": round(realized_pnl, 2),
             "total_eval_pnl": round(total_eval_pnl, 2),

@@ -1597,6 +1597,7 @@ function renderHoldingAccountSummary(balance, displayTotal, realizedPnl = 0) {
     }
     const stockEval = Number(balance.stock_eval || 0);
     const cash = Number(balance.cash || 0);
+    const orderableCash = Number(balance.orderable_cash ?? cash);
     const pnl = Number(balance.pnl || 0);
     const cashRatio = typeof balance.cash_ratio === 'number'
         ? balance.cash_ratio
@@ -1628,7 +1629,7 @@ function renderHoldingAccountSummary(balance, displayTotal, realizedPnl = 0) {
         <div>
             <span>예수금</span>
             <strong>${formatCurrency(cash)}</strong>
-            <small>비중 ${formatNumber(cashRatio * 100, 1)}%</small>
+            <small>비중 ${formatNumber(cashRatio * 100, 1)}% · 주문가능 ${formatCurrency(orderableCash)}</small>
         </div>
         <div>
             <span>평가 손익</span>
@@ -1883,6 +1884,16 @@ async function renderBalance() {
         const returnRate = evalCost > 0 ? (evalPnl / evalCost) * 100 : 0;
         const realizedPnl = Number(perf.realized_pnl || 0);
 
+        renderTotalPnlBreakdown({
+            principal: principalUsd,
+            displayTotal,
+            accountPnl,
+            realizedPnl,
+            evalPnl,
+            recordStartedAt: perf.record_started_at || '',
+            holdings: accountHoldings,
+        });
+
         setElementText('val-total', formatCurrency(displayTotal));
         setElementText('val-principal', formatCurrency(principal, isPrincipalKrw));
         setElementText('val-cash', formatCurrency(balance.account_cash ?? balance.cash));
@@ -1988,6 +1999,54 @@ async function renderBalance() {
         setElementText('val-return', '-');
         setStatus(`계좌 API 오류: ${err.message}`);
         setTableMessage('#table-holdings tbody', 8, err.message);
+    }
+}
+
+function renderTotalPnlBreakdown({ principal, displayTotal, accountPnl, realizedPnl, evalPnl, recordStartedAt, holdings }) {
+    const panel = document.getElementById('total-pnl-breakdown');
+    const tbody = document.querySelector('#table-total-pnl-breakdown tbody');
+    const card = document.getElementById('total-pnl-card');
+    const closeButton = document.getElementById('btn-close-total-pnl');
+    if (!panel || !tbody || !card) return;
+
+    const otherChange = accountPnl - realizedPnl - evalPnl;
+    const rows = [
+        ['계좌 전체', '초기자산 대비 총손익', accountPnl, `${formatCurrency(principal)} → ${formatCurrency(displayTotal)}`],
+        ['확정 손익', '기록 이후 실현손익', realizedPnl, `${recordStartedAt ? recordStartedAt.slice(0, 10) + '부터 ' : ''}실제 체결기록으로 계산`],
+        ['보유 손익', '현재 평가손익', evalPnl, '현재 증권사 전체 보유종목의 평가손익 합계'],
+        ['기타 조정', '기록 이전·미수집 계좌 변동', otherChange, '과거 매입자산, 수수료·세금, 입출금 및 기록 이전 자산 포함 가능'],
+    ];
+    (holdings || []).forEach((holding) => rows.push([
+        '보유 종목',
+        `${holding.name || holding.symbol || '-'} (${holding.symbol || '-'})`,
+        Number(holding.pnl || 0),
+        `평가금 ${formatCurrency(holding.value || 0)} · 수익률 ${formatPercent(holding.rt || 0)}`,
+    ]));
+
+    tbody.innerHTML = rows.map(([category, item, amount, description]) => {
+        const value = Number(amount || 0);
+        const valueClass = value > 0 ? 'text-success' : (value < 0 ? 'text-danger' : '');
+        return `<tr><td>${escapeHtml(category)}</td><td>${escapeHtml(item)}</td><td class="${valueClass}">${value > 0 ? '+' : ''}${formatCurrency(value)}</td><td>${escapeHtml(description)}</td></tr>`;
+    }).join('');
+
+    const setExpanded = (expanded) => {
+        panel.hidden = !expanded;
+        card.setAttribute('aria-expanded', String(expanded));
+        if (expanded) panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    };
+    if (card.dataset.breakdownBound !== 'true') {
+        card.dataset.breakdownBound = 'true';
+        card.addEventListener('click', () => setExpanded(panel.hidden));
+        card.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                setExpanded(panel.hidden);
+            }
+        });
+        closeButton?.addEventListener('click', (event) => {
+            event.stopPropagation();
+            setExpanded(false);
+        });
     }
 }
 
