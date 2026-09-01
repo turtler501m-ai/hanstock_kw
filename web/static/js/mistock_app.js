@@ -3149,23 +3149,48 @@ async function processOptimizerBatch() {
 
 async function renderApprovals() {
     try {
-        const data = await fetchJson('/api/mistock/approvals?limit=50');
+        const [data, orderData] = await Promise.all([
+            fetchJson('/api/mistock/approvals?limit=50'),
+            fetchJson('/api/mistock/orders?limit=50')
+        ]);
         const tbody = document.querySelector('#table-approvals tbody');
         if (!tbody) return;
         const selectAll = document.getElementById('select-all-approvals');
         if (selectAll) selectAll.checked = false;
         tbody.innerHTML = '';
-        if (!data.approvals.length) {
+        const approvalIds = new Set((data.approvals || []).map((row) => Number(row.id)));
+        const directOrders = (orderData.items || [])
+            .filter((order) => !order.approval_id || !approvalIds.has(Number(order.approval_id)))
+            .map((order) => ({
+                id: `order-${order.id}`,
+                created_at: String(order.submitted_at || order.created_at || '').replace('T', ' ').replace(/\+00:00$/, ' UTC'),
+                symbol: order.symbol,
+                name: order.name,
+                action: order.side,
+                qty: order.requested_qty,
+                price: order.order_price,
+                status: order.status,
+                response_msg: order.status === 'submitted'
+                    ? `증권사 접수 · 체결 미확인 #${order.broker_order_id || '-'}`
+                    : (order.last_error_message || `주문 원장 #${order.id}`),
+                unified_order: true
+            }));
+        const rows = [...directOrders, ...(data.approvals || [])]
+            .sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')))
+            .slice(0, 50);
+        if (!rows.length) {
             setTableMessage('#table-approvals tbody', 9, '승인 대기 주문이 없습니다');
             return;
         }
 
-        data.approvals.forEach((row) => {
+        rows.forEach((row) => {
             const status = String(row.status || '');
             const statusKind = status === 'pending' ? 'warn' : (status === 'executed' ? 'buy' : (status === 'failed' ? 'sell' : 'hold'));
             const estimatedCost = Number(row.qty || 0) * Number(row.price || 0);
             const autoApprovalInProgress = Boolean(row.auto_approval_in_progress);
-            const controls = status === 'pending' && autoApprovalInProgress
+            const controls = row.unified_order
+                ? `<span class="time-muted">${escapeHtml(row.response_msg || '')}</span>`
+                : status === 'pending' && autoApprovalInProgress
                 ? `<span class="time-muted">Auto approval in progress</span>`
                 : status === 'pending'
                 ? `<div class="button-row">
@@ -3176,7 +3201,7 @@ async function renderApprovals() {
 
             const tr = document.createElement('tr');
             tr.innerHTML = `
-                <td><input type="checkbox" class="approval-row-select" value="${escapeHtml(row.id)}" aria-label="${escapeHtml(row.symbol)} 승인 선택" ${status !== 'pending' || autoApprovalInProgress ? 'disabled' : ''}></td>
+                <td><input type="checkbox" class="approval-row-select" value="${escapeHtml(row.id)}" aria-label="${escapeHtml(row.symbol)} 승인 선택" ${row.unified_order || status !== 'pending' || autoApprovalInProgress ? 'disabled' : ''}></td>
                 <td>
                     <div>${escapeHtml(String(row.created_at || '').split(' ')[0])}</div>
                     <div class="time-muted">${escapeHtml(String(row.created_at || '').split(' ')[1] || '')}</div>
@@ -3288,10 +3313,14 @@ window.routeToTab = function(tabName) {
 
 async function renderTrades() {
     try {
+        const orderData = await fetchJson('/api/mistock/orders?limit=100');
+        const activeOrderCount = (orderData.items || []).filter((row) =>
+            ['created','approved','submitting','submitted','partially_filled','broker_unknown'].includes(String(row.status || ''))
+        ).length;
         // 성과 요약 (Performance)
         try {
             const perf = await fetchJson(performanceApiUrl('/api/mistock/performance'), 30000);
-            document.getElementById('perf-total-trades').textContent = `${perf.total_trades}회`;
+            document.getElementById('perf-total-trades').textContent = `체결 ${perf.total_trades}건 · 접수대기 ${activeOrderCount}건`;
             document.getElementById('perf-success-rate').textContent = `${perf.success_rate}%`;
             
             const pnlEl = document.getElementById('perf-realized-pnl');
@@ -3379,15 +3408,40 @@ async function renderTrades() {
         }
 
         const trades = await fetchJson(performanceApiUrl('/api/mistock/trades?limit=20').replace('?limit=20?', '?limit=20&'));
+        const projectedOrders = (orderData.items || []).map((order) => {
+            let metadata = {};
+            try { metadata = JSON.parse(order.metadata_json || '{}'); } catch (_) { metadata = {}; }
+            return {
+                ts: String(order.submitted_at || order.created_at || '').replace('T', ' ').replace(/\+00:00$/, ' UTC'),
+                symbol: order.symbol,
+                name: order.name,
+                action: order.side,
+                qty: order.requested_qty,
+                price: order.order_price,
+                reason: metadata.reason || order.last_error_message || '통합 주문 원장',
+                order_status: order.status,
+                broker_order_id: order.broker_order_id,
+                filled_qty: order.filled_qty,
+                filled_price: order.average_fill_price,
+                _sort_time: Date.parse(order.submitted_at || order.created_at || '') || 0
+            };
+        });
+        const recordedKeys = new Set((trades.trades || []).map((row) =>
+            `${row.broker_order_id || ''}:${row.symbol || ''}:${row.action || ''}`
+        ));
+        const displayTrades = [
+            ...projectedOrders.filter((row) => !recordedKeys.has(`${row.broker_order_id || ''}:${row.symbol || ''}:${row.action || ''}`)),
+            ...(trades.trades || []).map((row) => ({ ...row, _sort_time: Date.parse(String(row.ts || '').replace(' ', 'T')) || 0 }))
+        ].sort((a, b) => b._sort_time - a._sort_time).slice(0, 20);
         const tbodyTrades = document.querySelector('#table-trades tbody');
         if (!tbodyTrades) return;
         tbodyTrades.innerHTML = '';
 
-        if (!trades.trades.length) {
+        if (!displayTrades.length) {
             setTableMessage('#table-trades tbody', 8, '주문 기록이 없습니다');
         }
 
-        trades.trades.forEach((trade) => {
+        displayTrades.forEach((trade) => {
             const action = String(trade.action || '').toLowerCase();
             const badge = action === 'buy'
                 ? '<span class="badge badge-buy">매수</span>'
