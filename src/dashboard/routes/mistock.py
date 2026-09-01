@@ -2920,54 +2920,46 @@ def mistock_performance(strategy_id: str = ""):
         success_count = sum(1 for t in account_trades if t.get("ok", 1))
         success_rate = (success_count / total_trades * 100) if total_trades > 0 else 0.0
         
-        holdings, names, realized_pnl = _mistock_positions_from_trades(account_trades)
-                    
-        # Filter sold holdings
-        sells = [row for row in account_trades if row["action"] == "sell"]
-        wins = sum(1 for row in sells if row.get("price", 0.0) > holdings.get(row["symbol"], {}).get("cost", 0.0))
-        losses = len(sells) - wins
-        
-        # The broker balance endpoint is operational synchronization, not a
-        # prerequisite for rendering historical performance. Keeping it out of
-        # this request prevents a slow broker response from blanking the tab.
-        current_holdings = {}
-        total_broker_pnl = 0.0
-            
+        _, _, realized_pnl = _mistock_positions_from_trades(account_trades)
+        balance = mistock_balance()
+        broker_holdings = balance.get("holdings") or []
         eval_details = []
+        daily_holdings = {}
+        for holding in broker_holdings:
+            qty = float(holding.get("qty") or 0)
+            pnl = float(holding.get("pnl") or 0)
+            if strategy_id:
+                allocation = next(
+                    (item for item in holding.get("strategy_allocations", [])
+                     if str(item.get("strategy_id") or "") == strategy_id),
+                    None,
+                )
+                if not allocation:
+                    continue
+                qty = float(allocation.get("allocated_qty") or 0)
+                pnl = float(allocation.get("pnl") or 0)
+            if qty <= 0:
+                continue
+            symbol = str(holding.get("symbol") or "")
+            avg_cost = float(holding.get("avg_price") or 0)
+            current_price = float(holding.get("price") or 0)
+            return_rate = pnl / (current_price * qty - pnl) * 100 if current_price * qty - pnl > 0 else 0.0
+            eval_details.append({
+                "symbol": symbol,
+                "name": holding.get("name") or symbol,
+                "qty": qty,
+                "avg_cost": round(avg_cost, 2),
+                "current_price": round(current_price, 2),
+                "eval_pnl": round(pnl, 2),
+                "return_rate": round(return_rate, 2),
+                "broker_qty": qty,
+                "broker_pnl": round(pnl, 2),
+                "diff_reason": "",
+            })
+            daily_holdings[symbol] = {"qty": qty}
+        total_broker_pnl = sum(float(item["broker_pnl"]) for item in eval_details)
         total_eval_pnl = total_broker_pnl
-        
-        for sym, data in holdings.items():
-            if data["qty"] > 0:
-                current_price = data["cost"]
-                if sym in current_holdings:
-                    current_price = float(current_holdings[sym]["price"])
-                # Do not make one external quote request per historical holding.
-                # A holding absent from the broker balance is valued at its cost
-                # until balance synchronization resolves it.
-                
-                eval_pnl = (current_price - data["cost"]) * data["qty"]
-                return_rate = ((current_price / data["cost"]) - 1) * 100 if data["cost"] > 0 else 0.0
-                
-                eval_details.append({
-                    "symbol": sym,
-                    "name": names.get(sym, sym),
-                    "qty": data["qty"],
-                    "avg_cost": round(data["cost"], 2),
-                    "current_price": round(current_price, 2),
-                    "eval_pnl": round(eval_pnl, 2),
-                    "return_rate": round(return_rate, 2),
-                    "broker_qty": current_holdings.get(sym, {}).get("qty", 0.0),
-                    "broker_pnl": round(current_holdings.get(sym, {}).get("pnl", 0.0), 2),
-                    "diff_reason": ""
-                })
-        if strategy_id:
-            total_eval_pnl = sum(float(item.get("eval_pnl") or 0) for item in eval_details)
-            total_broker_pnl = sum(
-                float(current_holdings.get(symbol, {}).get("pnl") or 0)
-                for symbol, position in holdings.items()
-                if float(position.get("qty") or 0) > 0
-            )
-        daily_change = _mistock_holding_daily_change(holdings)
+        daily_change = _mistock_holding_daily_change(daily_holdings)
         symbol_changes = daily_change.get("holding_daily_changes") or {}
         for item in eval_details:
             item["daily_change_pct"] = symbol_changes.get(item["symbol"])
@@ -2978,6 +2970,10 @@ def mistock_performance(strategy_id: str = ""):
             "realized_pnl": round(realized_pnl, 2),
             "total_eval_pnl": round(total_eval_pnl, 2),
             "total_broker_pnl": round(total_broker_pnl, 2),
+            "account_total_eval": round(float(balance.get("total_eval") or 0), 2),
+            "account_cash": round(float(balance.get("account_cash") or balance.get("cash") or 0), 2),
+            "account_stock_eval": round(float(balance.get("stock_eval") or 0), 2),
+            "account_source": balance.get("balance_source") or "unknown",
             "eval_details": eval_details,
             "untracked_details": [],
             **daily_change,
@@ -3002,11 +2998,33 @@ def mistock_periodic_performance(strategy_id: str = ""):
         trades = mistock_db.rows("SELECT * FROM trades ORDER BY ts ASC")
         cashflows = mistock_db.rows("SELECT * FROM performance_cashflows ORDER BY occurred_at, id")
         periodic = _build_mistock_periodic_performance(trades, strategy_id=strategy_id, cashflows=cashflows)
-        account_trades = _mistock_account_trades(trades)
+        balance = mistock_balance()
         if strategy_id:
-            account_trades = [row for row in account_trades if str(row.get("strategy_id") or "unattributed") == strategy_id]
-        holdings, _, _ = _mistock_positions_from_trades(account_trades)
-        return _merge_mistock_holding_change(periodic, _mistock_holding_daily_change(holdings))
+            daily_holdings = {
+                str(row.get("symbol") or ""): {"qty": float(allocation.get("allocated_qty") or 0)}
+                for row in balance.get("holdings") or []
+                for allocation in row.get("strategy_allocations", [])
+                if str(allocation.get("strategy_id") or "") == strategy_id
+                and float(allocation.get("allocated_qty") or 0) > 0
+            }
+        else:
+            daily_holdings = {
+                str(row.get("symbol") or ""): {"qty": float(row.get("qty") or 0)}
+                for row in balance.get("holdings") or []
+                if float(row.get("qty") or 0) > 0
+            }
+        periodic = _merge_mistock_holding_change(
+            periodic, _mistock_holding_daily_change(daily_holdings)
+        )
+        periodic["account_snapshot"] = {
+            "total_eval": round(float(balance.get("total_eval") or 0), 2),
+            "account_cash": round(float(balance.get("account_cash") or balance.get("cash") or 0), 2),
+            "stock_eval": round(float(balance.get("stock_eval") or 0), 2),
+            "pnl": round(float(balance.get("pnl") or 0), 2),
+            "holding_count": len(balance.get("holdings") or []),
+            "source": balance.get("balance_source") or "unknown",
+        }
+        return periodic
     except Exception as e:
         from src.utils.logger import logger
         logger.error(f"Failed to calculate mistock periodic performance: {e}")
