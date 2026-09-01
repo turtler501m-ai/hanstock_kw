@@ -2362,43 +2362,10 @@ _MISTOCK_PRICE_CACHE: tuple[float, dict[str, list[dict]]] = (0.0, {})
 
 
 def _load_mistock_index_rows() -> dict[str, list[dict]]:
-    global _MISTOCK_INDEX_CACHE
-    cached_at, cached_rows = _MISTOCK_INDEX_CACHE
-    if time.monotonic() - cached_at < 300:
-        return cached_rows
-
-    series: dict[str, list[dict]] = {}
-    try:
-        from src.online_access import require_online_access
-        import yfinance as yf
-
-        require_online_access("미스톡 성과 탭 시장지수 조회")
-        tickers = list(_MISTOCK_INDEX_TICKERS.values())
-        data = yf.download(
-            tickers,
-            period="6mo",
-            interval="1d",
-            auto_adjust=False,
-            progress=False,
-            threads=True,
-            timeout=8,
-        )
-        if data is not None and not data.empty:
-            close = data["Close"]
-            for name, ticker in _MISTOCK_INDEX_TICKERS.items():
-                try:
-                    values = close[ticker] if getattr(close, "ndim", 1) > 1 else close
-                    series[name] = [
-                        {"date": str(index)[:10], "close": float(value)}
-                        for index, value in values.dropna().items()
-                    ]
-                except Exception as exc:
-                    logger.info(f"Mistock market ticker unavailable ticker={ticker}: {exc}")
-    except Exception as exc:
-        logger.info(f"Mistock performance benchmark data unavailable: {exc}")
-
-    _MISTOCK_INDEX_CACHE = (time.monotonic(), series)
-    return series
+    # Dashboard requests must never wait for an external market-data provider.
+    # A separately warmed cache can still supply benchmark context; an empty
+    # cache simply omits that optional context from account performance.
+    return _MISTOCK_INDEX_CACHE[1]
 
 
 def _mistock_market_regime_projection(
@@ -2899,9 +2866,11 @@ def mistock_performance(strategy_id: str = ""):
                 for symbol, position in holdings.items()
                 if float(position.get("qty") or 0) > 0
             )
-        daily_change = _mistock_holding_daily_change(
-            {symbol: position for symbol, position in holdings.items() if not strategy_id or float(position.get("qty") or 0) > 0}
-        )
+        daily_change = {
+            "holding_daily_change_pct": None,
+            "holding_daily_change_symbol_count": 0,
+            "holding_daily_changes": {},
+        }
         symbol_changes = daily_change.get("holding_daily_changes") or {}
         for item in eval_details:
             item["daily_change_pct"] = symbol_changes.get(item["symbol"])
@@ -2936,12 +2905,7 @@ def mistock_periodic_performance(strategy_id: str = ""):
         trades = mistock_db.rows("SELECT * FROM trades ORDER BY ts ASC")
         cashflows = mistock_db.rows("SELECT * FROM performance_cashflows ORDER BY occurred_at, id")
         periodic = _build_mistock_periodic_performance(trades, strategy_id=strategy_id, cashflows=cashflows)
-        account_trades = _mistock_account_trades(trades)
-        if strategy_id:
-            account_trades = [row for row in account_trades if str(row.get("strategy_id") or "unattributed") == strategy_id]
-        holdings, _, _ = _mistock_positions_from_trades(account_trades)
-        daily_change = _mistock_holding_daily_change(holdings)
-        return _merge_mistock_holding_change(periodic, daily_change)
+        return periodic
     except Exception as e:
         from src.utils.logger import logger
         logger.error(f"Failed to calculate mistock periodic performance: {e}")
