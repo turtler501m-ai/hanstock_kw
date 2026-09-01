@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, time, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 from src.application.orders.health import build_order_health
 
@@ -81,13 +82,33 @@ def close_expired_unified_day_orders(connect, *, now: datetime | None = None) ->
     cutoff = current.astimezone(kst).strftime("%Y-%m-%d")
     updated_at = current.astimezone(timezone.utc).isoformat(timespec="seconds")
     with connect() as conn:
-        rows = conn.execute(
+        domestic_rows = conn.execute(
             """SELECT id,status FROM orders
                WHERE time_in_force='DAY'
+                 AND market<>'US'
                  AND broker_order_date<>'' AND broker_order_date<?
                  AND status IN ('submitted','open','partial','cancel_pending')""",
             (cutoff,),
         ).fetchall()
+        eastern_now = current.astimezone(ZoneInfo("America/New_York"))
+        us_cutoff = eastern_now.date()
+        expire_current_us_day = eastern_now.time() >= time(16, 15)
+        us_rows = conn.execute(
+            """SELECT id,status,created_at FROM orders
+               WHERE time_in_force='DAY' AND market='US'
+                 AND status IN ('submitted','open','partial','cancel_pending')"""
+        ).fetchall()
+        rows = list(domestic_rows)
+        for order_id, status, created_at in us_rows:
+            try:
+                created = datetime.fromisoformat(str(created_at).replace("Z", "+00:00"))
+                if created.tzinfo is None:
+                    created = created.replace(tzinfo=timezone.utc)
+                order_day = created.astimezone(ZoneInfo("America/New_York")).date()
+            except (TypeError, ValueError):
+                continue
+            if order_day < us_cutoff or (expire_current_us_day and order_day == us_cutoff):
+                rows.append((order_id, status))
         for order_id, previous_status in rows:
             conn.execute(
                 """UPDATE orders SET status='canceled',completed_at=COALESCE(completed_at,?),

@@ -46,9 +46,13 @@ def build_order_health(connect, *, stale_minutes: int = 10, include_runtime: boo
                    WHERE t.order_status IN ('submitted','open','partial','broker_unknown')
                      AND NOT EXISTS (
                        SELECT 1 FROM orders o
-                       WHERE json_extract(o.metadata_json,'$.legacy_trade_id')=t.id
+                     WHERE json_extract(o.metadata_json,'$.legacy_trade_id')=t.id
                           OR (t.source_approval_id IS NOT NULL
                               AND o.approval_id=t.source_approval_id)
+                          OR (COALESCE(t.broker_order_id,'')<>''
+                              AND o.broker_order_id=t.broker_order_id
+                              AND o.broker_order_date=substr(t.ts,1,10)
+                              AND o.market='KR')
                      )"""
             ).fetchone()[0])
         except Exception:
