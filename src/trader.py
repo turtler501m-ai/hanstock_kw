@@ -484,10 +484,49 @@ def _attach_holding_snapshots(
     return enriched_plan
 
 
+def ai_rebalance_owned_stocks(stocks: list[dict]) -> tuple[list[dict], int]:
+    """Return the broker holdings owned by the AI-rebalance strategy sleeve."""
+    from src.db.repository import reconstruct_strategy_positions
+
+    positions = reconstruct_strategy_positions(
+        AI_REBALANCE_STRATEGY_ID, runtime_flags().trading_env
+    )
+    owned_qty = {
+        str(item.get("symbol") or ""): max(0, int(item.get("qty") or 0))
+        for item in positions
+        if int(item.get("qty") or 0) > 0
+    }
+    owned_stocks = []
+    sleeve_value = 0
+    for stock in stocks:
+        symbol = str(stock.get("pdno") or "")
+        broker_qty = _holding_qty(stock, "hldg_qty")
+        strategy_qty = min(broker_qty, owned_qty.get(symbol, 0))
+        if strategy_qty <= 0:
+            continue
+        row = dict(stock)
+        row["hldg_qty"] = strategy_qty
+        if "ord_psbl_qty" in row:
+            row["ord_psbl_qty"] = min(
+                strategy_qty, _holding_qty(stock, "ord_psbl_qty")
+            )
+        price = _holding_qty(stock, "prpr")
+        if price <= 0 and broker_qty > 0:
+            price = round(_holding_qty(stock, "evlu_amt") / broker_qty)
+        row["evlu_amt"] = strategy_qty * max(0, price)
+        row["strategy_owned_qty"] = strategy_qty
+        sleeve_value += int(row["evlu_amt"] or 0)
+        owned_stocks.append(row)
+    return owned_stocks, sleeve_value
+
+
 def build_ai_rebalance_rows(api, balance_data: dict, total_eval: int) -> list[dict]:
-    stocks = balance_data.get("output1", [])
+    stocks, sleeve_value = ai_rebalance_owned_stocks(balance_data.get("output1", []))
+    if not stocks or sleeve_value <= 0:
+        logger.info("[AI_REBALANCE] skipped: no broker-confirmed strategy-owned holdings")
+        return []
     holdings = _holding_history_from_balance(api, stocks)
-    ai_plan = generate_ai_weight_plan(holdings, total_eval)
+    ai_plan = generate_ai_weight_plan(holdings, sleeve_value)
     rows = []
     for position in ai_plan.get("positions", []):
         if is_excluded_symbol(position.get("symbol", "")):
@@ -521,6 +560,9 @@ def build_ai_rebalance_rows(api, balance_data: dict, total_eval: int) -> list[di
                 "target_value": position.get("target_value", 0),
                 "delta_value": position.get("delta_value", 0),
                 "ai_active": bool(ai_plan.get("ai_active")),
+                "ownership_scope": AI_REBALANCE_STRATEGY_ID,
+                "strategy_owned_qty": position.get("qty", 0),
+                "strategy_sleeve_value": sleeve_value,
             },
             strategy_id=AI_REBALANCE_STRATEGY_ID,
         ).to_dict())
@@ -672,9 +714,10 @@ def build_runtime_plan(
                 logger.info(f"[EXCLUDE] Skipping holding signal for excluded symbol {sym}")
                 continue
             name = stock.get("prdt_name", sym)
-            if active_strategy_id in {
-                "rsi_limit_strategy", "heikin_ashi_scalping_strategy"
-            } and sym not in owned_symbols:
+            account_wide_strategy = active_strategy_id in {
+                "seven_split", "broker_account_baseline"
+            }
+            if active_strategy_id and not account_wide_strategy and sym not in owned_symbols:
                 logger.info(
                     f"[OWNERSHIP] {sym} skipped: not owned by {active_strategy_id}"
                 )

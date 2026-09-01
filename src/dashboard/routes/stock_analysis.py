@@ -1226,13 +1226,17 @@ def get_ai_allocation():
 
     def _build():
         api = _get_api()
-        parsed = _parse_balance(_get_balance_data(api))
-        from src.db.repository import load_ai_strategies
-
-        strategies = load_ai_strategies()
-        active_strategy = next((strategy for strategy in strategies if strategy.get("selected")), None)
+        balance_data = _get_balance_data(api)
+        parsed = _parse_balance(balance_data)
+        raw_stocks = balance_data.get("output1") or []
+        owned_stocks, sleeve_value = trader.ai_rebalance_owned_stocks(raw_stocks)
+        owned_by_symbol = {str(item.get("pdno") or ""): item for item in owned_stocks}
         holdings = []
         for holding in parsed["holdings"]:
+            owned = owned_by_symbol.get(str(holding.get("symbol") or ""))
+            if not owned:
+                continue
+            owned_qty = int(owned.get("strategy_owned_qty") or 0)
             daily = stock_service.load_daily_history(api, holding["symbol"], n=120)
             prices = [float(row["stck_clpr"]) for row in daily if row.get("stck_clpr")]
             highs = [float(row["stck_hgpr"]) for row in daily if row.get("stck_hgpr")]
@@ -1243,22 +1247,21 @@ def get_ai_allocation():
             holdings.append({
                 "symbol": holding["symbol"],
                 "name": holding["name"],
-                "qty": holding["qty"],
+                "qty": owned_qty,
                 "price": holding["price"],
-
-                "value": holding["value"],
+                "value": owned_qty * holding["price"],
                 "prices": prices,
                 "highs": highs,
                 "volumes": volumes,
             })
-        capital = trader.operating_capital(parsed["total_eval"])
-        plan = trader.generate_ai_weight_plan(holdings, capital)
-        if active_strategy:
-            for position in plan.get("positions", []):
-                position["strategy_id"] = active_strategy.get("id")
-                position["strategy_version"] = active_strategy.get("strategy_version")
-                position["profile_hash"] = active_strategy.get("profile_hash")
-                position["ai_strategy_name"] = active_strategy.get("name")
+        plan = trader.generate_ai_weight_plan(holdings, sleeve_value)
+        for position in plan.get("positions", []):
+            position["strategy_id"] = "ai_rebalance"
+            position["ownership_scope"] = "ai_rebalance"
+            position["strategy_owned_qty"] = position.get("qty", 0)
+        plan["scope"] = "strategy_owned"
+        plan["strategy_id"] = "ai_rebalance"
+        plan["strategy_sleeve_value"] = sleeve_value
         return plan
 
     try:

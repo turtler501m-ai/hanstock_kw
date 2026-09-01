@@ -373,7 +373,11 @@ class TraderCoreTests(unittest.TestCase):
             ],
         }
 
-        with patch.object(trader, "generate_ai_weight_plan", return_value=ai_plan):
+        with patch.object(trader, "generate_ai_weight_plan", return_value=ai_plan), \
+                patch(
+                    "src.db.repository.reconstruct_strategy_positions",
+                    return_value=[{"symbol": "005930", "qty": 10}],
+                ):
             rows = trader.build_ai_rebalance_rows(_FakeAPI(), balance, 1_000_000)
 
         self.assertEqual(len(rows), 1)

@@ -654,7 +654,13 @@ def reconstruct_strategy_positions(strategy_id: str, env: str | None = None) -> 
         sym = t.get("symbol")
         if not sym:
             continue
-        qty = int(t.get("qty") or 0)
+        order_status = str(t.get("order_status") or "").strip().lower()
+        if order_status and order_status not in {"filled", "demo_local_filled"}:
+            continue
+        filled_qty = int(t.get("filled_qty") or 0)
+        qty = filled_qty if filled_qty > 0 else int(t.get("qty") or 0)
+        if qty <= 0:
+            continue
         price = float(t.get("price") or 0)
         pos = positions.setdefault(sym, {"symbol": sym, "name": t.get("name", sym), "qty": 0, "avg_cost": 0.0, "realized_pnl": 0.0})
         pos["name"] = t.get("name", pos["name"])
