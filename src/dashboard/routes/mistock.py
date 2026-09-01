@@ -3014,6 +3014,7 @@ def mistock_performance(strategy_id: str = ""):
             "known_gross_pnl": round(known_gross_pnl, 2),
             "known_net_pnl": round(known_net_pnl, 2),
             "known_net_pnl_krw": round(known_net_pnl * exchange_rate),
+            "known_net_return_pct": round(known_net_pnl / principal_usd * 100, 2) if principal_usd > 0 else None,
             "explained_pnl": round(known_gross_pnl, 2),
             "unexplained_adjustment": None,
             "broker_stock_eval": round(float(balance.get("broker_stock_eval") or 0), 2),
