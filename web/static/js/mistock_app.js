@@ -1879,7 +1879,7 @@ async function renderBalance() {
 
         setElementText('val-total', formatCurrency(displayTotal));
         setElementText('val-principal', formatCurrency(principal, isPrincipalKrw));
-        setElementText('val-cash', formatCurrency(balance.cash));
+        setElementText('val-cash', formatCurrency(balance.account_cash ?? balance.cash));
         setElementText('val-stock-eval', formatCurrency(Number(balance.stock_eval || holdingValue || 0)));
         const accountPnlEl = setElementText('val-account-pnl', formatCurrency(accountPnl));
         if (accountPnlEl) {

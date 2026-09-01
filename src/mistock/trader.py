@@ -596,15 +596,24 @@ def get_balance() -> dict[str, Any]:
                     if effective_total > configured_cap:
                         cash = max(0.0, configured_cap - stock_eval)
                         balance_source = f"{balance_data.get('_broker', 'kiwoom')}_config_capped"
-            total_eval = cash + stock_eval
+            orderable_cash = cash
+            account_cash = (
+                max(0.0, broker_total_eval - stock_eval)
+                if broker_total_eval > 0
+                else cash
+            )
+            total_eval = broker_total_eval if broker_total_eval > 0 else account_cash + stock_eval
             return {
-                "cash": cash,
+                # Keep cash as orderable cash for sizing and order safety.
+                "cash": orderable_cash,
+                "orderable_cash": orderable_cash,
+                "account_cash": account_cash,
                 "total_eval": total_eval,
                 "broker_total_eval": broker_total_eval or total_eval,
-                "calculated_total_eval": total_eval,
+                "calculated_total_eval": account_cash + stock_eval,
                 "balance_source": balance_source,
                 "stock_eval": stock_eval,
-                "cash_ratio": cash / total_eval if total_eval > 0 else 0.0,
+                "cash_ratio": account_cash / total_eval if total_eval > 0 else 0.0,
                 "stock_ratio": stock_eval / total_eval if total_eval > 0 else 0.0,
                 "pnl": pnl,
                 "holdings": holdings,
