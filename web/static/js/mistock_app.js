@@ -58,7 +58,9 @@ function renderPerformanceDetailPanel(item) {
     if (!title || !subtitle || !body) return;
     const details = Array.isArray(item.details) ? item.details : [];
     title.textContent = `${item.period || '-'} 성과 상세 목록`;
-    subtitle.textContent = '선택한 성과 기간의 매수/매도 체결 기준 상세 내역입니다.';
+    subtitle.textContent = item.market_only
+        ? '미국장은 열렸지만 계좌의 매수·매도 체결은 없었던 날입니다.'
+        : '선택한 성과 기간의 매수/매도 체결 기준 상세 내역입니다.';
     const renderRows = (rows) => rows.map((detail) => {
         const pnl = Number(detail.realized_pnl || 0);
         const pnlClass = pnl > 0 ? 'text-success' : (pnl < 0 ? 'text-danger' : '');
@@ -86,7 +88,9 @@ function renderPerformanceDetailPanel(item) {
                 <th>시간</th><th>종목</th><th>종목명</th><th>구분</th><th>수량</th>
                 <th>단가</th><th>금액</th><th>실현손익</th><th>수익률</th><th>매매 전략</th><th>사유</th>
             </tr></thead><tbody>${renderRows(details)}</tbody></table></div>`
-            : '<p class="ai-modal-footnote">해당 기간의 세부 거래가 없습니다.</p>'}`;
+            : `<p class="ai-modal-footnote">${item.market_only
+                ? '정상 무거래 시장일입니다. 전략 실행 실패나 집계 누락이 아닙니다.'
+                : '해당 기간의 세부 거래가 없습니다.'}</p>`}`;
     setPerformanceDetailPanelOpen(true);
     document.getElementById('performance-detail-panel')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
@@ -3602,7 +3606,7 @@ function updatePeriodicPerformanceUI() {
                 
                 tr.innerHTML = `
                     <td><button type="button" class="period-detail-button"><strong>${escapeHtml(item.period)}</strong></button></td>
-                    <td>${Number(item.order_count || 0).toLocaleString()}회</td>
+                    <td>${item.market_only ? '무거래' : `${Number(item.order_count || 0).toLocaleString()}회`}</td>
                     <td>${formatCurrency(item.buy_amount)}</td>
                     <td>${formatCurrency(item.sell_amount)}</td>
                     <td class="${pnlClass}">${pnl > 0 ? '+' : ''}${formatCurrency(pnl)}</td>

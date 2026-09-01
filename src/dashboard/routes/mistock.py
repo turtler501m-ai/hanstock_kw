@@ -2362,6 +2362,8 @@ _MISTOCK_INDEX_CACHE: tuple[float, dict[str, list[dict]]] = (0.0, {})
 _MISTOCK_PRICE_CACHE: tuple[float, dict[str, list[dict]]] = (0.0, {})
 _MISTOCK_INDEX_REFRESHING = False
 _MISTOCK_INDEX_LOCK = threading.Lock()
+_MISTOCK_PRICE_REFRESHING = False
+_MISTOCK_PRICE_LOCK = threading.Lock()
 _MISTOCK_HOLDING_CHANGE_CACHE: tuple[float, tuple[str, ...], dict] = (0.0, (), {})
 _MISTOCK_HOLDING_CHANGE_REFRESHING = False
 _MISTOCK_HOLDING_CHANGE_LOCK = threading.Lock()
@@ -2473,19 +2475,18 @@ def mistock_market_regime():
     }
 
 
-def _load_mistock_price_rows(symbols: list[str]) -> dict[str, list[dict]]:
+def _refresh_mistock_price_rows(symbols: list[str]) -> None:
     from src.mistock.config import config as mistock_config
 
-    global _MISTOCK_PRICE_CACHE
-    cached_at, cached = _MISTOCK_PRICE_CACHE
+    global _MISTOCK_PRICE_CACHE, _MISTOCK_PRICE_REFRESHING
     requested = sorted({
         symbol for symbol in symbols
         if symbol.upper().replace("-", ".") not in mistock_config.excluded_symbols
     })
-    if requested and time.monotonic() - cached_at < 300 and all(symbol in cached for symbol in requested):
-        return {symbol: cached[symbol] for symbol in requested}
     if not requested:
-        return {}
+        with _MISTOCK_PRICE_LOCK:
+            _MISTOCK_PRICE_REFRESHING = False
+        return
     try:
         from src.online_access import require_online_access
         import yfinance as yf
@@ -2500,10 +2501,28 @@ def _load_mistock_price_rows(symbols: list[str]) -> dict[str, list[dict]]:
             series = close[yahoo_symbol].dropna() if getattr(close, "ndim", 1) > 1 else close.dropna()
             result[symbol] = [{"date": str(index)[:10], "close": float(value)} for index, value in series.items()]
         _MISTOCK_PRICE_CACHE = (time.monotonic(), result)
-        return result
     except Exception as exc:
         logger.info(f"Mistock strategy price data unavailable: {exc}")
-        return {}
+    finally:
+        with _MISTOCK_PRICE_LOCK:
+            _MISTOCK_PRICE_REFRESHING = False
+
+
+def _ensure_mistock_price_rows(symbols: list[str]) -> None:
+    global _MISTOCK_PRICE_REFRESHING
+    cached_at, _ = _MISTOCK_PRICE_CACHE
+    if time.monotonic() - cached_at < 3600:
+        return
+    with _MISTOCK_PRICE_LOCK:
+        if _MISTOCK_PRICE_REFRESHING:
+            return
+        _MISTOCK_PRICE_REFRESHING = True
+        threading.Thread(
+            target=_refresh_mistock_price_rows,
+            args=(list(symbols),),
+            name="mistock-performance-price-refresh",
+            daemon=True,
+        ).start()
 
 
 def _mistock_strategy_forward(trades: list[dict], index_rows: dict[str, list[dict]]) -> list[dict]:
@@ -2513,8 +2532,9 @@ def _mistock_strategy_forward(trades: list[dict], index_rows: dict[str, list[dic
         return []
 
     symbols = sorted({str(row.get("symbol") or "") for row in trades if row.get("symbol")})
+    _ensure_mistock_price_rows(symbols)
     _, cached_prices = _MISTOCK_PRICE_CACHE
-    if not symbols or not all(symbol in cached_prices for symbol in symbols):
+    if not symbols or not cached_prices:
         return []
     names = {
         str(row["id"]): str(row.get("name") or row["id"])
@@ -2525,7 +2545,7 @@ def _mistock_strategy_forward(trades: list[dict], index_rows: dict[str, list[dic
     completed_trades = [row for row in trades if not as_of or str(row.get("ts") or "")[:10] <= as_of]
     rows = build_strategy_forward_performance(
         completed_trades,
-        {symbol: cached_prices[symbol] for symbol in symbols},
+        {symbol: cached_prices[symbol] for symbol in symbols if symbol in cached_prices},
         {"KOSPI": index_rows.get("sp500", []), "KOSDAQ": index_rows.get("nasdaq", [])},
         strategy_names=names,
         as_of=as_of,

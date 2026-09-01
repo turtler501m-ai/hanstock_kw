@@ -248,11 +248,28 @@ def cancel_unified_order(order_id: int):
     claimed = repository.transition(
         order_id, current, "cancel_pending", actor="dashboard", reason="operator cancellation"
     )
-    result = _get_api().submit_cancellation(CancelOrderRequest(
-        order_id=broker_order_id,
-        symbol=str(item["symbol"]),
-        quantity=max(0, int(item["requested_qty"]) - int(item["filled_qty"])),
-    ))
+    try:
+        result = _get_api().submit_cancellation(CancelOrderRequest(
+            order_id=broker_order_id,
+            symbol=str(item["symbol"]),
+            quantity=max(0, int(item["requested_qty"]) - int(item["filled_qty"])),
+        ))
+    except Exception as exc:
+        message = str(exc)
+        repository.record_event(
+            order_id,
+            "broker_cancel_exception",
+            actor="broker",
+            reason=message,
+            payload={"original_broker_order_id": broker_order_id},
+        )
+        repository.transition(
+            order_id, "cancel_pending", "broker_unknown", actor="broker", reason=message
+        )
+        raise HTTPException(
+            status_code=409,
+            detail="증권사 취소 결과를 확정할 수 없습니다. 주문 현행화를 실행해 주세요.",
+        ) from exc
     repository.record_event(
         order_id,
         "broker_cancel_response",
