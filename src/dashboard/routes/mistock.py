@@ -2373,28 +2373,27 @@ def _load_mistock_index_rows() -> dict[str, list[dict]]:
         import yfinance as yf
 
         require_online_access("미스톡 성과 탭 시장지수 조회")
-        for name, ticker in _MISTOCK_INDEX_TICKERS.items():
-            try:
-                data = yf.download(
-                    ticker,
-                    period="6mo",
-                    interval="1d",
-                    auto_adjust=False,
-                    progress=False,
-                    threads=False,
-                    timeout=5,
-                )
-                if data is None or data.empty:
-                    continue
-                close = data["Close"]
-                if getattr(close, "ndim", 1) > 1:
-                    close = close.iloc[:, 0]
-                series[name] = [
-                    {"date": str(index)[:10], "close": float(value)}
-                    for index, value in close.dropna().items()
-                ]
-            except Exception as exc:
-                logger.info(f"Mistock market ticker unavailable ticker={ticker}: {exc}")
+        tickers = list(_MISTOCK_INDEX_TICKERS.values())
+        data = yf.download(
+            tickers,
+            period="6mo",
+            interval="1d",
+            auto_adjust=False,
+            progress=False,
+            threads=True,
+            timeout=8,
+        )
+        if data is not None and not data.empty:
+            close = data["Close"]
+            for name, ticker in _MISTOCK_INDEX_TICKERS.items():
+                try:
+                    values = close[ticker] if getattr(close, "ndim", 1) > 1 else close
+                    series[name] = [
+                        {"date": str(index)[:10], "close": float(value)}
+                        for index, value in values.dropna().items()
+                    ]
+                except Exception as exc:
+                    logger.info(f"Mistock market ticker unavailable ticker={ticker}: {exc}")
     except Exception as exc:
         logger.info(f"Mistock performance benchmark data unavailable: {exc}")
 
@@ -2710,18 +2709,8 @@ def _build_mistock_periodic_performance(
     daily_market = _mistock_market_context(index_rows)
     weekly_market = _mistock_market_context(index_rows, weekly=True)
     monthly_market = _mistock_market_context(index_rows, monthly=True)
-    # A performance day must remain visible even when the strategy generated no
-    # orders.  Previously daily buckets were created only from trades/cashflows,
-    # so a quiet US session disappeared from the dashboard entirely.
-    recent_market_days = sorted(
-        day for day, context in daily_market.items()
-        if context.get("sp500") is not None or context.get("nasdaq") is not None
-    )[-30:]
-    for market_day in recent_market_days:
-        daily.setdefault(market_day, _period_bucket())
-        iso = datetime.fromisoformat(market_day).isocalendar()
-        weekly.setdefault(f"{iso.year}-W{iso.week:02d}", _period_bucket())
-        monthly.setdefault(market_day[:7], _period_bucket())
+    # Performance rows represent actual account activity. Market-only dates made
+    # the detail panel look like repeated zero-result strategy executions.
     try:
         strategy_forward = _mistock_strategy_forward(account_trades, index_rows)
     except Exception as exc:
@@ -2884,12 +2873,9 @@ def mistock_performance(strategy_id: str = ""):
                 current_price = data["cost"]
                 if sym in current_holdings:
                     current_price = float(current_holdings[sym]["price"])
-                else:
-                    try:
-                        q = quote(sym)
-                        current_price = float(q["current"] or data["cost"])
-                    except Exception:
-                        pass
+                # Do not make one external quote request per historical holding.
+                # A holding absent from the broker balance is valued at its cost
+                # until balance synchronization resolves it.
                 
                 eval_pnl = (current_price - data["cost"]) * data["qty"]
                 return_rate = ((current_price / data["cost"]) - 1) * 100 if data["cost"] > 0 else 0.0
