@@ -560,11 +560,14 @@ def get_balance() -> dict[str, Any]:
                 if krw_cash > 0:
                     cash = (krw_cash / exchange_rate) * 0.98
 
-            holdings = _holdings_from_overseas_balance(balance_data)
+            account_holdings = _holdings_from_overseas_balance(balance_data)
+            holdings = account_holdings
             if config.trading_env == "demo":
                 holdings = _merge_local_shadow_holdings(holdings)
-            stock_eval = sum(float(item["value"] or 0.0) for item in holdings)
-            pnl = sum(float(item["pnl"] or 0.0) for item in holdings)
+            managed_stock_eval = sum(float(item["value"] or 0.0) for item in holdings)
+            managed_pnl = sum(float(item["pnl"] or 0.0) for item in holdings)
+            account_stock_eval = sum(float(item["value"] or 0.0) for item in account_holdings)
+            account_pnl = sum(float(item["pnl"] or 0.0) for item in account_holdings)
             local_shadow_eval = sum(
                 float(item.get("value") or 0.0)
                 for item in holdings
@@ -583,24 +586,32 @@ def get_balance() -> dict[str, Any]:
             if config.trading_env == "demo" and local_shadow_eval > 0 and broker_stock_eval <= 0:
                 cash = _demo_shadow_cash(exchange_rate)
                 balance_source = "demo_local_shadow"
-            if config.trading_env == "demo" and cash <= 0 and stock_eval <= 0 and broker_stock_eval <= 0:
+            if config.trading_env == "demo" and cash <= 0 and managed_stock_eval <= 0 and broker_stock_eval <= 0:
                 cash = _configured_capital_usd(exchange_rate)
                 balance_source = "demo_config_fallback"
             if config.trading_env == "demo" and local_shadow_eval <= 0:
                 configured_cap = _configured_capital_usd(exchange_rate)
                 if configured_cap > 0:
-                    effective_total = cash + stock_eval
+                    effective_total = cash + managed_stock_eval
                     if effective_total > configured_cap:
-                        cash = max(0.0, configured_cap - stock_eval)
+                        cash = max(0.0, configured_cap - managed_stock_eval)
                         balance_source = f"{balance_data.get('_broker', 'kiwoom')}_config_capped"
             orderable_cash = cash
-            managed_visible_eval = orderable_cash + stock_eval
+            account_cash = _first_positive(summary, [
+                "frcr_dncl_amt",
+                "frcr_dncl_amt_2",
+            ])
+            account_total_eval = account_cash + (
+                broker_stock_eval if broker_stock_eval > 0 else account_stock_eval
+            )
+            calculated_total_eval = account_cash + account_stock_eval
+            managed_visible_eval = orderable_cash + managed_stock_eval
             broker_holding_count = int(
                 balance_data.get("_broker_holding_count")
                 or len(balance_data.get("output1") or [])
             )
             local_holding_count = len(db.rows("SELECT symbol FROM holdings WHERE qty > 0"))
-            unmanaged_stock_eval = max(0.0, broker_stock_eval - stock_eval)
+            unmanaged_stock_eval = max(0.0, account_stock_eval - managed_stock_eval)
             ownership_mismatch = (
                 broker_holding_count != len(holdings)
                 or local_holding_count != len(holdings)
@@ -609,27 +620,27 @@ def get_balance() -> dict[str, Any]:
                 # Keep cash as orderable cash for sizing and order safety.
                 "cash": orderable_cash,
                 "orderable_cash": orderable_cash,
-                "account_cash": orderable_cash,
-                "account_cash_basis": "orderable_cash",
-                "total_eval": managed_visible_eval,
+                "account_cash": account_cash,
+                "account_cash_basis": "foreign_currency_deposit",
+                "total_eval": account_total_eval,
                 "managed_visible_eval": managed_visible_eval,
                 "broker_total_eval": broker_stock_eval,
                 "broker_stock_eval": broker_stock_eval,
-                "managed_stock_eval": stock_eval,
+                "managed_stock_eval": managed_stock_eval,
                 "unmanaged_stock_eval": unmanaged_stock_eval,
-                "calculated_total_eval": managed_visible_eval,
-                # Orderable cash is not a complete cash balance, so a
-                # principal-based account return cannot be proven here.
-                "total_return_available": False,
+                "calculated_total_eval": calculated_total_eval,
+                "total_return_available": account_total_eval > 0,
                 "ownership_mismatch": ownership_mismatch,
                 "broker_holding_count": broker_holding_count,
                 "managed_holding_count": len(holdings),
                 "local_holding_count": local_holding_count,
                 "balance_source": balance_source,
-                "stock_eval": stock_eval,
-                "cash_ratio": orderable_cash / managed_visible_eval if managed_visible_eval > 0 else 0.0,
-                "stock_ratio": stock_eval / managed_visible_eval if managed_visible_eval > 0 else 0.0,
-                "pnl": pnl,
+                "stock_eval": account_stock_eval,
+                "cash_ratio": account_cash / account_total_eval if account_total_eval > 0 else 0.0,
+                "stock_ratio": account_stock_eval / account_total_eval if account_total_eval > 0 else 0.0,
+                "pnl": account_pnl,
+                "managed_pnl": managed_pnl,
+                "account_holdings": account_holdings,
                 "holdings": holdings,
             }
         except Exception as e:

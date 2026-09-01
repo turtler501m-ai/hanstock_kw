@@ -158,20 +158,20 @@
             <section class="dashboard-section active" id="dashboard-tab-overview">
                 <section class="summary-grid">
                     <div class="card glass">
-                        <h3>관리 확인액</h3>
+                        <h3>총자산</h3>
                         <div class="value" id="val-total">-</div>
                     </div>
                     <div class="card glass">
-                        <h3>확인 가능 순손익</h3>
+                        <h3>총손익</h3>
                         <div class="value" id="val-account-pnl">-</div>
-                        <small class="summary-card-action">체결손익·평가손익·비용 합계</small>
+                        <small class="summary-card-action">초기자산 대비</small>
                     </div>
                     <div class="card glass">
-                        <h3>확인 범위 수익률</h3>
+                        <h3>총수익률</h3>
                         <div class="value" id="val-account-return">-</div>
                     </div>
                     <div class="card glass">
-                        <h3>주문가능금액</h3>
+                        <h3>예수금</h3>
                         <div class="value" id="val-cash">-</div>
                     </div>
                     <div class="card glass">
@@ -954,15 +954,15 @@
                             <strong id="perf-eval-pnl">-</strong>
                         </div>
                         <div>
-                            <span class="label">확인 가능 순손익</span>
+                            <span class="label">원금 대비 총손익</span>
                             <strong id="perf-account-total-pnl">-</strong>
                         </div>
                         <div>
-                            <span class="label">확인 범위 수익률</span>
+                            <span class="label">원금 대비 총수익률</span>
                             <strong id="perf-account-total-return">-</strong>
                         </div>
                         <div>
-                            <span class="label">비관리 모의계좌 주식</span>
+                            <span class="label">기타 조정</span>
                             <strong id="perf-unexplained-adjustment">-</strong>
                         </div>
                         <div>
@@ -970,7 +970,7 @@
                             <strong id="perf-holding-daily-change">-</strong>
                         </div>
                         <div id="performance-reconciliation-warning" class="warning-note" hidden>
-                            <strong>계좌 자산의 전략 귀속이 일치하지 않습니다.</strong>
+                            <strong>총손익 상세 구성</strong>
                             <p id="performance-reconciliation-detail"></p>
                         </div>
                         <div id="pnl-diff-container" hidden>
@@ -1562,7 +1562,7 @@
     </script>
     <script src="/static/js/button_audit.js?v=6"></script>
     <script src="/static/js/environment_badge.js?v=1"></script>
-    <script src="/static/js/mistock_app.js?v=12"></script>
+    <script src="/static/js/mistock_app.js?v=13"></script>
 
 </body>
 

@@ -1855,7 +1855,13 @@ async function renderBalance() {
             fetchJson('/api/mistock/balance', 30000),
             fetchJson('/api/mistock/performance').catch(() => ({ realized_pnl: 0 }))
         ]);
-        const holdingValue = (balance.holdings || []).reduce((sum, holding) => {
+        const accountHoldings = balance.account_holdings || balance.holdings || [];
+        const displayBalance = {
+            ...balance,
+            cash: Number(balance.account_cash ?? balance.cash ?? 0),
+            holdings: accountHoldings,
+        };
+        const holdingValue = accountHoldings.reduce((sum, holding) => {
             return sum + Number(holding.value || (Number(holding.qty || 0) * Number(holding.price || 0)));
         }, 0);
         const displayTotal = holdingValue > 0 && Number(balance.total_eval || 0) < Math.max(Number(balance.cash || 0), holdingValue)
@@ -1870,12 +1876,8 @@ async function renderBalance() {
                 ? principal / Number(latestConfig.exchange_rate)
                 : principal)
         );
-        const totalReturnAvailable = balance.total_return_available === true;
-        const knownNetPnl = Number(perf.known_net_pnl || 0);
-        const accountPnl = totalReturnAvailable ? displayTotal - principalUsd : knownNetPnl;
-        const accountReturnRate = totalReturnAvailable && principalUsd > 0
-            ? (accountPnl / principalUsd) * 100
-            : (principalUsd > 0 ? (knownNetPnl / principalUsd) * 100 : null);
+        const accountPnl = displayTotal - principalUsd;
+        const accountReturnRate = principalUsd > 0 ? (accountPnl / principalUsd) * 100 : 0;
         const evalPnl = Number(balance.pnl || 0);
         const evalCost = Math.max(0, Number(balance.stock_eval || holdingValue || 0) - evalPnl);
         const returnRate = evalCost > 0 ? (evalPnl / evalCost) * 100 : 0;
@@ -1883,7 +1885,7 @@ async function renderBalance() {
 
         setElementText('val-total', formatCurrency(displayTotal));
         setElementText('val-principal', formatCurrency(principal, isPrincipalKrw));
-        setElementText('val-cash', formatCurrency(balance.orderable_cash ?? balance.cash));
+        setElementText('val-cash', formatCurrency(balance.account_cash ?? balance.cash));
         setElementText('val-stock-eval', formatCurrency(Number(balance.stock_eval || holdingValue || 0)));
         const accountPnlEl = setElementText('val-account-pnl', formatCurrency(accountPnl));
         if (accountPnlEl) {
@@ -1911,7 +1913,7 @@ async function renderBalance() {
         tbodyHoldings.innerHTML = '';
 
         const chartLabels = ['현금'];
-        const chartData = [balance.cash];
+        const chartData = [displayBalance.cash];
         const chartColors = ['rgba(148, 163, 184, 0.7)'];
         const colors = [
             'rgba(59, 130, 246, 0.7)',
@@ -1922,11 +1924,11 @@ async function renderBalance() {
             'rgba(14, 165, 233, 0.7)'
         ];
 
-        if (!balance.holdings.length) {
+        if (!accountHoldings.length) {
             setTableMessage('#table-holdings tbody', 8, '보유 종목이 없습니다');
         }
 
-        balance.holdings.forEach((holding, idx) => {
+        accountHoldings.forEach((holding, idx) => {
             const rtClass = holding.rt >= 0 ? 'text-success' : 'text-danger';
             const tr = document.createElement('tr');
             tr.innerHTML = `
@@ -1960,14 +1962,14 @@ async function renderBalance() {
         tbodyHoldings.querySelectorAll('.queue-order').forEach((button) => {
             button.addEventListener('click', () => createApprovalFromButton(button), { once: true });
         });
-        holdingsCache = (balance.holdings || []).map((holding) => ({ ...holding }));
-        renderHoldingAccountSummary(balance, displayTotal, realizedPnl);
-        renderHoldingAnalysis(balance);
+        holdingsCache = accountHoldings.map((holding) => ({ ...holding }));
+        renderHoldingAccountSummary(displayBalance, displayTotal, realizedPnl);
+        renderHoldingAnalysis(displayBalance);
         bindHoldingSortHeaders();
         renderHoldingRows();
 
         renderPortfolioChart(chartLabels, chartData, chartColors);
-        renderRisk(balance);
+        renderRisk(displayBalance);
         document.getElementById('last-updated').textContent = `마지막 갱신 ${new Date().toLocaleTimeString('ko-KR')}`;
         if (balance._cache?.stale) {
             setStatus(`NASDAQ 계좌 API가 일시 실패해 최근 정상 데이터(${balance._cache.cached_at || '저장됨'})를 표시합니다.`);
@@ -3341,15 +3343,15 @@ async function renderTrades() {
                 evalPnlEl.textContent = formatCurrency(evalPnl);
                 evalPnlEl.className = evalPnl > 0 ? 'text-success' : (evalPnl < 0 ? 'text-danger' : '');
             }
-            const totalPnl = Number(perf.known_net_pnl || 0);
-            const totalPnlEl = setElementText('perf-account-total-pnl', formatCurrency(totalPnl));
-            if (totalPnlEl) totalPnlEl.className = totalPnl >= 0 ? 'text-success' : 'text-danger';
-            const totalReturn = perf.known_net_return_pct;
+            const totalPnl = perf.account_total_pnl;
+            const totalPnlEl = setElementText('perf-account-total-pnl', totalPnl == null ? '-' : formatCurrency(totalPnl));
+            if (totalPnlEl) totalPnlEl.className = Number(totalPnl) >= 0 ? 'text-success' : 'text-danger';
+            const totalReturn = perf.account_total_return_pct;
             const totalReturnEl = setElementText(
                 'perf-account-total-return', totalReturn == null ? '-' : formatPercent(totalReturn)
             );
             if (totalReturnEl) totalReturnEl.className = Number(totalReturn) >= 0 ? 'text-success' : 'text-danger';
-            const adjustment = Number(perf.unmanaged_stock_eval || 0);
+            const adjustment = Number(perf.unexplained_adjustment || 0);
             const adjustmentEl = setElementText('perf-unexplained-adjustment', formatCurrency(adjustment));
             if (adjustmentEl) adjustmentEl.className = '';
             const reconciliationWarning = document.getElementById('performance-reconciliation-warning');
@@ -3357,7 +3359,7 @@ async function renderTrades() {
                 reconciliationWarning.hidden = Boolean(perf.reconciliation_complete);
                 setElementText(
                     'performance-reconciliation-detail',
-                    perf.performance_unavailable_reason || '계좌 자산의 전략 귀속을 확정할 수 없어 총수익률을 표시하지 않습니다.'
+                    `총손익 ${formatCurrency(totalPnl)} = 실현·평가·비용 반영 ${formatCurrency(perf.known_net_pnl)} + 기타 조정 ${formatCurrency(adjustment)}`
                 );
             }
             const holdingChangeEl = document.getElementById('perf-holding-daily-change');
