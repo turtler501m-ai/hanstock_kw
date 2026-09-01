@@ -571,22 +571,19 @@ def get_balance() -> dict[str, Any]:
                 if item.get("source") == "local_shadow"
             )
             # frcr_evlu_tota는 USD 평가액 합계 (KRW 환산 아님)
-            broker_total_eval = _first_positive(summary, [
+            broker_stock_eval = _first_positive(summary, [
+                "broker_stock_eval",
                 "frcr_evlu_tota",
-                "tot_asst_amt",
                 "tot_evlu_amt",
             ]) or _first_positive(output3, [
                 "frcr_evlu_tota",
             ])
-            # KRW 단위인 tot_asst_amt를 USD로 오인하는 fallback 제거.
-            # 다만, demo 환경에서 예수금이 잡히지 않은 경우 broker_total_eval과 stock_eval 차이로부터 복구한다.
-            if config.trading_env == "demo" and cash <= 0 and broker_total_eval > 0:
-                cash = max(0.0, broker_total_eval - stock_eval)
+            # tot_evlt_amt는 전체 미국주식 평가액이며 현금 포함 총자산이 아니다.
             balance_source = config.stock_broker
-            if config.trading_env == "demo" and local_shadow_eval > 0 and broker_total_eval <= 0:
+            if config.trading_env == "demo" and local_shadow_eval > 0 and broker_stock_eval <= 0:
                 cash = _demo_shadow_cash(exchange_rate)
                 balance_source = "demo_local_shadow"
-            if config.trading_env == "demo" and cash <= 0 and stock_eval <= 0 and broker_total_eval <= 0:
+            if config.trading_env == "demo" and cash <= 0 and stock_eval <= 0 and broker_stock_eval <= 0:
                 cash = _configured_capital_usd(exchange_rate)
                 balance_source = "demo_config_fallback"
             if config.trading_env == "demo" and local_shadow_eval <= 0:
@@ -597,24 +594,41 @@ def get_balance() -> dict[str, Any]:
                         cash = max(0.0, configured_cap - stock_eval)
                         balance_source = f"{balance_data.get('_broker', 'kiwoom')}_config_capped"
             orderable_cash = cash
-            account_cash = (
-                max(0.0, broker_total_eval - stock_eval)
-                if broker_total_eval > 0
-                else cash
+            managed_visible_eval = orderable_cash + stock_eval
+            broker_holding_count = int(
+                balance_data.get("_broker_holding_count")
+                or len(balance_data.get("output1") or [])
             )
-            total_eval = broker_total_eval if broker_total_eval > 0 else account_cash + stock_eval
+            local_holding_count = len(db.rows("SELECT symbol FROM holdings WHERE qty > 0"))
+            unmanaged_stock_eval = max(0.0, broker_stock_eval - stock_eval)
+            ownership_mismatch = (
+                broker_holding_count != len(holdings)
+                or local_holding_count != len(holdings)
+            )
             return {
                 # Keep cash as orderable cash for sizing and order safety.
                 "cash": orderable_cash,
                 "orderable_cash": orderable_cash,
-                "account_cash": account_cash,
-                "total_eval": total_eval,
-                "broker_total_eval": broker_total_eval or total_eval,
-                "calculated_total_eval": account_cash + stock_eval,
+                "account_cash": orderable_cash,
+                "account_cash_basis": "orderable_cash",
+                "total_eval": managed_visible_eval,
+                "managed_visible_eval": managed_visible_eval,
+                "broker_total_eval": broker_stock_eval,
+                "broker_stock_eval": broker_stock_eval,
+                "managed_stock_eval": stock_eval,
+                "unmanaged_stock_eval": unmanaged_stock_eval,
+                "calculated_total_eval": managed_visible_eval,
+                # Orderable cash is not a complete cash balance, so a
+                # principal-based account return cannot be proven here.
+                "total_return_available": False,
+                "ownership_mismatch": ownership_mismatch,
+                "broker_holding_count": broker_holding_count,
+                "managed_holding_count": len(holdings),
+                "local_holding_count": local_holding_count,
                 "balance_source": balance_source,
                 "stock_eval": stock_eval,
-                "cash_ratio": account_cash / total_eval if total_eval > 0 else 0.0,
-                "stock_ratio": stock_eval / total_eval if total_eval > 0 else 0.0,
+                "cash_ratio": orderable_cash / managed_visible_eval if managed_visible_eval > 0 else 0.0,
+                "stock_ratio": stock_eval / managed_visible_eval if managed_visible_eval > 0 else 0.0,
                 "pnl": pnl,
                 "holdings": holdings,
             }

@@ -1870,24 +1870,25 @@ async function renderBalance() {
                 ? principal / Number(latestConfig.exchange_rate)
                 : principal)
         );
-        const accountPnl = displayTotal - principalUsd;
-        const accountReturnRate = principalUsd > 0 ? (accountPnl / principalUsd) * 100 : 0;
+        const totalReturnAvailable = balance.total_return_available === true;
+        const accountPnl = totalReturnAvailable ? displayTotal - principalUsd : null;
+        const accountReturnRate = totalReturnAvailable && principalUsd > 0 ? (accountPnl / principalUsd) * 100 : null;
         const evalPnl = Number(balance.pnl || 0);
         const evalCost = Math.max(0, Number(balance.stock_eval || holdingValue || 0) - evalPnl);
         const returnRate = evalCost > 0 ? (evalPnl / evalCost) * 100 : 0;
         const realizedPnl = Number(perf.realized_pnl || 0);
 
-        setElementText('val-total', formatCurrency(displayTotal));
+        setElementText('val-total', `${formatCurrency(displayTotal)} (관리 확인액)`);
         setElementText('val-principal', formatCurrency(principal, isPrincipalKrw));
-        setElementText('val-cash', formatCurrency(balance.account_cash ?? balance.cash));
+        setElementText('val-cash', formatCurrency(balance.orderable_cash ?? balance.cash));
         setElementText('val-stock-eval', formatCurrency(Number(balance.stock_eval || holdingValue || 0)));
-        const accountPnlEl = setElementText('val-account-pnl', formatCurrency(accountPnl));
+        const accountPnlEl = setElementText('val-account-pnl', accountPnl == null ? '산출 불가' : formatCurrency(accountPnl));
         if (accountPnlEl) {
-            accountPnlEl.className = `value ${accountPnl >= 0 ? 'text-success' : 'text-danger'}`;
+            accountPnlEl.className = accountPnl == null ? 'value' : `value ${accountPnl >= 0 ? 'text-success' : 'text-danger'}`;
         }
-        const accountReturnEl = setElementText('val-account-return', formatPercent(accountReturnRate));
+        const accountReturnEl = setElementText('val-account-return', accountReturnRate == null ? '산출 불가' : formatPercent(accountReturnRate));
         if (accountReturnEl) {
-            accountReturnEl.className = `value ${accountReturnRate >= 0 ? 'text-success' : 'text-danger'}`;
+            accountReturnEl.className = accountReturnRate == null ? 'value' : `value ${accountReturnRate >= 0 ? 'text-success' : 'text-danger'}`;
         }
         setElementText('val-realized', formatCurrency(realizedPnl));
         const realizedEl = document.getElementById('val-realized');
@@ -3337,23 +3338,25 @@ async function renderTrades() {
                 evalPnlEl.textContent = formatCurrency(evalPnl);
                 evalPnlEl.className = evalPnl > 0 ? 'text-success' : (evalPnl < 0 ? 'text-danger' : '');
             }
-            const totalPnl = Number(perf.account_total_pnl || 0);
-            const totalPnlEl = setElementText('perf-account-total-pnl', formatCurrency(totalPnl));
-            if (totalPnlEl) totalPnlEl.className = totalPnl >= 0 ? 'text-success' : 'text-danger';
+            const totalPnl = perf.account_total_pnl;
+            const totalPnlEl = setElementText('perf-account-total-pnl', totalPnl == null ? '산출 불가' : formatCurrency(totalPnl));
+            if (totalPnlEl) totalPnlEl.className = totalPnl == null ? '' : (Number(totalPnl) >= 0 ? 'text-success' : 'text-danger');
             const totalReturn = perf.account_total_return_pct;
             const totalReturnEl = setElementText(
-                'perf-account-total-return', totalReturn == null ? '-' : formatPercent(totalReturn)
+                'perf-account-total-return', totalReturn == null ? '산출 불가' : formatPercent(totalReturn)
             );
             if (totalReturnEl) totalReturnEl.className = Number(totalReturn) >= 0 ? 'text-success' : 'text-danger';
-            const adjustment = Number(perf.unexplained_adjustment || 0);
+            const adjustment = Number(perf.unmanaged_stock_eval || 0);
             const adjustmentEl = setElementText('perf-unexplained-adjustment', formatCurrency(adjustment));
-            if (adjustmentEl) adjustmentEl.className = Math.abs(adjustment) < 1 ? '' : 'text-danger';
+            if (adjustmentEl) adjustmentEl.className = '';
+            const knownNetEl = setElementText('perf-known-net-pnl', formatCurrency(perf.known_net_pnl || 0));
+            if (knownNetEl) knownNetEl.className = Number(perf.known_net_pnl || 0) >= 0 ? 'text-success' : 'text-danger';
             const reconciliationWarning = document.getElementById('performance-reconciliation-warning');
             if (reconciliationWarning) {
                 reconciliationWarning.hidden = Boolean(perf.reconciliation_complete);
                 setElementText(
                     'performance-reconciliation-detail',
-                    `총손익 ${formatCurrency(totalPnl)} = 실현 ${formatCurrency(perf.realized_pnl)} + 평가 ${formatCurrency(perf.total_eval_pnl)} + 확인된 현금흐름 ${formatCurrency(perf.confirmed_cashflows)} + 미확인 조정 ${formatCurrency(adjustment)}`
+                    perf.performance_unavailable_reason || '계좌 자산의 전략 귀속을 확정할 수 없어 총수익률을 표시하지 않습니다.'
                 );
             }
             const holdingChangeEl = document.getElementById('perf-holding-daily-change');

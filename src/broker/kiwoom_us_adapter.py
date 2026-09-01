@@ -54,6 +54,12 @@ class KiwoomUSStockAdapter:
             "output1": rows,
             "output2": {
                 "crcy_cd": _text(summary.get("crnc_code")) or "USD",
+                # ust21070 tot_evlt_amt is the evaluation amount of all US
+                # stock holdings, not cash-inclusive account equity.
+                "broker_stock_eval": _text(summary.get("tot_evlt_amt")),
+                "broker_stock_purchase": _text(summary.get("tot_prch_amt")),
+                "broker_stock_pnl": _text(summary.get("tot_pl_amt")),
+                "broker_stock_return_rate": _text(summary.get("tot_pl_rt")),
                 "frcr_evlu_tota": _text(summary.get("tot_evlt_amt")),
                 "tot_evlu_amt": _text(summary.get("tot_evlt_amt")),
                 "tot_pfls_amt": _text(summary.get("tot_pl_amt")),
@@ -62,6 +68,7 @@ class KiwoomUSStockAdapter:
             },
             "output3": {},
             "_broker": "kiwoom",
+            "_broker_holding_count": len(rows),
             "_account_configured": bool(self.account_no),
         }
 

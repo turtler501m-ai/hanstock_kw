@@ -2965,16 +2965,29 @@ def mistock_performance(strategy_id: str = ""):
             if str(mistock_config.currency).upper() == "KRW" and exchange_rate > 0
             else float(mistock_config.total_capital)
         )
-        account_total_eval = float(balance.get("total_eval") or 0)
-        account_total_pnl = account_total_eval - principal_usd
+        account_total_eval = float(balance.get("managed_visible_eval") or balance.get("total_eval") or 0)
         confirmed_cashflows = sum(
             float(row.get("amount") or 0)
             for row in mistock_db.rows(
                 "SELECT amount FROM performance_cashflows WHERE confirmed = 1"
             )
         )
-        explained_pnl = realized_pnl + total_eval_pnl + confirmed_cashflows
-        unexplained_adjustment = account_total_pnl - explained_pnl
+        fees = sum(float(row.get("fee") or 0) for row in account_trades)
+        tax = sum(float(row.get("tax") or 0) for row in account_trades)
+        known_gross_pnl = realized_pnl + total_eval_pnl + confirmed_cashflows
+        known_net_pnl = known_gross_pnl - fees - tax
+        total_return_available = bool(balance.get("total_return_available")) and not strategy_id
+        broker_holding_count = int(balance.get("broker_holding_count") or 0)
+        managed_holding_count = int(balance.get("managed_holding_count") or len(broker_holdings))
+        local_holding_count = int(balance.get("local_holding_count") or managed_holding_count)
+        missing_local_count = max(0, local_holding_count - managed_holding_count)
+        unavailable_reason = None
+        if not total_return_available:
+            unavailable_reason = (
+                f"증권사 전체 보유 {broker_holding_count}종목 중 시스템 관리 확인 종목은 "
+                f"{managed_holding_count}개이며, 로컬 귀속 {local_holding_count}개 중 "
+                f"{missing_local_count}개가 증권사 잔고와 일치하지 않아 시작원금 대비 총수익률을 확정할 수 없습니다."
+            )
         daily_change = _mistock_holding_daily_change(daily_holdings)
         symbol_changes = daily_change.get("holding_daily_changes") or {}
         for item in eval_details:
@@ -2991,12 +3004,26 @@ def mistock_performance(strategy_id: str = ""):
             "account_stock_eval": round(float(balance.get("stock_eval") or 0), 2),
             "account_source": balance.get("balance_source") or "unknown",
             "principal_usd": round(principal_usd, 2),
-            "account_total_pnl": round(account_total_pnl, 2),
-            "account_total_return_pct": round(account_total_pnl / principal_usd * 100, 2) if principal_usd > 0 else None,
+            "account_total_pnl": None,
+            "account_total_return_pct": None,
+            "total_return_available": total_return_available,
+            "performance_unavailable_reason": unavailable_reason,
             "confirmed_cashflows": round(confirmed_cashflows, 2),
-            "explained_pnl": round(explained_pnl, 2),
-            "unexplained_adjustment": round(unexplained_adjustment, 2),
-            "reconciliation_complete": abs(unexplained_adjustment) < 1,
+            "fees": round(fees, 2),
+            "tax": round(tax, 2),
+            "known_gross_pnl": round(known_gross_pnl, 2),
+            "known_net_pnl": round(known_net_pnl, 2),
+            "known_net_pnl_krw": round(known_net_pnl * exchange_rate),
+            "explained_pnl": round(known_gross_pnl, 2),
+            "unexplained_adjustment": None,
+            "broker_stock_eval": round(float(balance.get("broker_stock_eval") or 0), 2),
+            "managed_stock_eval": round(float(balance.get("managed_stock_eval") or 0), 2),
+            "unmanaged_stock_eval": round(float(balance.get("unmanaged_stock_eval") or 0), 2),
+            "broker_holding_count": broker_holding_count,
+            "managed_holding_count": managed_holding_count,
+            "local_holding_count": local_holding_count,
+            "missing_local_count": missing_local_count,
+            "reconciliation_complete": total_return_available,
             "eval_details": eval_details,
             "untracked_details": [],
             **daily_change,
@@ -3045,6 +3072,9 @@ def mistock_periodic_performance(strategy_id: str = ""):
             "stock_eval": round(float(balance.get("stock_eval") or 0), 2),
             "pnl": round(float(balance.get("pnl") or 0), 2),
             "holding_count": len(balance.get("holdings") or []),
+            "broker_stock_eval": round(float(balance.get("broker_stock_eval") or 0), 2),
+            "unmanaged_stock_eval": round(float(balance.get("unmanaged_stock_eval") or 0), 2),
+            "total_return_available": bool(balance.get("total_return_available")),
             "source": balance.get("balance_source") or "unknown",
         }
         return periodic
