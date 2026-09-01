@@ -2720,8 +2720,12 @@ def _build_mistock_periodic_performance(
     daily_market = _mistock_market_context(index_rows)
     weekly_market = _mistock_market_context(index_rows, weekly=True)
     monthly_market = _mistock_market_context(index_rows, monthly=True)
-    # Performance rows represent actual account activity. Market-only dates made
-    # the detail panel look like repeated zero-result strategy executions.
+    # Preserve US market sessions even when the account had no trades.  FX-only
+    # dates are excluded because they do not prove that the US market was open.
+    market_day_keys = {
+        key for key, value in daily_market.items()
+        if value.get("sp500") is not None or value.get("nasdaq") is not None
+    }
     try:
         strategy_forward = _mistock_strategy_forward(account_trades, index_rows)
     except Exception as exc:
@@ -2729,8 +2733,13 @@ def _build_mistock_periodic_performance(
         strategy_forward = []
     return {
         "daily": [
-            {"period": key, **value, **daily_market.get(key, {})}
-            for key, value in sorted(daily.items())
+            {
+                "period": key,
+                **daily.get(key, _period_bucket()),
+                **daily_market.get(key, {}),
+                "market_only": key not in daily,
+            }
+            for key in sorted(set(daily) | market_day_keys)
         ],
         "weekly": [
             {"period": key, **value, **weekly_market.get(key, {})}

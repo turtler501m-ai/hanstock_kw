@@ -41,19 +41,19 @@ class MistockDashboardTests(unittest.TestCase):
         self.assertNotIn("2026-08-25", [row["period"] for row in performance["daily"]])
 
     def test_holding_daily_change_translates_broker_share_class_for_yahoo(self):
-        frame = {"Close": pd.DataFrame({"BF-B": [400.0, 404.0]})}
-        holdings = {"BF.B": {"qty": 2}}
+        frame = {"Close": pd.DataFrame({"BRK-B": [400.0, 404.0]})}
+        holdings = {"BRK.B": {"qty": 2}}
 
         with (
             patch("src.online_access.require_online_access"),
             patch("yfinance.download", return_value=frame) as download,
         ):
-            result = mistock._mistock_holding_daily_change(holdings)
+            result = mistock._fetch_mistock_holding_daily_change(holdings)
 
-        self.assertEqual(download.call_args.args[0], ["BF-B"])
+        self.assertEqual(download.call_args.args[0], ["BRK-B"])
         self.assertEqual(result["holding_daily_change_pct"], 1.0)
         self.assertEqual(result["holding_daily_change_symbol_count"], 1)
-        self.assertEqual(result["holding_daily_changes"], {"BF.B": 1.0})
+        self.assertEqual(result["holding_daily_changes"], {"BRK.B": 1.0})
 
     def test_mistock_periodic_performance_merges_current_holding_change_into_latest_rows(self):
         periodic = {
