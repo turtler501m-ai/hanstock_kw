@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 import time
 from pathlib import Path
 from fastapi import APIRouter, Body, HTTPException, Query
@@ -2359,13 +2360,50 @@ _MISTOCK_INDEX_TICKERS = {
 }
 _MISTOCK_INDEX_CACHE: tuple[float, dict[str, list[dict]]] = (0.0, {})
 _MISTOCK_PRICE_CACHE: tuple[float, dict[str, list[dict]]] = (0.0, {})
+_MISTOCK_INDEX_REFRESHING = False
+_MISTOCK_INDEX_LOCK = threading.Lock()
+_MISTOCK_HOLDING_CHANGE_CACHE: tuple[float, tuple[str, ...], dict] = (0.0, (), {})
+_MISTOCK_HOLDING_CHANGE_REFRESHING = False
+_MISTOCK_HOLDING_CHANGE_LOCK = threading.Lock()
+
+
+def _refresh_mistock_index_rows() -> None:
+    global _MISTOCK_INDEX_CACHE, _MISTOCK_INDEX_REFRESHING
+    series: dict[str, list[dict]] = {}
+    try:
+        from src.online_access import require_online_access
+        import yfinance as yf
+
+        require_online_access("미스톡 성과 탭 시장지수 조회")
+        tickers = list(_MISTOCK_INDEX_TICKERS.values())
+        frame = yf.download(tickers, period="6mo", interval="1d", auto_adjust=False,
+                            progress=False, threads=True, timeout=8)
+        if frame is not None and not frame.empty:
+            close = frame["Close"]
+            for name, ticker in _MISTOCK_INDEX_TICKERS.items():
+                values = close[ticker] if getattr(close, "ndim", 1) > 1 else close
+                series[name] = [
+                    {"date": str(index)[:10], "close": float(value)}
+                    for index, value in values.dropna().items()
+                ]
+        if series:
+            _MISTOCK_INDEX_CACHE = (time.monotonic(), series)
+    except Exception as exc:
+        logger.info(f"Mistock performance benchmark refresh unavailable: {exc}")
+    finally:
+        with _MISTOCK_INDEX_LOCK:
+            _MISTOCK_INDEX_REFRESHING = False
 
 
 def _load_mistock_index_rows() -> dict[str, list[dict]]:
-    # Dashboard requests must never wait for an external market-data provider.
-    # A separately warmed cache can still supply benchmark context; an empty
-    # cache simply omits that optional context from account performance.
-    return _MISTOCK_INDEX_CACHE[1]
+    global _MISTOCK_INDEX_REFRESHING
+    cached_at, rows = _MISTOCK_INDEX_CACHE
+    if time.monotonic() - cached_at >= 300:
+        with _MISTOCK_INDEX_LOCK:
+            if not _MISTOCK_INDEX_REFRESHING:
+                _MISTOCK_INDEX_REFRESHING = True
+                threading.Thread(target=_refresh_mistock_index_rows, daemon=True).start()
+    return rows
 
 
 def _mistock_market_regime_projection(
@@ -2706,7 +2744,7 @@ def _build_mistock_periodic_performance(
     }
 
 
-def _mistock_holding_daily_change(holdings: dict[str, dict]) -> dict:
+def _fetch_mistock_holding_daily_change(holdings: dict[str, dict]) -> dict:
     from src.mistock.config import config as mistock_config
 
     symbols = [
@@ -2766,6 +2804,37 @@ def _mistock_holding_daily_change(holdings: dict[str, dict]) -> dict:
             "holding_daily_change_symbol_count": 0,
             "holding_daily_changes": {},
         }
+
+
+def _refresh_mistock_holding_daily_change(holdings: dict[str, dict], symbols: tuple[str, ...]) -> None:
+    global _MISTOCK_HOLDING_CHANGE_CACHE, _MISTOCK_HOLDING_CHANGE_REFRESHING
+    try:
+        result = _fetch_mistock_holding_daily_change(holdings)
+        if result.get("holding_daily_change_symbol_count", 0) > 0:
+            _MISTOCK_HOLDING_CHANGE_CACHE = (time.monotonic(), symbols, result)
+    finally:
+        with _MISTOCK_HOLDING_CHANGE_LOCK:
+            _MISTOCK_HOLDING_CHANGE_REFRESHING = False
+
+
+def _mistock_holding_daily_change(holdings: dict[str, dict]) -> dict:
+    global _MISTOCK_HOLDING_CHANGE_REFRESHING
+    symbols = tuple(sorted(symbol for symbol, item in holdings.items() if float(item.get("qty") or 0) > 0))
+    cached_at, cached_symbols, result = _MISTOCK_HOLDING_CHANGE_CACHE
+    if symbols and (symbols != cached_symbols or time.monotonic() - cached_at >= 300):
+        with _MISTOCK_HOLDING_CHANGE_LOCK:
+            if not _MISTOCK_HOLDING_CHANGE_REFRESHING:
+                _MISTOCK_HOLDING_CHANGE_REFRESHING = True
+                snapshot = {symbol: dict(holdings[symbol]) for symbol in symbols}
+                threading.Thread(
+                    target=_refresh_mistock_holding_daily_change,
+                    args=(snapshot, symbols), daemon=True,
+                ).start()
+    return result or {
+        "holding_daily_change_pct": None,
+        "holding_daily_change_symbol_count": 0,
+        "holding_daily_changes": {},
+    }
 
 
 def _mistock_positions_from_trades(trades: list[dict]) -> tuple[dict, dict, float]:
@@ -2866,11 +2935,7 @@ def mistock_performance(strategy_id: str = ""):
                 for symbol, position in holdings.items()
                 if float(position.get("qty") or 0) > 0
             )
-        daily_change = {
-            "holding_daily_change_pct": None,
-            "holding_daily_change_symbol_count": 0,
-            "holding_daily_changes": {},
-        }
+        daily_change = _mistock_holding_daily_change(holdings)
         symbol_changes = daily_change.get("holding_daily_changes") or {}
         for item in eval_details:
             item["daily_change_pct"] = symbol_changes.get(item["symbol"])
@@ -2905,14 +2970,17 @@ def mistock_periodic_performance(strategy_id: str = ""):
         trades = mistock_db.rows("SELECT * FROM trades ORDER BY ts ASC")
         cashflows = mistock_db.rows("SELECT * FROM performance_cashflows ORDER BY occurred_at, id")
         periodic = _build_mistock_periodic_performance(trades, strategy_id=strategy_id, cashflows=cashflows)
-        return periodic
+        account_trades = _mistock_account_trades(trades)
+        if strategy_id:
+            account_trades = [row for row in account_trades if str(row.get("strategy_id") or "unattributed") == strategy_id]
+        holdings, _, _ = _mistock_positions_from_trades(account_trades)
+        return _merge_mistock_holding_change(periodic, _mistock_holding_daily_change(holdings))
     except Exception as e:
         from src.utils.logger import logger
         logger.error(f"Failed to calculate mistock periodic performance: {e}")
         return {"daily": [], "weekly": [], "monthly": []}
 
 
-import threading
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from src.runtime_state import PersistentRuntimeState
