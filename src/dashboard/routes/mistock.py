@@ -2959,6 +2959,22 @@ def mistock_performance(strategy_id: str = ""):
             daily_holdings[symbol] = {"qty": qty}
         total_broker_pnl = sum(float(item["broker_pnl"]) for item in eval_details)
         total_eval_pnl = total_broker_pnl
+        exchange_rate = get_usd_krw_rate()
+        principal_usd = (
+            float(mistock_config.total_capital) / exchange_rate
+            if str(mistock_config.currency).upper() == "KRW" and exchange_rate > 0
+            else float(mistock_config.total_capital)
+        )
+        account_total_eval = float(balance.get("total_eval") or 0)
+        account_total_pnl = account_total_eval - principal_usd
+        confirmed_cashflows = sum(
+            float(row.get("amount") or 0)
+            for row in mistock_db.rows(
+                "SELECT amount FROM performance_cashflows WHERE confirmed = 1"
+            )
+        )
+        explained_pnl = realized_pnl + total_eval_pnl + confirmed_cashflows
+        unexplained_adjustment = account_total_pnl - explained_pnl
         daily_change = _mistock_holding_daily_change(daily_holdings)
         symbol_changes = daily_change.get("holding_daily_changes") or {}
         for item in eval_details:
@@ -2970,10 +2986,17 @@ def mistock_performance(strategy_id: str = ""):
             "realized_pnl": round(realized_pnl, 2),
             "total_eval_pnl": round(total_eval_pnl, 2),
             "total_broker_pnl": round(total_broker_pnl, 2),
-            "account_total_eval": round(float(balance.get("total_eval") or 0), 2),
+            "account_total_eval": round(account_total_eval, 2),
             "account_cash": round(float(balance.get("account_cash") or balance.get("cash") or 0), 2),
             "account_stock_eval": round(float(balance.get("stock_eval") or 0), 2),
             "account_source": balance.get("balance_source") or "unknown",
+            "principal_usd": round(principal_usd, 2),
+            "account_total_pnl": round(account_total_pnl, 2),
+            "account_total_return_pct": round(account_total_pnl / principal_usd * 100, 2) if principal_usd > 0 else None,
+            "confirmed_cashflows": round(confirmed_cashflows, 2),
+            "explained_pnl": round(explained_pnl, 2),
+            "unexplained_adjustment": round(unexplained_adjustment, 2),
+            "reconciliation_complete": abs(unexplained_adjustment) < 1,
             "eval_details": eval_details,
             "untracked_details": [],
             **daily_change,

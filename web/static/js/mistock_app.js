@@ -3337,6 +3337,25 @@ async function renderTrades() {
                 evalPnlEl.textContent = formatCurrency(evalPnl);
                 evalPnlEl.className = evalPnl > 0 ? 'text-success' : (evalPnl < 0 ? 'text-danger' : '');
             }
+            const totalPnl = Number(perf.account_total_pnl || 0);
+            const totalPnlEl = setElementText('perf-account-total-pnl', formatCurrency(totalPnl));
+            if (totalPnlEl) totalPnlEl.className = totalPnl >= 0 ? 'text-success' : 'text-danger';
+            const totalReturn = perf.account_total_return_pct;
+            const totalReturnEl = setElementText(
+                'perf-account-total-return', totalReturn == null ? '-' : formatPercent(totalReturn)
+            );
+            if (totalReturnEl) totalReturnEl.className = Number(totalReturn) >= 0 ? 'text-success' : 'text-danger';
+            const adjustment = Number(perf.unexplained_adjustment || 0);
+            const adjustmentEl = setElementText('perf-unexplained-adjustment', formatCurrency(adjustment));
+            if (adjustmentEl) adjustmentEl.className = Math.abs(adjustment) < 1 ? '' : 'text-danger';
+            const reconciliationWarning = document.getElementById('performance-reconciliation-warning');
+            if (reconciliationWarning) {
+                reconciliationWarning.hidden = Boolean(perf.reconciliation_complete);
+                setElementText(
+                    'performance-reconciliation-detail',
+                    `총손익 ${formatCurrency(totalPnl)} = 실현 ${formatCurrency(perf.realized_pnl)} + 평가 ${formatCurrency(perf.total_eval_pnl)} + 확인된 현금흐름 ${formatCurrency(perf.confirmed_cashflows)} + 미확인 조정 ${formatCurrency(adjustment)}`
+                );
+            }
             const holdingChangeEl = document.getElementById('perf-holding-daily-change');
             if (holdingChangeEl) {
                 const change = perf.holding_daily_change_pct;
