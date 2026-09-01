@@ -44,6 +44,7 @@ def init_db() -> None:
                 name TEXT NOT NULL,
                 qty REAL NOT NULL,
                 avg_price REAL NOT NULL,
+                is_managed INTEGER NOT NULL DEFAULT 1,
                 updated_at TEXT NOT NULL
             )
             """
@@ -262,6 +263,10 @@ def init_db() -> None:
             ),
         )
         # Migrations for fee and tax tracking
+        try:
+            conn.execute("ALTER TABLE holdings ADD COLUMN is_managed INTEGER NOT NULL DEFAULT 1")
+        except sqlite3.OperationalError:
+            pass
         for col_name, col_type in [("fee", "REAL DEFAULT 0.0"), ("tax", "REAL DEFAULT 0.0"), ("exchange_rate", "REAL DEFAULT 1.0")]:
             try:
                 conn.execute(f"ALTER TABLE trades ADD COLUMN {col_name} {col_type}")

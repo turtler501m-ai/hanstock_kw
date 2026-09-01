@@ -296,7 +296,9 @@ def delete_watchlist(symbol: str) -> None:
 
 def _local_holdings_from_db(*, refresh_quote: bool) -> list[dict[str, Any]]:
     holdings = []
-    for row in db.rows("SELECT symbol, name, qty, avg_price FROM holdings ORDER BY symbol"):
+    for row in db.rows(
+        "SELECT symbol, name, qty, avg_price FROM holdings WHERE is_managed = 1 ORDER BY symbol"
+    ):
         symbol = row["symbol"]
         avg = float(row["avg_price"] or 0.0)
         price = avg
@@ -404,10 +406,10 @@ def _apply_local_filled_order(symbol: str, action: str, qty: float, price: float
             old_avg = float(existing["avg_price"])
             new_qty = old_qty + qty
             new_avg = ((old_qty * old_avg) + cost) / new_qty
-            db.execute("UPDATE holdings SET qty = ?, avg_price = ?, updated_at = ? WHERE symbol = ?", (new_qty, new_avg, db.now_text(), symbol))
+            db.execute("UPDATE holdings SET qty = ?, avg_price = ?, is_managed = 1, updated_at = ? WHERE symbol = ?", (new_qty, new_avg, db.now_text(), symbol))
         else:
             db.execute(
-                "INSERT INTO holdings (symbol, name, qty, avg_price, updated_at) VALUES (?, ?, ?, ?, ?)",
+                "INSERT INTO holdings (symbol, name, qty, avg_price, is_managed, updated_at) VALUES (?, ?, ?, ?, 1, ?)",
                 (symbol, symbol_name(symbol), qty, price, db.now_text()),
             )
     elif action == "sell" and existing:
@@ -611,6 +613,9 @@ def get_balance() -> dict[str, Any]:
                 or len(balance_data.get("output1") or [])
             )
             local_holding_count = len(db.rows("SELECT symbol FROM holdings WHERE qty > 0"))
+            managed_local_count = len(db.rows(
+                "SELECT symbol FROM holdings WHERE qty > 0 AND is_managed = 1"
+            ))
             unmanaged_stock_eval = max(0.0, account_stock_eval - managed_stock_eval)
             ownership_mismatch = (
                 broker_holding_count != len(holdings)
@@ -632,7 +637,7 @@ def get_balance() -> dict[str, Any]:
                 "total_return_available": account_total_eval > 0,
                 "ownership_mismatch": ownership_mismatch,
                 "broker_holding_count": broker_holding_count,
-                "managed_holding_count": len(holdings),
+                "managed_holding_count": managed_local_count,
                 "local_holding_count": local_holding_count,
                 "balance_source": balance_source,
                 "stock_eval": account_stock_eval,

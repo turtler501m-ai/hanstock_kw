@@ -2261,7 +2261,57 @@ def mistock_trades(limit: int = 20, strategy_id: str = ""):
 @router.post("/api/mistock/trades/sync")
 def mistock_trades_sync():
     started_at = mistock_db.now_text()
-    result = {"ok": True, "synced_count": 0, "message": "Mistock demo DB is authoritative."}
+    # Force a fresh broker read; the local DB mirrors the account inventory,
+    # while is_managed keeps automated-trading ownership separate.
+    mistock_trader._overseas_balance_cache_at = 0.0
+    balance_data = mistock_trader._get_overseas_balance_cached()
+    broker_holdings = mistock_trader._holdings_from_overseas_balance(balance_data)
+    broker_symbols = {str(row.get("symbol") or "") for row in broker_holdings}
+    conn = mistock_db.connect_db()
+    try:
+        existing = {
+            str(row["symbol"]): int(row["is_managed"] or 0)
+            for row in conn.execute("SELECT symbol, is_managed FROM holdings")
+        }
+        conn.execute("BEGIN IMMEDIATE")
+        for row in broker_holdings:
+            symbol = str(row.get("symbol") or "")
+            conn.execute(
+                """
+                INSERT INTO holdings (symbol, name, qty, avg_price, is_managed, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(symbol) DO UPDATE SET
+                    name=excluded.name, qty=excluded.qty, avg_price=excluded.avg_price,
+                    updated_at=excluded.updated_at
+                """,
+                (
+                    symbol,
+                    str(row.get("name") or symbol),
+                    float(row.get("qty") or 0),
+                    float(row.get("avg_price") or 0),
+                    existing.get(symbol, 0),
+                    mistock_db.now_text(),
+                ),
+            )
+        removed = [symbol for symbol in existing if symbol not in broker_symbols]
+        if removed:
+            conn.executemany("DELETE FROM holdings WHERE symbol = ?", [(symbol,) for symbol in removed])
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+    managed_count = sum(existing.get(symbol, 0) for symbol in broker_symbols)
+    result = {
+        "ok": True,
+        "synced_count": len(broker_holdings),
+        "broker_holding_count": len(broker_holdings),
+        "managed_count": managed_count,
+        "unmanaged_count": len(broker_holdings) - managed_count,
+        "removed_count": len(removed),
+        "message": "Kiwoom US broker holdings synchronized; automation ownership preserved.",
+    }
     run_id = mistock_db.execute(
         "INSERT INTO trade_sync_runs (started_at, finished_at, synced_count, status, message) VALUES (?, ?, ?, ?, ?)",
         (started_at, mistock_db.now_text(), 0, "success", result["message"]),
