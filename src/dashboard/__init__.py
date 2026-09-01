@@ -92,7 +92,9 @@ async def _dashboard_lifespan(_app):
     mistock_db.init_db()
     with mistock_db.connect_db() as conn:
         apply_migrations(conn)
-    mistock_recovery = run_startup_recovery(mistock_db.connect_db)
+    from src.application.orders.recovery import close_expired_unified_day_orders
+
+    mistock_expired = close_expired_unified_day_orders(mistock_db.connect_db)
     with mistock_db.connect_db() as conn:
         managed_expired = conn.execute(
             """UPDATE managed_orders
@@ -106,8 +108,8 @@ async def _dashboard_lifespan(_app):
         ).rowcount or 0
     logger.info(
         "[MISTOCK_ORDER_RECOVERY] state={} expired={} managed_expired={}",
-        mistock_recovery["state"],
-        mistock_recovery.get("details", {}).get("expired_unified_day_orders", 0),
+        "completed",
+        mistock_expired,
         managed_expired,
     )
     resumed_cancellations = stock_order.resume_cancel_pending_confirmations()
