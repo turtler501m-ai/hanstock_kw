@@ -2471,6 +2471,9 @@ def _load_mistock_price_rows(symbols: list[str]) -> dict[str, list[dict]]:
 def _mistock_strategy_forward(trades: list[dict], index_rows: dict[str, list[dict]]) -> list[dict]:
     from src.strategy.forward_performance import build_strategy_forward_performance
 
+    if not index_rows:
+        return []
+
     symbols = sorted({str(row.get("symbol") or "") for row in trades if row.get("symbol")})
     names = {
         str(row["id"]): str(row.get("name") or row["id"])
@@ -2823,14 +2826,11 @@ def mistock_performance(strategy_id: str = ""):
         wins = sum(1 for row in sells if row.get("price", 0.0) > holdings.get(row["symbol"], {}).get("cost", 0.0))
         losses = len(sells) - wins
         
+        # The broker balance endpoint is operational synchronization, not a
+        # prerequisite for rendering historical performance. Keeping it out of
+        # this request prevents a slow broker response from blanking the tab.
         current_holdings = {}
         total_broker_pnl = 0.0
-        try:
-            parsed_holdings = mistock_trader.get_holdings()
-            current_holdings = {h['symbol']: h for h in parsed_holdings}
-            total_broker_pnl = sum(float(h.get("pnl") or 0.0) for h in parsed_holdings)
-        except Exception:
-            pass
             
         eval_details = []
         total_eval_pnl = total_broker_pnl
