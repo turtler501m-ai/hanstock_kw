@@ -385,7 +385,7 @@ def _execute_pending_scheduler_approvals(strategy_id: str | None = None) -> list
             time.sleep(_order_delay_seconds())
     return processed
 
-def run_mistock_scheduled_cycle(mode: str = "execute", strategy_id: str | None = None) -> dict:
+def _run_mistock_scheduled_cycle_unlocked(mode: str = "execute", strategy_id: str | None = None) -> dict:
     """
     [미장 자동매매 스케줄러]
     미국 주식 시장(미장) 유니버스 스캔, 신호 분석 및 키움 주문 집행을 수행합니다.
@@ -664,6 +664,20 @@ def run_mistock_scheduled_cycle(mode: str = "execute", strategy_id: str | None =
         )
         
     return result
+
+
+def run_mistock_scheduled_cycle(mode: str = "execute", strategy_id: str | None = None) -> dict:
+    from src.utils.process_lock import ProcessLock
+
+    with ProcessLock("mistock-scheduled-cycle") as acquired:
+        if not acquired:
+            return {
+                "ok": True,
+                "status": "blocked",
+                "blocked": ["scheduler_already_running"],
+                "strategy_id": strategy_id or "",
+            }
+        return _run_mistock_scheduled_cycle_unlocked(mode=mode, strategy_id=strategy_id)
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Mistock US stock scheduled trading runner")

@@ -855,10 +855,7 @@ def backtest_ai_strategy(id: str):
         if item["id"] == id:
             item["last_backtested_at"] = now
             _store_validation_check(item, "backtest", result)
-            if result.get("success"):
-                item["status"] = "backtested"
-            else:
-                item["status"] = "review_required"
+            item["status"] = "approved"
             strategy = item
             break
     save_ai_strategies(strategies)

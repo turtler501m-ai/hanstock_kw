@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import concurrent.futures
 import threading
 import time
 from pathlib import Path
@@ -1030,7 +1031,7 @@ def _mistock_ai_analysis() -> dict:
         "min_confidence": 0.6,
         "candidate_limit": 5,
         "auto_approve": mistock_db.get_setting("auto_approval", "false") == "true",
-        "require_backtest_pass": False,
+        "require_backtest_pass": True,
         "fallback_mode": "rule_based",
         "flow": [
             "Read Mistock demo cash and holdings.",
@@ -1120,7 +1121,7 @@ def _mistock_easy_strategy_preset(preset: str) -> dict:
             "max_strategy_exposure_pct": 30.0,
             "max_data_age_seconds": 60,
             "min_cash_reserve_pct": 20.0,
-            "paper_trading_required_days": 0,
+            "paper_trading_required_days": 20,
         },
         "market_regime_filter": ["neutral", "bull", "low_volatility"],
         "backtest": {
@@ -1145,13 +1146,6 @@ def mistock_apply_ai_strategy_preset(preset: str):
     validation = {
         "checks": {
             "static": {"ok": True, "success": True, "status": "passed", "message": "Preset static check passed"},
-            "backtest": {
-                "ok": True,
-                "success": True,
-                "status": "passed",
-                "metrics": {"trade_count": 30, "win_rate": 0.52, "profit_factor": 1.12, "max_drawdown_pct": 8.5},
-                "message": "Mistock demo backtest gate passed",
-            },
         },
         "latest": {"check": "preset_apply", "result": {"ok": True, "preset": preset}},
     }
@@ -1165,7 +1159,7 @@ def mistock_apply_ai_strategy_preset(preset: str):
             strategy_version, profile_hash, last_verified_at, last_backtested_at, last_used_at,
             last_validation_result
         )
-        VALUES (?, ?, 'none', 'none', ?, ?, 1, 'paper_passed', ?, 1, ?, ?, ?, ?, ?)
+        VALUES (?, ?, 'none', 'none', ?, ?, 1, 'draft', ?, 1, ?, ?, NULL, ?, ?)
         """,
         (
             strategy_id,
@@ -1174,7 +1168,6 @@ def mistock_apply_ai_strategy_preset(preset: str):
             preset_data["description"],
             json.dumps(preset_data["profile"], ensure_ascii=False),
             f"{strategy_id}-v1",
-            now,
             now,
             now,
             json.dumps(validation, ensure_ascii=False, sort_keys=True),
@@ -1354,11 +1347,54 @@ def mistock_select_ai_strategy(strategy_id: str, payload: dict = Body(default={}
     return {"ok": True, "id": strategy_id, "selected": bool(selected)}
 
 
-def _strategy_gate(strategy_id: str, check: str, status: str = "passed") -> dict:
+def _mistock_validation_payload(item: dict) -> dict:
+    try:
+        data = json.loads(item.get("last_validation_result") or "{}")
+    except (TypeError, ValueError, json.JSONDecodeError):
+        data = {}
+    if not isinstance(data, dict):
+        data = {}
+    if not isinstance(data.get("checks"), dict):
+        data["checks"] = {}
+    return data
+
+
+def _mistock_check_passed(item: dict, check: str) -> bool:
+    result = _mistock_validation_payload(item)["checks"].get(check, {})
+    return bool(
+        result.get("status") == "passed"
+        and (result.get("success") is True or result.get("ok") is True)
+    )
+
+
+def _mistock_approval_gate(item: dict) -> dict:
+    required_checks = ("backtest", "paper")
+    missing = [check for check in required_checks if not _mistock_check_passed(item, check)]
+    return {"ok": not missing, "missing": missing, "mode": "validation_required"}
+
+
+def _strategy_gate(
+    strategy_id: str,
+    check: str,
+    status: str = "passed",
+    result: dict | None = None,
+) -> dict:
     item = mistock_db.row("SELECT * FROM ai_strategies WHERE id = ?", (strategy_id,))
     if not item:
         raise HTTPException(status_code=404, detail="strategy not found")
-    payload = {"ok": True, "success": status == "passed", "status": status, "message": f"Mistock {check} completed"}
+    payload = result or {
+        "ok": True,
+        "success": status == "passed",
+        "status": status,
+        "message": f"Mistock {check} completed",
+    }
+    validation = _mistock_validation_payload(item)
+    validation["checks"][check] = payload
+    validation["latest"] = {"check": check, "result": payload}
+    mistock_db.execute(
+        "UPDATE ai_strategies SET last_validation_result = ? WHERE id = ?",
+        (json.dumps(validation, ensure_ascii=False, sort_keys=True), strategy_id),
+    )
     mistock_db.execute(
         "INSERT INTO ai_strategy_events (ts, strategy_id, strategy_version, event_type, payload) VALUES (?, ?, ?, ?, ?)",
         (mistock_db.now_text(), strategy_id, item.get("strategy_version") or 1, check, json.dumps(payload, ensure_ascii=False)),
@@ -1391,25 +1427,18 @@ def mistock_backtest(strategy_id: str):
     
     # Save to DB
     now = mistock_db.now_text()
-    validation_res = {
-        "checks": {
-            "static": {"ok": True, "success": True, "status": "passed"},
-            "backtest": result
-        },
-        "latest": {"check": "backtest", "result": result}
-    }
     status = "backtested" if result.get("success") else "review_required"
     
     mistock_db.execute(
         """
         UPDATE ai_strategies
-        SET last_backtested_at = ?, last_validation_result = ?, status = ?
+        SET last_backtested_at = ?, status = ?
         WHERE id = ?
         """,
-        (now, json.dumps(validation_res, ensure_ascii=False), status, strategy_id)
+        (now, status, strategy_id)
     )
-    
-    gate = _strategy_gate(strategy_id, "backtest", "passed" if result.get("success") else "failed")
+
+    gate = _strategy_gate(strategy_id, "backtest", result.get("status") or "failed", result)
     return {**gate, "result": result, "metrics": result.get("metrics"), "strategy": mistock_db.row("SELECT * FROM ai_strategies WHERE id = ?", (strategy_id,))}
 
 
@@ -1424,20 +1453,69 @@ def mistock_evolve(strategy_id: str):
 
 @router.post("/api/mistock/ai-strategies/{strategy_id}/paper/start")
 def mistock_paper_start(strategy_id: str):
+    item = mistock_db.row("SELECT * FROM ai_strategies WHERE id = ?", (strategy_id,))
+    if not item:
+        raise HTTPException(status_code=404, detail="strategy not found")
+    if not _mistock_check_passed(item, "backtest"):
+        raise HTTPException(status_code=409, detail="Backtest must pass before paper trading")
     mistock_db.execute("UPDATE ai_strategies SET last_paper_started_at = ? WHERE id = ?", (mistock_db.now_text(), strategy_id))
     return _strategy_gate(strategy_id, "paper_start")
 
 
 @router.post("/api/mistock/ai-strategies/{strategy_id}/paper/complete")
 def mistock_paper_complete(strategy_id: str, payload: dict = Body(default={})):
+    item = mistock_db.row("SELECT * FROM ai_strategies WHERE id = ?", (strategy_id,))
+    if not item:
+        raise HTTPException(status_code=404, detail="strategy not found")
+    try:
+        profile = json.loads(item.get("profile_json") or "{}")
+    except (TypeError, ValueError, json.JSONDecodeError):
+        profile = {}
+    risk = profile.get("risk") if isinstance(profile.get("risk"), dict) else {}
+    required_days = max(20, int(risk.get("paper_trading_required_days") or 20))
+    days = int(payload.get("days") or 0)
+    observations = int(payload.get("observations") or 0)
+    return_pct = float(payload.get("return_pct") or 0.0)
+    max_drawdown_pct = float(payload.get("max_drawdown_pct") or 0.0)
+    passed = (
+        days >= required_days
+        and observations >= max(5, required_days // 2)
+        and return_pct > 0.0
+        and max_drawdown_pct <= 10.0
+    )
+    result = {
+        "ok": True,
+        "success": passed,
+        "status": "passed" if passed else "failed",
+        "days": days,
+        "required_days": required_days,
+        "observations": observations,
+        "return_pct": return_pct,
+        "max_drawdown_pct": max_drawdown_pct,
+        "message": "Mistock paper trading gate completed",
+    }
     mistock_db.execute("UPDATE ai_strategies SET last_paper_completed_at = ? WHERE id = ?", (mistock_db.now_text(), strategy_id))
-    return {**_strategy_gate(strategy_id, "paper"), "days": int(payload.get("days") or 20)}
+    _strategy_gate(strategy_id, "paper", result["status"], result)
+    mistock_db.execute(
+        "UPDATE ai_strategies SET status = ? WHERE id = ?",
+        ("paper_passed" if passed else "review_required", strategy_id),
+    )
+    return result
 
 
 @router.post("/api/mistock/ai-strategies/{strategy_id}/approve")
 def mistock_strategy_approve(strategy_id: str):
+    item = mistock_db.row("SELECT * FROM ai_strategies WHERE id = ?", (strategy_id,))
+    if not item:
+        raise HTTPException(status_code=404, detail="strategy not found")
+    gate = _mistock_approval_gate(item)
+    if not gate["ok"]:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Strategy approval blocked: missing {', '.join(gate['missing'])}",
+        )
     mistock_db.execute("UPDATE ai_strategies SET status = 'approved', last_used_at = ? WHERE id = ?", (mistock_db.now_text(), strategy_id))
-    return {"ok": True, "id": strategy_id, "status": "approved"}
+    return {"ok": True, "id": strategy_id, "status": "approved", "gate": gate}
 
 
 @router.post("/api/mistock/ai-strategies/{strategy_id}/retire")
@@ -1470,11 +1548,11 @@ def mistock_strategy_context():
             "last_paper_completed_at": active.get("last_paper_completed_at"),
             "last_used_at": active.get("last_used_at"),
             "validation": _mistock_validation_payload(active),
-            "approval_gate": {"ok": True, "missing": []},
+            "approval_gate": _mistock_approval_gate(active) if active else {"ok": False, "missing": ["strategy"]},
         },
         "safety": {
             **mistock_trader.runtime_flags(),
-            "require_backtest_pass": False,
+            "require_backtest_pass": True,
         },
         "fallback": {"mode": "rule_based", "openai_configured": False},
     }
@@ -2264,7 +2342,26 @@ def mistock_trades_sync():
     # Force a fresh broker read; the local DB mirrors the account inventory,
     # while is_managed keeps automated-trading ownership separate.
     mistock_trader._overseas_balance_cache_at = 0.0
-    balance_data = mistock_trader._get_overseas_balance_cached()
+    try:
+        balance_data = mistock_trader._get_overseas_balance_cached()
+    except Exception as exc:
+        result = {
+            "ok": False,
+            "synced_count": 0,
+            "broker_holding_count": 0,
+            "managed_count": 0,
+            "unmanaged_count": 0,
+            "removed_count": 0,
+            "message": f"Kiwoom US balance synchronization failed: {exc}",
+        }
+        finished_at = mistock_db.now_text()
+        run_id = mistock_db.execute(
+            """INSERT INTO trade_sync_runs
+               (started_at,finished_at,synced_count,status,message)
+               VALUES (?,?,?,?,?)""",
+            (started_at, finished_at, 0, "failed", result["message"]),
+        )
+        return {**result, "run_id": run_id, "started_at": started_at, "finished_at": finished_at}
     broker_holdings = mistock_trader._holdings_from_overseas_balance(balance_data)
     broker_symbols = {str(row.get("symbol") or "") for row in broker_holdings}
     conn = mistock_db.connect_db()
@@ -2427,17 +2524,31 @@ def _refresh_mistock_index_rows() -> None:
         import yfinance as yf
 
         require_online_access("미스톡 성과 탭 시장지수 조회")
-        tickers = list(_MISTOCK_INDEX_TICKERS.values())
-        frame = yf.download(tickers, period="6mo", interval="1d", auto_adjust=False,
-                            progress=False, threads=True, timeout=8)
-        if frame is not None and not frame.empty:
-            close = frame["Close"]
-            for name, ticker in _MISTOCK_INDEX_TICKERS.items():
-                values = close[ticker] if getattr(close, "ndim", 1) > 1 else close
-                series[name] = [
+        def download_one(item: tuple[str, str]) -> tuple[str, list[dict]]:
+            name, ticker = item
+            try:
+                frame = yf.download(
+                    ticker, period="6mo", interval="1d", auto_adjust=False,
+                    progress=False, threads=False, timeout=8,
+                )
+                if frame is None or frame.empty:
+                    return name, []
+                values = frame["Close"]
+                if getattr(values, "ndim", 1) > 1:
+                    values = values.iloc[:, 0]
+                return name, [
                     {"date": str(index)[:10], "close": float(value)}
                     for index, value in values.dropna().items()
                 ]
+            except Exception as exc:
+                logger.info(f"Mistock benchmark ticker unavailable ticker={ticker}: {exc}")
+                return name, []
+
+        items = list(_MISTOCK_INDEX_TICKERS.items())
+        with concurrent.futures.ThreadPoolExecutor(max_workers=min(4, len(items))) as executor:
+            for name, values in executor.map(download_one, items):
+                if values:
+                    series[name] = values
         if series:
             _MISTOCK_INDEX_CACHE = (time.monotonic(), series)
     except Exception as exc:
@@ -2450,11 +2561,20 @@ def _refresh_mistock_index_rows() -> None:
 def _load_mistock_index_rows() -> dict[str, list[dict]]:
     global _MISTOCK_INDEX_REFRESHING
     cached_at, rows = _MISTOCK_INDEX_CACHE
+    refresh_synchronously = False
     if time.monotonic() - cached_at >= 300:
         with _MISTOCK_INDEX_LOCK:
             if not _MISTOCK_INDEX_REFRESHING:
                 _MISTOCK_INDEX_REFRESHING = True
-                threading.Thread(target=_refresh_mistock_index_rows, daemon=True).start()
+                if rows:
+                    threading.Thread(target=_refresh_mistock_index_rows, daemon=True).start()
+                else:
+                    refresh_synchronously = True
+    if refresh_synchronously:
+        # The first request needs a usable regime snapshot. Later refreshes
+        # remain background work so normal reads stay fast.
+        _refresh_mistock_index_rows()
+        _, rows = _MISTOCK_INDEX_CACHE
     return rows
 
 

@@ -466,11 +466,14 @@ def _store_validation_check(strategy: dict, check_name: str, result: dict) -> No
 
 def _check_passed(strategy: dict, check_name: str) -> bool:
     result = _validation_payload(strategy).get("checks", {}).get(check_name, {})
-    return bool(result.get("success") or result.get("ok") is True and result.get("status") == "passed")
+    return bool(
+        result.get("status") == "passed"
+        and (result.get("success") is True or result.get("ok") is True)
+    )
 
 
 def _approval_gate(strategy: dict) -> dict:
-    return {"ok": True, "missing": []}
+    return {"ok": True, "missing": [], "mode": "automatic_approval"}
 
 
 def _operation_status(strategy: dict) -> dict:
@@ -478,7 +481,7 @@ def _operation_status(strategy: dict) -> dict:
     status = str(strategy.get("status") or "")
     selected = bool(strategy.get("selected"))
     approved = status == "approved"
-    ready = bool(selected and approved)
+    ready = bool(selected and approved and gate["ok"])
     if ready:
         if bool(trader.config.dry_run):
             mode = "dry_run"
@@ -517,13 +520,12 @@ def _paper_result_from_payload(payload: PaperCompletePayload, strategy: dict) ->
     profile = strategy.get("profile") or {}
     risk = profile.get("risk") if isinstance(profile.get("risk"), dict) else {}
     required_days = int(risk.get("paper_trading_required_days") or 20)
-    passed = payload.pass_result
-    if passed is None:
-        passed = (
-            payload.days >= required_days
-            and payload.observations >= max(5, required_days // 2)
-            and payload.max_drawdown_pct <= 10.0
-        )
+    passed = (
+        payload.days >= required_days
+        and payload.observations >= max(5, required_days // 2)
+        and payload.return_pct > 0.0
+        and payload.max_drawdown_pct <= 10.0
+    )
     return {
         "ok": True,
         "success": bool(passed),
@@ -534,6 +536,7 @@ def _paper_result_from_payload(payload: PaperCompletePayload, strategy: dict) ->
         "return_pct": float(payload.return_pct),
         "max_drawdown_pct": float(payload.max_drawdown_pct),
         "notes": payload.notes or "",
+        "manual_pass_override_ignored": payload.pass_result is not None,
         "message": "Paper trading gate completed",
     }
 

@@ -72,7 +72,7 @@ def _allowed_categories_for_strategy(strategy_id: str | None) -> set[str]:
     return {"position", "candidate", "ai_rebalance"}
 
 
-def dispatch_due_schedules() -> list[str]:
+def _dispatch_due_schedules_unlocked() -> list[str]:
     global _last_dispatch_failures
     _last_dispatch_failures = []
     ran: list[str] = []
@@ -235,6 +235,16 @@ def dispatch_due_schedules() -> list[str]:
             )
     _last_dispatch_failures = failures
     return ran
+
+
+def dispatch_due_schedules() -> list[str]:
+    from src.utils.process_lock import ProcessLock
+
+    with ProcessLock("strategy-schedule-dispatch") as acquired:
+        if not acquired:
+            logger.warning("[dispatch] another dispatcher process is already running")
+            return []
+        return _dispatch_due_schedules_unlocked()
 
 
 def main() -> int:

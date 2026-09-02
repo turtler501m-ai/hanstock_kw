@@ -32,7 +32,7 @@ def evolve_strategy(strategy_id: str) -> dict:
             
             # Short backtest (120 days) for speed during parameter sweep
             result = run_historical_backtest(test_profile, days=120)
-            if result.get("success") and result.get("ok"):
+            if result.get("status") == "passed" and result.get("success") and result.get("ok"):
                 ret = result["metrics"]["total_return_pct"]
                 dd = max(0.5, result["metrics"]["max_drawdown_pct"])
                 # Sharpe-like ratio: Return / Max Drawdown
@@ -54,6 +54,14 @@ def evolve_strategy(strategy_id: str) -> dict:
         # Run a full-period backtest (250 days) with the best parameters
         full_result = run_historical_backtest(updated_profile, days=250)
         
+        if full_result.get("status") != "passed":
+            return {
+                "success": False,
+                "message": "Full-period cost-adjusted backtest did not pass",
+                "params": best_params,
+                "metrics": full_result.get("metrics", {}),
+            }
+
         for s in strategies:
             if s["id"] == strategy_id:
                 s["profile"] = updated_profile
@@ -67,7 +75,7 @@ def evolve_strategy(strategy_id: str) -> dict:
                     },
                     "latest": {"check": "self_evolve", "result": {"ok": True, "params": best_params}}
                 }, ensure_ascii=False)
-                s["status"] = "approved" if full_result.get("success") else "backtested"
+                s["status"] = "approved"
                 strategy = s
                 break
                 

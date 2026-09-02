@@ -46,11 +46,14 @@ class OrderSyncTerminalIsolationTests(unittest.TestCase):
                     row = conn.execute(
                         "SELECT order_status,filled_qty FROM trades WHERE broker_order_id='C12345'"
                     ).fetchone()
-                self.assertEqual(row, ("canceled", 0))
-                self.assertEqual(result["terminal_regression_count"], 1)
+                # A canceled remainder may still have authoritative fills that
+                # occurred before cancellation. Preserve the terminal status and
+                # materialize the verified cumulative fill.
+                self.assertEqual(row, ("canceled", 4))
+                self.assertEqual(result["terminal_regression_count"], 0)
                 self.assertEqual(
                     result["items"][0]["sync_result"],
-                    "ignored_terminal_regression",
+                    "updated",
                 )
         finally:
             dashboard.trader.config.trade_db_path = original_db_path

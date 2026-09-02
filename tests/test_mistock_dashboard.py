@@ -5,6 +5,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pandas as pd
+from fastapi import HTTPException
 
 from src.dashboard import app
 from src.dashboard.routes import mistock
@@ -198,7 +199,12 @@ class MistockDashboardTests(unittest.TestCase):
             "occurred_at": "2026-08-01T10:00:00", "kind": "deposit",
             "amount": 500, "note": "account funding", "confirmed": True,
         })
-        sync = mistock.mistock_trades_sync()
+        with patch.object(
+            mistock_trader,
+            "_get_overseas_balance_cached",
+            return_value={"output1": [], "output2": {}, "output3": {}},
+        ):
+            sync = mistock.mistock_trades_sync()
 
         self.assertTrue(saved["ok"])
         self.assertEqual(saved["cashflow"]["amount"], 500)
@@ -599,13 +605,60 @@ class MistockDashboardTests(unittest.TestCase):
         ):
             self.assertTrue(mistock.mistock_backtest(strategy_id)["ok"])
         self.assertTrue(mistock.mistock_paper_start(strategy_id)["ok"])
-        self.assertTrue(mistock.mistock_paper_complete(strategy_id, {"days": 20})["ok"])
+        self.assertTrue(mistock.mistock_paper_complete(strategy_id, {
+            "days": 20,
+            "observations": 10,
+            "return_pct": 1.0,
+            "max_drawdown_pct": 5.0,
+        })["success"])
         self.assertEqual(mistock.mistock_strategy_approve(strategy_id)["status"], "approved")
+
+    def test_mistock_strategy_approval_requires_backtest_and_paper_success(self):
+        strategy_id = mistock.mistock_ai_strategies()["strategies"][0]["id"]
+        mistock_db.execute(
+            "UPDATE ai_strategies SET status = 'review_required', last_validation_result = '{}' WHERE id = ?",
+            (strategy_id,),
+        )
+
+        with self.assertRaises(HTTPException) as blocked:
+            mistock.mistock_strategy_approve(strategy_id)
+        self.assertEqual(blocked.exception.status_code, 409)
+
+        with patch(
+            "src.strategy.backtest_mistock.run_mistock_backtest",
+            return_value={"ok": True, "success": False, "status": "failed"},
+        ):
+            mistock.mistock_backtest(strategy_id)
+        with self.assertRaises(HTTPException) as paper_blocked:
+            mistock.mistock_paper_start(strategy_id)
+        self.assertEqual(paper_blocked.exception.status_code, 409)
+
+        with patch(
+            "src.strategy.backtest_mistock.run_mistock_backtest",
+            return_value={"ok": True, "success": True, "status": "passed"},
+        ):
+            mistock.mistock_backtest(strategy_id)
+        mistock.mistock_paper_start(strategy_id)
+        failed_paper = mistock.mistock_paper_complete(strategy_id, {
+            "days": 20,
+            "observations": 10,
+            "return_pct": -1.0,
+            "max_drawdown_pct": 5.0,
+        })
+        self.assertFalse(failed_paper["success"])
+        with self.assertRaises(HTTPException) as approval_blocked:
+            mistock.mistock_strategy_approve(strategy_id)
+        self.assertEqual(approval_blocked.exception.status_code, 409)
 
         watchlist_result = mistock.mistock_watchlist_toggle_auto({"enabled": True, "threshold": 4})
         self.assertTrue(watchlist_result["enabled"])
         self.assertEqual(watchlist_result["threshold"], 4.0)
-        self.assertTrue(mistock.mistock_trades_sync()["ok"])
+        with patch.object(
+            mistock_trader,
+            "_get_overseas_balance_cached",
+            return_value={"output1": [], "output2": {}, "output3": {}},
+        ):
+            self.assertTrue(mistock.mistock_trades_sync()["ok"])
         with patch("src.dashboard.routes.mistock.threading.Thread") as mock_thread:
             mock_thread_instance = mock_thread.return_value
             with patch.object(mistock_trader, "scan_candidates", return_value={"scanned": 0, "candidates": []}):
@@ -975,12 +1028,13 @@ class MistockDashboardTests(unittest.TestCase):
         self.assertEqual(result["preset"], "aggressive")
         self.assertEqual(len(selected), 1)
         self.assertEqual(selected[0]["id"], result["strategy"]["id"])
-        self.assertEqual(selected[0]["status"], "paper_passed")
+        self.assertEqual(selected[0]["status"], "draft")
         self.assertEqual(selected[0]["profile"]["market"], "NASDAQ")
         self.assertEqual(selected[0]["profile"]["universe"], "NASDAQ100")
         context = mistock.mistock_strategy_context()
         self.assertEqual(context["active_strategy"]["id"], result["strategy"]["id"])
-        self.assertIn("backtest", context["active_strategy"]["validation"]["checks"])
+        self.assertNotIn("backtest", context["active_strategy"]["validation"]["checks"])
+        self.assertFalse(context["active_strategy"]["approval_gate"]["ok"])
 
     def test_mistock_runtime_order_mode(self):
         # 1. Store initial MISTOCK_DRY_RUN value

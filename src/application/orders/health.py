@@ -120,13 +120,13 @@ def build_order_health(connect, *, stale_minutes: int = 10, include_runtime: boo
             "code": "RUNTIME_STATE_MISMATCH", "count": 1,
             "runtime_state": runtime["state"], "computed_state": computed_state,
         })
-    operational_status = "degraded" if blockers or warnings or state != "ready" else "healthy"
+    operational_status = "blocked" if blockers or state != "ready" else (
+        "degraded" if warnings else "healthy"
+    )
     return {
         "state": state,
         "operational_status": operational_status,
-        # Recovery findings remain visible diagnostics, but no longer impose a
-        # blanket buy block. Order-specific risk controls still run separately.
-        "new_risk_allowed": True,
+        "new_risk_allowed": state == "ready" and not blockers,
         "blockers": blockers,
         "warnings": warnings,
         "approvals": {
@@ -153,5 +153,16 @@ class NewRiskBlockedError(RuntimeError):
 
 
 def assert_new_risk_allowed(connect) -> None:
-    """Compatibility hook; recovery diagnostics no longer block new buys."""
-    return None
+    health = build_order_health(connect)
+    runtime = health.get("runtime") or {}
+    if health["state"] == "recovering" and runtime.get("updated_at") is None:
+        # CLI workers do not run the FastAPI lifespan, so perform the same
+        # persisted-invariant recovery before the first risk-increasing order.
+        from src.application.orders.recovery import run_startup_recovery
+
+        run_startup_recovery(connect)
+        health = build_order_health(connect)
+    if health["state"] == "recovering" and not health["blockers"]:
+        health["blockers"].append({"code": "RUNTIME_RECOVERING", "count": 1})
+    if not health["new_risk_allowed"]:
+        raise NewRiskBlockedError(health["blockers"])

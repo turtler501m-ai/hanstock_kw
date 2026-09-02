@@ -337,7 +337,7 @@ def _slack_cycle_result(result: dict, *, mode: str) -> None:
     )
 
 
-def run_scheduled_cycle(
+def _run_scheduled_cycle_unlocked(
     mode: str = "execute",
     *,
     include_ai_rebalance: bool = False,
@@ -462,6 +462,38 @@ def run_scheduled_cycle(
         if mode == "daily_auto":
             _slack_cycle_result(result, mode=mode)
     return result
+
+
+def run_scheduled_cycle(
+    mode: str = "execute",
+    *,
+    include_ai_rebalance: bool = False,
+    auto_approve: bool = False,
+    force_strategy_id: str | None = None,
+    allowed_categories: set[str] | None = None,
+    persist_result: bool = True,
+    pre_order_status_sync: dict | None = None,
+) -> dict:
+    from src.utils.process_lock import ProcessLock
+
+    with ProcessLock("domestic-scheduled-cycle") as acquired:
+        if not acquired:
+            return {
+                "ok": True,
+                "status": "blocked",
+                "execution_status": "blocked",
+                "blocked": ["scheduler_already_running"],
+                "strategy_id": force_strategy_id or "seven_split",
+            }
+        return _run_scheduled_cycle_unlocked(
+            mode,
+            include_ai_rebalance=include_ai_rebalance,
+            auto_approve=auto_approve,
+            force_strategy_id=force_strategy_id,
+            allowed_categories=allowed_categories,
+            persist_result=persist_result,
+            pre_order_status_sync=pre_order_status_sync,
+        )
 
 
 def main() -> int:

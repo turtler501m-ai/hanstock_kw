@@ -25,7 +25,7 @@ def evolve_mistock_strategy(strategy_id: str) -> dict:
             test_profile["max_single_weight"] = max_w
             
             result = run_mistock_backtest(test_profile, days=120)
-            if result.get("success") and result.get("ok"):
+            if result.get("status") == "passed" and result.get("success") and result.get("ok"):
                 ret = result["metrics"]["total_return_pct"]
                 dd = max(0.5, result["metrics"]["max_drawdown_pct"])
                 score = ret / dd
@@ -43,6 +43,14 @@ def evolve_mistock_strategy(strategy_id: str) -> dict:
         
         full_result = run_mistock_backtest(updated_profile, days=250)
         
+        if full_result.get("status") != "passed":
+            return {
+                "success": False,
+                "message": "Full-period cost-adjusted US backtest did not pass",
+                "params": best_params,
+                "metrics": full_result.get("metrics", {}),
+            }
+
         validation_res = {
             "checks": {
                 "static": {"ok": True, "success": True, "status": "passed"},
@@ -51,7 +59,7 @@ def evolve_mistock_strategy(strategy_id: str) -> dict:
             "latest": {"check": "self_evolve", "result": {"ok": True, "params": best_params}}
         }
         
-        status = "approved" if full_result.get("success") else "backtested"
+        status = "approved"
         now = mistock_db.now_text()
         
         mistock_db.execute(

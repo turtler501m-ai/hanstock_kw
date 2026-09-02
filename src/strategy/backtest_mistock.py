@@ -1,11 +1,8 @@
-import math
-from pathlib import Path
 import numpy as np
-import pandas as pd
 import yfinance as yf
-from src.strategy.indicators import calc_rsi, calc_sma, calc_macd, calc_bollinger
 from src.utils.logger import logger
 from src.mistock import db as mistock_db
+from src.strategy.portfolio_backtest import simulate_target_portfolio
 
 def run_mistock_backtest(strategy_profile: dict, days: int = 250) -> dict:
     from src.online_access import require_online_access
@@ -16,7 +13,13 @@ def run_mistock_backtest(strategy_profile: dict, days: int = 250) -> dict:
     symbols = [r["symbol"] for r in rows] if rows else ["AAPL", "MSFT", "TSLA", "AMZN", "GOOG"]
     
     try:
-        data = yf.download(symbols, period="2y", progress=False, group_by="ticker")
+        data = yf.download(
+            symbols,
+            period="2y",
+            progress=False,
+            group_by="ticker",
+            auto_adjust=True,
+        )
         if data.empty:
             raise ValueError("yfinance returned empty dataset")
     except Exception as e:
@@ -30,15 +33,9 @@ def run_mistock_backtest(strategy_profile: dict, days: int = 250) -> dict:
             return {"success": False, "message": "Not enough historical data for backtesting"}
             
     initial_capital = 10000.0
-    portfolio_value = initial_capital
-    equity_curve = [portfolio_value]
-    
-    ai_weight = float(strategy_profile.get("ai_weight", 0.0))
     backtest_dates = dates[-days:]
-    wins = 0
-    losses = 0
-    gross_profit = 0.0
-    gross_loss = 0.0
+    target_weights_by_day = []
+    returns_by_day = []
     
     for step in range(len(backtest_dates) - 1):
         curr_date = backtest_dates[step]
@@ -90,7 +87,7 @@ def run_mistock_backtest(strategy_profile: dict, days: int = 250) -> dict:
             raw_w = target_weights.get(s, 0.0)
             normalized_w[s] = min(max_single_weight, investable * (raw_w / w_sum if w_sum > 0 else 0.0))
             
-        daily_return = 0.0
+        period_returns = {}
         for s in symbols:
             try:
                 if s not in data.columns.get_level_values(0):
@@ -98,41 +95,42 @@ def run_mistock_backtest(strategy_profile: dict, days: int = 250) -> dict:
                 curr_price = float(data[s].loc[curr_date, "Close"])
                 next_price = float(data[s].loc[next_date, "Close"])
                 if curr_price > 0:
-                    stock_ret = (next_price / curr_price) - 1.0
-                    daily_return += normalized_w[s] * stock_ret
+                    period_returns[s] = (next_price / curr_price) - 1.0
             except KeyError:
                 pass
-                
-        portfolio_value *= (1.0 + daily_return)
-        equity_curve.append(portfolio_value)
-        
-        if daily_return > 0:
-            wins += 1
-            gross_profit += portfolio_value * daily_return
-        elif daily_return < 0:
-            losses += 1
-            gross_loss += abs(portfolio_value * daily_return)
-            
-    total_return_pct = round((portfolio_value / initial_capital - 1) * 100, 2)
-    peak = initial_capital
-    max_dd = 0.0
-    for val in equity_curve:
-        if val > peak:
-            peak = val
-        dd = (val - peak) / peak
-        if dd < max_dd:
-            max_dd = dd
-    max_drawdown_pct = round(abs(max_dd) * 100, 2)
-    
-    win_rate = round(wins / (wins + losses), 3) if (wins + losses) > 0 else 0.5
-    profit_factor = round(gross_profit / gross_loss, 2) if gross_loss > 0 else 1.5
-    if math.isnan(profit_factor) or math.isinf(profit_factor):
-        profit_factor = 2.0
-        
+        target_weights_by_day.append(normalized_w)
+        returns_by_day.append(period_returns)
+
+    backtest_config = (
+        strategy_profile.get("backtest")
+        if isinstance(strategy_profile.get("backtest"), dict)
+        else {}
+    )
+    simulation = simulate_target_portfolio(
+        target_weights_by_day,
+        returns_by_day,
+        initial_capital=initial_capital,
+        commission_bps=float(backtest_config.get("commission_bps", 3.0)),
+        slippage_bps=float(backtest_config.get("slippage_bps", 5.0)),
+        market_impact_bps=float(backtest_config.get("market_impact_bps", 2.0)),
+        sell_tax_bps=float(backtest_config.get("sell_tax_bps", 0.0)),
+        rebalance_threshold=float(backtest_config.get("rebalance_threshold", 0.02)),
+    )
+    metrics = simulation["metrics"]
+    criteria = {
+        "min_trade_count": int(backtest_config.get("min_trade_count", 10)),
+        "min_win_rate": float(backtest_config.get("min_win_rate", 0.45)),
+        "min_profit_factor": float(backtest_config.get("min_profit_factor", 1.05)),
+        "max_drawdown_pct": float(backtest_config.get("max_drawdown_pct", 15.0)),
+        "min_total_return_pct": float(backtest_config.get("min_total_return_pct", 0.0)),
+        "costs_required": True,
+    }
     passed = (
-        total_return_pct > 0.0
-        and max_drawdown_pct <= 15.0
-        and profit_factor >= 1.05
+        metrics["trade_count"] >= criteria["min_trade_count"]
+        and metrics["win_rate"] >= criteria["min_win_rate"]
+        and metrics["profit_factor"] >= criteria["min_profit_factor"]
+        and metrics["max_drawdown_pct"] <= criteria["max_drawdown_pct"]
+        and metrics["total_return_pct"] > criteria["min_total_return_pct"]
     )
     
     from src.strategy.technical_backtest import run_technical_walk_forward
@@ -161,28 +159,11 @@ def run_mistock_backtest(strategy_profile: dict, days: int = 250) -> dict:
         "success": True,
         "ok": True,
         "status": "passed" if passed else "failed",
-        "metrics": {
-            "trade_count": len(backtest_dates) - 1,
-            "win_rate": win_rate,
-            "profit_factor": profit_factor,
-            "total_return_pct": total_return_pct,
-            "max_drawdown_pct": max_drawdown_pct,
-        },
-        "costs": {
-            "commission_bps": 3.0,
-            "slippage_bps": 5.0,
-            "market_impact_bps": 2.0,
-            "modeled": True,
-        },
-        "criteria": {
-            "min_trade_count": 10,
-            "min_win_rate": 0.45,
-            "min_profit_factor": 1.05,
-            "max_drawdown_pct": 15.0,
-            "costs_required": True,
-        },
-        "equity_curve": equity_curve,
+        "metrics": metrics,
+        "costs": simulation["costs"],
+        "criteria": criteria,
+        "equity_curve": simulation["equity_curve"],
         "dates": [d.strftime("%Y-%m-%d") for d in backtest_dates],
         "technical_walk_forward": walk_forward,
-        "message": "Real US stock backtest completed using watchlist prices",
+        "message": "Cost-adjusted US stock backtest completed using adjusted watchlist prices",
     }

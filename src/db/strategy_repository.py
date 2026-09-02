@@ -110,8 +110,6 @@ def _parse_strategy_profile(strategy: dict) -> dict:
             value = float(default_pct)
         normalized_caps[regime] = max(0.0, min(100.0, value))
     profile["market_regime_max_pct"] = normalized_caps
-    profile.pop("backtest", None)
-    profile["risk"].pop("paper_trading_required_days", None)
     profile["model"] = str(profile.get("model") or strategy.get("model") or "none")
     profile["ai_weight"] = max(0.0, min(1.0, float(profile.get("ai_weight", strategy.get("weight", 0.0)) or 0.0)))
     return profile
@@ -254,7 +252,7 @@ def _insert_ai_strategy(conn, strategy: dict) -> None:
             float(strategy["weight"]),
             strategy.get("description", ""),
             1 if strategy.get("selected", False) else 0,
-            strategy.get("status", "approved"),
+            strategy.get("status", "draft"),
             strategy.get("profile_json"),
             int(strategy.get("strategy_version") or 1),
             strategy.get("profile_hash"),

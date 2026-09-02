@@ -103,6 +103,23 @@ def _sync_filled_trades_from_history(
         for item in merged_trades
         if str(item.get("broker_order_id") or "").strip()
     }
+    identity_candidates: dict[tuple[str, str, str, str], list[dict]] = {}
+    for item in merged_trades:
+        broker_order_id = str(item.get("broker_order_id") or "").strip()
+        if not broker_order_id:
+            continue
+        identity = (
+            str(item.get("env") or trader.runtime_flags().trading_env),
+            broker_order_id,
+            str(item.get("symbol") or ""),
+            str(item.get("action") or ""),
+        )
+        identity_candidates.setdefault(identity, []).append(item)
+    unique_by_broker_identity = {
+        identity: candidates[0]
+        for identity, candidates in identity_candidates.items()
+        if len(candidates) == 1
+    }
     active_by_broker_order_id = {
         (
             str(item.get("env") or trader.runtime_flags().trading_env),
@@ -149,6 +166,17 @@ def _sync_filled_trades_from_history(
             )
             if stored is None:
                 stored = active_by_broker_order_id.get((
+                    str(trade.get("env") or trader.runtime_flags().trading_env),
+                    broker_order_id,
+                    str(trade.get("symbol") or ""),
+                    str(trade.get("action") or ""),
+                ))
+            if stored is None:
+                # Some legacy rows were saved with the local receipt date rather
+                # than the broker order date. Match across dates only when the
+                # complete broker identity is unique, so daily order-number reuse
+                # cannot mutate an unrelated terminal row.
+                stored = unique_by_broker_identity.get((
                     str(trade.get("env") or trader.runtime_flags().trading_env),
                     broker_order_id,
                     str(trade.get("symbol") or ""),

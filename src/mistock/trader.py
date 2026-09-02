@@ -570,6 +570,15 @@ def get_balance() -> dict[str, Any]:
             managed_pnl = sum(float(item["pnl"] or 0.0) for item in holdings)
             account_stock_eval = sum(float(item["value"] or 0.0) for item in account_holdings)
             account_pnl = sum(float(item["pnl"] or 0.0) for item in account_holdings)
+            reported_total_eval = _first_positive(summary, [
+                "tot_asst_amt",
+                "total_eval",
+            ]) or _first_positive(output3, [
+                "tot_asst_amt",
+                "total_eval",
+            ])
+            if cash <= 0 and reported_total_eval > 0:
+                cash = max(0.0, reported_total_eval - account_stock_eval)
             local_shadow_eval = sum(
                 float(item.get("value") or 0.0)
                 for item in holdings
@@ -599,15 +608,30 @@ def get_balance() -> dict[str, Any]:
                         cash = max(0.0, configured_cap - managed_stock_eval)
                         balance_source = f"{balance_data.get('_broker', 'kiwoom')}_config_capped"
             orderable_cash = cash
-            account_cash = _first_positive(summary, [
+            raw_account_cash = _first_positive(summary, [
                 "frcr_dncl_amt",
                 "frcr_dncl_amt_2",
             ])
-            account_total_eval = account_cash + (
+            if raw_account_cash <= 0 and reported_total_eval > 0:
+                raw_account_cash = max(0.0, reported_total_eval - account_stock_eval)
+            raw_account_total_eval = reported_total_eval or raw_account_cash + (
                 broker_stock_eval if broker_stock_eval > 0 else account_stock_eval
             )
-            calculated_total_eval = account_cash + account_stock_eval
             managed_visible_eval = orderable_cash + managed_stock_eval
+            managed_balance = balance_source in {
+                "demo_config_fallback", "demo_local_shadow", "kiwoom_config_capped",
+            }
+            if managed_balance:
+                account_cash = orderable_cash
+                visible_stock_eval = managed_stock_eval
+                visible_pnl = managed_pnl
+                account_total_eval = managed_visible_eval
+            else:
+                account_cash = raw_account_cash
+                visible_stock_eval = account_stock_eval
+                visible_pnl = account_pnl
+                account_total_eval = raw_account_total_eval
+            calculated_total_eval = account_cash + visible_stock_eval
             broker_holding_count = int(
                 balance_data.get("_broker_holding_count")
                 or len(balance_data.get("output1") or [])
@@ -629,7 +653,9 @@ def get_balance() -> dict[str, Any]:
                 "account_cash_basis": "foreign_currency_deposit",
                 "total_eval": account_total_eval,
                 "managed_visible_eval": managed_visible_eval,
-                "broker_total_eval": broker_stock_eval,
+                "broker_total_eval": account_total_eval,
+                "raw_broker_total_eval": raw_account_total_eval,
+                "raw_account_cash": raw_account_cash,
                 "broker_stock_eval": broker_stock_eval,
                 "managed_stock_eval": managed_stock_eval,
                 "unmanaged_stock_eval": unmanaged_stock_eval,
@@ -640,10 +666,10 @@ def get_balance() -> dict[str, Any]:
                 "managed_holding_count": managed_local_count,
                 "local_holding_count": local_holding_count,
                 "balance_source": balance_source,
-                "stock_eval": account_stock_eval,
+                "stock_eval": visible_stock_eval,
                 "cash_ratio": account_cash / account_total_eval if account_total_eval > 0 else 0.0,
-                "stock_ratio": account_stock_eval / account_total_eval if account_total_eval > 0 else 0.0,
-                "pnl": account_pnl,
+                "stock_ratio": visible_stock_eval / account_total_eval if account_total_eval > 0 else 0.0,
+                "pnl": visible_pnl,
                 "managed_pnl": managed_pnl,
                 "account_holdings": account_holdings,
                 "holdings": holdings,
