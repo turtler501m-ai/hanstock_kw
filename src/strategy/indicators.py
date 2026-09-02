@@ -53,6 +53,32 @@ def calc_bollinger(prices: list[float], period: int = 20) -> tuple:
     return round(mid - 2 * std), round(mid), round(mid + 2 * std)
 
 
+def calc_atr(
+    highs: list[float],
+    lows: list[float],
+    closes: list[float],
+    period: int = 14,
+) -> float:
+    """Average true range for daily stop sizing."""
+    size = min(len(highs), len(lows), len(closes))
+    if size < period + 1:
+        return 0.0
+    high_values = [float(value or 0) for value in highs[-(period + 1):]]
+    low_values = [float(value or 0) for value in lows[-(period + 1):]]
+    close_values = [float(value or 0) for value in closes[-(period + 1):]]
+    ranges = []
+    for index in range(1, len(close_values)):
+        high = high_values[index]
+        low = low_values[index]
+        previous_close = close_values[index - 1]
+        if high <= 0 or low <= 0 or previous_close <= 0:
+            continue
+        ranges.append(max(high - low, abs(high - previous_close), abs(low - previous_close)))
+    if len(ranges) < period:
+        return 0.0
+    return round(sum(ranges[-period:]) / period, 4)
+
+
 def calc_rsi_series(prices: list[float], period: int = 14) -> list[float]:
     """prices 리스트의 각 봉에 대한 RSI 값 목록을 반환한다.
     반환 길이 = len(prices) - period

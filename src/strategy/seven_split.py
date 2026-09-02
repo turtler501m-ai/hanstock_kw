@@ -8,7 +8,7 @@ from src.config import config
 from src.market_metadata import resolve_stock_name
 from src.utils.logger import logger
 from src.notifier.slack import slack_error
-from src.strategy.indicators import calc_rsi, calc_sma, calc_macd, calc_bollinger
+from src.strategy.indicators import calc_atr, calc_rsi, calc_sma, calc_macd, calc_bollinger
 from src.strategy.features import build_strategy_features
 from src.strategy.predict import ModelPredictor
 from src.strategy.allocator import PortfolioAllocator, conviction_weight_cap
@@ -257,6 +257,45 @@ KOSDAQ_SYMBOLS = {
     "041510", # 에스엠
 }
 
+
+def _period_return(prices: list[float], days: int) -> float:
+    """Return percentage change over a completed lookback window."""
+    if len(prices) <= days:
+        return 0.0
+    start = float(prices[-days - 1] or 0)
+    end = float(prices[-1] or 0)
+    if start <= 0 or end <= 0:
+        return 0.0
+    return round((end / start - 1) * 100, 2)
+
+
+def _relative_momentum_score(prices: list[float]) -> dict:
+    """Favor persistent 3-12 month winners while penalizing near-term blow-offs."""
+    returns = {
+        "return_20d": _period_return(prices, 20),
+        "return_60d": _period_return(prices, 60),
+        "return_120d": _period_return(prices, 120),
+    }
+    score = 0.0
+    reasons: list[str] = []
+    if returns["return_60d"] >= 8:
+        score += 1.0
+        reasons.append(f"60d momentum {returns['return_60d']:+.1f}%")
+    elif returns["return_60d"] <= -8:
+        score -= 1.0
+        reasons.append(f"weak 60d momentum {returns['return_60d']:+.1f}%")
+    if returns["return_120d"] >= 12:
+        score += 1.0
+        reasons.append(f"120d momentum {returns['return_120d']:+.1f}%")
+    elif returns["return_120d"] <= -12:
+        score -= 1.0
+        reasons.append(f"weak 120d momentum {returns['return_120d']:+.1f}%")
+    if returns["return_20d"] >= 25:
+        score -= 1.5
+        reasons.append(f"short-term overextension {returns['return_20d']:+.1f}%")
+    return {**returns, "score": score, "reasons": reasons}
+
+
 def get_yfinance_ticker(code: str) -> str:
     """종목 코드별 야후 파이낸스 적합한 티커 심볼을 반환한다."""
     if code in KOSDAQ_SYMBOLS:
@@ -280,6 +319,9 @@ def calc_strategy_profile(prices: list[float], highs: list[float] | None = None,
     bb_lo, bb_mid, bb_hi = calc_bollinger(prices, 20)
     macd = calc_macd(prices)
     ma_cross = moving_average_cross(prices)
+    momentum = _relative_momentum_score(prices)
+    atr = calc_atr(highs, lows, prices)
+    atr_pct = round(atr / current * 100, 2) if current > 0 and atr > 0 else 0.0
     value_surge = trade_value_surge(
         prices, volumes, minimum_ratio=config.trade_value_surge_ratio
     )
@@ -404,6 +446,15 @@ def calc_strategy_profile(prices: list[float], highs: list[float] | None = None,
         elif ma_cross["dead_cross"]:
             score -= 2.0
             reasons.append("SMA20/SMA60 dead cross")
+        if len(prices) >= 120 and current > sma120 > 0 and sma20 > sma60:
+            score += 1.0
+            reasons.append("price above SMA120 with rising medium trend")
+        if momentum["score"]:
+            score += momentum["score"]
+            reasons.extend(momentum["reasons"])
+        if atr_pct > 12:
+            score -= 1.0
+            reasons.append(f"high ATR risk {atr_pct:.1f}%")
         if value_surge["matched"]:
             score += 2.0
             reasons.append(f"trade value surge {value_surge['ratio']:.1f}x")
@@ -433,6 +484,11 @@ def calc_strategy_profile(prices: list[float], highs: list[float] | None = None,
         "macd_bear_cross": macd["bear_cross"],
         "sma_golden_cross": ma_cross["golden_cross"],
         "sma_dead_cross": ma_cross["dead_cross"],
+        "return_20d": momentum["return_20d"],
+        "return_60d": momentum["return_60d"],
+        "return_120d": momentum["return_120d"],
+        "atr": atr,
+        "atr_pct": atr_pct,
         "trade_value_surge": value_surge,
         "first_wave_pullback": wave_pullback,
         "heikin_ashi_scalping": custom_metadata,
@@ -954,6 +1010,10 @@ def find_candidates(
                     "rsi": profile["rsi"],
                     "rsi2": profile["rsi2"],
                     "macd_hist": profile["macd_hist"],
+                    "return_20d": profile.get("return_20d", 0.0),
+                    "return_60d": profile.get("return_60d", 0.0),
+                    "return_120d": profile.get("return_120d", 0.0),
+                    "atr_pct": profile.get("atr_pct", 0.0),
                     "sma20": profile["sma20"],
                     "sma60": profile["sma60"],
                     "bb_lo": profile["bb_lo"],
@@ -1106,6 +1166,10 @@ def find_candidates(
                 "rsi": profile["rsi"],
                 "rsi2": profile["rsi2"],
                 "macd_hist": profile["macd_hist"],
+                "return_20d": profile.get("return_20d", 0.0),
+                "return_60d": profile.get("return_60d", 0.0),
+                "return_120d": profile.get("return_120d", 0.0),
+                "atr_pct": profile.get("atr_pct", 0.0),
                 "sma20": profile["sma20"],
                 "sma60": profile["sma60"],
                 "bb_lo": profile["bb_lo"],
@@ -1498,6 +1562,11 @@ def generate_signal(stock: dict, daily_data: list, strategy_model: str = "") -> 
         "macd_hist": profile["macd_hist"],
         "macd_bull_cross": profile["macd_bull_cross"],
         "macd_bear_cross": profile["macd_bear_cross"],
+        "return_20d": profile.get("return_20d", 0.0),
+        "return_60d": profile.get("return_60d", 0.0),
+        "return_120d": profile.get("return_120d", 0.0),
+        "atr": profile.get("atr", 0.0),
+        "atr_pct": profile.get("atr_pct", 0.0),
         "heikin_ashi_scalping": profile.get("heikin_ashi_scalping", {}),
         "rsi_oversold_rebound": profile.get("rsi_oversold_rebound", {}),
     }
@@ -1508,6 +1577,26 @@ def generate_signal(stock: dict, daily_data: list, strategy_model: str = "") -> 
     avg_price = float(stock.get("pchs_avg_pric") or stock.get("avg_price") or 0)
     if avg_price <= 0 and current > 0 and rt > -99.9:
         avg_price = current / (1 + rt / 100)
+    atr = float(profile.get("atr") or 0)
+    if (
+        strategy_model not in {"rsi_limit_strategy", "heikin_ashi_scalping_strategy"}
+        and qty > 0
+        and current > 0
+        and avg_price > 0
+        and atr > 0
+    ):
+        fixed_floor = avg_price * (1 + config.stop_loss_pct / 100)
+        atr_stop = avg_price - atr * 2.5
+        protective_stop = max(fixed_floor, atr_stop)
+        indicators["atr_stop"] = round(protective_stop, 4)
+        if current <= protective_stop:
+            return {
+                "action": "sell",
+                "qty": qty,
+                "price": 0,
+                "reason": f"ATR protective stop {protective_stop:.0f} (ATR={atr:.0f})",
+                "indicators": indicators,
+            }
     peak_state = update_position_peak(
         "KR",
         stock.get("pdno", ""),
@@ -1657,8 +1746,17 @@ def generate_signal(stock: dict, daily_data: list, strategy_model: str = "") -> 
         }
     if rt >= 200 and rsi >= config.rsi_sell:
         return {"action": "sell", "qty": split_qty, "price": int(current), "reason": f"large profit split sell {rt:.1f}% RSI={rsi}", "indicators": indicators}
-    if rt >= config.take_profit and rsi >= config.rsi_sell:
+    strong_winner = (
+        rt >= config.take_profit
+        and profile.get("return_60d", 0.0) > 0
+        and profile.get("return_120d", 0.0) > 0
+        and sma20 >= sma60 > 0
+        and profile["macd_hist"] >= 0
+    )
+    if rt >= config.take_profit and rsi >= config.rsi_sell and not strong_winner:
         return {"action": "sell", "qty": split_qty, "price": int(current), "reason": f"take profit {rt:.1f}% RSI={rsi}", "indicators": indicators}
+    if strong_winner and rsi >= config.rsi_sell:
+        return {"action": "hold", "qty": 0, "price": 0, "reason": f"trend winner held for trailing stop {rt:.1f}% RSI={rsi}", "indicators": indicators}
     if rt >= config.take_profit * 0.5 and profile["macd_bear_cross"] and rsi >= 60:
         return {"action": "sell", "qty": split_qty, "price": int(current), "reason": f"MACD bearish take profit {rt:.1f}% RSI={rsi}", "indicators": indicators}
     if strategy_model == "rsi_limit_strategy":

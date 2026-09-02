@@ -251,11 +251,87 @@ class TraderCoreTests(unittest.TestCase):
     def test_strategy_profile_exposes_composite_indicators(self):
         prices = [float(i) for i in range(1, 140)]
         highs = [p + 1 for p in prices]
+        lows = [max(0.1, p - 1) for p in prices]
         volumes = [100.0] * 119 + [200.0] * 20
-        profile = calc_strategy_profile(prices, highs, volumes)
+        profile = calc_strategy_profile(prices, highs, volumes, lows=lows)
         self.assertIn("macd_hist", profile)
         self.assertIn("rsi2", profile)
+        self.assertIn("return_60d", profile)
+        self.assertIn("return_120d", profile)
+        self.assertIn("atr_pct", profile)
         self.assertGreaterEqual(profile["score"], 0)
+
+    def test_strategy_profile_rewards_persistent_momentum_and_penalizes_blowoff(self):
+        steady = [100.0 + i * 0.5 for i in range(150)]
+        blowoff = steady[:-20] + [steady[-21] * (1 + i * 0.02) for i in range(1, 21)]
+
+        steady_profile = calc_strategy_profile(
+            steady,
+            [p + 1 for p in steady],
+            [1000.0] * len(steady),
+            lows=[p - 1 for p in steady],
+        )
+        blowoff_profile = calc_strategy_profile(
+            blowoff,
+            [p + 1 for p in blowoff],
+            [1000.0] * len(blowoff),
+            lows=[p - 1 for p in blowoff],
+        )
+
+        self.assertGreater(steady_profile["return_60d"], 0)
+        self.assertIn("60d momentum", " ".join(steady_profile["reasons"]))
+        self.assertIn("short-term overextension", " ".join(blowoff_profile["reasons"]))
+
+    def test_generate_signal_uses_atr_protective_stop_before_full_fixed_stop(self):
+        daily = [
+            {
+                "stck_clpr": "100",
+                "stck_oprc": "100",
+                "stck_hgpr": "101",
+                "stck_lwpr": "99",
+                "acml_vol": "1000",
+            }
+            for _ in range(40)
+        ]
+        with (
+            patch("src.strategy.seven_split.config.stop_loss_pct", -10.0),
+            patch("src.strategy.seven_split.trailing_stop_signal", return_value={"triggered": False}),
+            patch("src.strategy.seven_split.update_position_peak", return_value={"peak_price": 100.0}),
+        ):
+            signal = generate_signal(
+                {"prpr": "94", "hldg_qty": "7", "evlu_pfls_rt": "-6"},
+                daily,
+            )
+
+        self.assertEqual(signal["action"], "sell")
+        self.assertEqual(signal["qty"], 7)
+        self.assertIn("ATR protective stop", signal["reason"])
+
+    def test_generate_signal_holds_strong_winner_for_trailing_stop(self):
+        prices = [100.0 + i * 0.5 for i in range(150)]
+        daily = [
+            {
+                "stck_clpr": str(price),
+                "stck_oprc": str(price - 0.2),
+                "stck_hgpr": str(price + 1),
+                "stck_lwpr": str(price - 1),
+                "acml_vol": "1000",
+            }
+            for price in reversed(prices)
+        ]
+        with (
+            patch("src.strategy.seven_split.config.take_profit", 30.0),
+            patch("src.strategy.seven_split.config.rsi_sell", 70),
+            patch("src.strategy.seven_split.trailing_stop_signal", return_value={"triggered": False}),
+            patch("src.strategy.seven_split.update_position_peak", return_value={"peak_price": prices[-1]}),
+        ):
+            signal = generate_signal(
+                {"prpr": str(prices[-1]), "hldg_qty": "7", "evlu_pfls_rt": "35"},
+                daily,
+            )
+
+        self.assertEqual(signal["action"], "hold")
+        self.assertIn("trend winner held", signal["reason"])
 
     def test_macd_handles_short_history(self):
         macd = calc_macd([1, 2, 3])
