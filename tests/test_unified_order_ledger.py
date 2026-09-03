@@ -309,6 +309,33 @@ class UnifiedOrderLedgerTests(unittest.TestCase):
         self.assertEqual("0018447", recovered["broker_order_id"])
         self.assertEqual(10, recovered["filled_qty"])
 
+    def test_submitted_order_recovers_from_unique_verified_legacy_cancellation(self):
+        order = self.repository.create(self.intent(), initial_status="approved")
+        self.repository.transition(order["id"], "approved", "submitting")
+        self.repository.transition(order["id"], "submitting", "submitted")
+        with self.connect() as conn:
+            conn.execute(
+                """CREATE TABLE trades (
+                    id INTEGER PRIMARY KEY,ts TEXT,symbol TEXT,action TEXT,qty INTEGER,
+                    price REAL,filled_qty INTEGER,filled_price REAL,
+                    order_status TEXT,broker_order_id TEXT
+                )"""
+            )
+            conn.execute(
+                "UPDATE orders SET created_at='2026-09-02T06:08:50+00:00' WHERE id=?",
+                (order["id"],),
+            )
+            conn.execute(
+                """INSERT INTO trades VALUES
+                   (1,'2026-09-02 15:09:15','005930','buy',10,70000,0,0,
+                    'canceled','0139396')"""
+            )
+        self.assertEqual(1, reconcile_unknown_orders_from_legacy_fills(self.connect))
+        recovered = self.repository.get(order["id"])
+        self.assertEqual("canceled", recovered["status"])
+        self.assertEqual("0139396", recovered["broker_order_id"])
+        self.assertEqual(0, recovered["filled_qty"])
+
 
 if __name__ == "__main__":
     unittest.main()

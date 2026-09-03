@@ -171,7 +171,7 @@ def sync_terminal_approval_orders(connect, *, approval_id: int | None = None) ->
 
 
 def reconcile_unknown_orders_from_legacy_fills(connect) -> int:
-    """Recover response-lost unified orders from a unique verified legacy fill.
+    """Recover unlinked active unified orders from a unique legacy outcome.
 
     The legacy history synchronizer can learn the broker order number after the
     strategy router has already persisted an outcome-unknown unified order.
@@ -188,7 +188,8 @@ def reconcile_unknown_orders_from_legacy_fills(connect) -> int:
             ).fetchone():
                 return 0
             unknown = [dict(row) for row in conn.execute(
-                """SELECT * FROM orders WHERE status='broker_unknown'
+                """SELECT * FROM orders
+                   WHERE status IN ('broker_unknown','submitted','open','partial')
                    AND COALESCE(broker_order_id,'')='' ORDER BY id"""
             ).fetchall()]
         except Exception as exc:
@@ -203,8 +204,9 @@ def reconcile_unknown_orders_from_legacy_fills(connect) -> int:
             matches = conn.execute(
                 """SELECT * FROM trades t
                    WHERE t.symbol=? AND lower(t.action)=? AND CAST(t.qty AS INTEGER)=?
-                     AND t.order_status IN ('filled','reconciled')
-                     AND CAST(COALESCE(t.filled_qty,0) AS INTEGER)=?
+                     AND t.order_status IN ('filled','reconciled','canceled')
+                     AND (t.order_status='canceled'
+                          OR CAST(COALESCE(t.filled_qty,0) AS INTEGER)=?)
                      AND COALESCE(t.broker_order_id,'')<>''
                      AND abs((julianday(replace(t.ts,'T',' ')) -
                               (julianday(?) + 0.375)) * 86400) <= 300
@@ -226,7 +228,10 @@ def reconcile_unknown_orders_from_legacy_fills(connect) -> int:
         )
         target = linked or order
         target_status = str(target["status"])
-        if target_status == "submitted":
+        terminal_status = (
+            "canceled" if str(trade["order_status"]).lower() == "canceled" else "filled"
+        )
+        if target_status == "submitted" and terminal_status == "filled":
             target = repository.transition(
                 int(target["id"]), "submitted", "open",
                 actor="startup_recovery", reason="verified legacy broker history linked",
@@ -238,13 +243,14 @@ def reconcile_unknown_orders_from_legacy_fills(connect) -> int:
                 message="Recovered from verified legacy broker history",
             )
         repository.reconcile_snapshot(
-            int(target["id"]), status="filled",
+            int(target["id"]), status=terminal_status,
             cumulative_filled_qty=int(trade["filled_qty"]),
             average_fill_price=float(trade["filled_price"] or trade["price"] or 0),
             broker_order_id=broker_order_id, broker_order_date=broker_order_date,
             raw={"legacy_trade_id": int(trade["id"]), "startup_recovery": True},
         )
-        if linked and int(linked["id"]) != int(order["id"]):
+        if (linked and int(linked["id"]) != int(order["id"])
+                and str(order["status"]) == "broker_unknown"):
             repository.transition(
                 int(order["id"]), "broker_unknown", "rejected",
                 actor="startup_recovery",
