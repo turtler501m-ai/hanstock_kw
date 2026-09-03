@@ -4071,8 +4071,8 @@ def mistock_managed_orders(limit: int = 100, status: str = ""):
         "source": "mistock_managed_orders",
         "as_of": as_of,
         "sync": {
-            "availability": "unavailable",
-            "reason": "Kiwoom overseas fill-status query is not implemented; no fill is inferred.",
+            "availability": "available",
+            "reason": "Kiwoom same-day overseas order executions can be synchronized.",
             "estimated_fills": False,
         },
         "read_only": True,
@@ -4081,11 +4081,107 @@ def mistock_managed_orders(limit: int = 100, status: str = ""):
 
 @router.get("/api/mistock/managed-orders/sync")
 def mistock_managed_order_sync_status():
+    from src.application.orders.repository import OrderLedgerRepository
+    from src.db.migrations import apply_migrations
+
+    def number(value) -> float:
+        try:
+            return float(str(value or "0").replace(",", ""))
+        except (TypeError, ValueError):
+            return 0.0
+
+    unsettled = mistock_db.rows(
+        """SELECT * FROM managed_orders
+           WHERE status IN ('created','accepted','submitted','open','partially_filled','partial','cancel_requested')
+             AND COALESCE(broker_order_no,'') <> ''
+           ORDER BY id"""
+    )
+    if not unsettled:
+        return {
+            "availability": "available", "estimated_fills": False,
+            "mutated": False, "checked": 0, "matched": 0, "updated": 0,
+            "message": "No unsettled Kiwoom US orders.",
+        }
+
+    try:
+        snapshots = mistock_trader._get_broker_client().get_overseas_order_executions()
+    except Exception as exc:
+        logger.warning(f"mistock managed-order sync failed: {exc}")
+        return {
+            "availability": "error", "estimated_fills": False, "mutated": False,
+            "checked": len(unsettled), "matched": 0, "updated": 0, "reason": str(exc),
+        }
+
+    by_order_no = {
+        str(row.get("ord_no") or "").strip(): row
+        for row in snapshots if str(row.get("ord_no") or "").strip()
+    }
+    with mistock_db.connect_db() as conn:
+        apply_migrations(conn)
+    unified_repo = OrderLedgerRepository(mistock_db.connect_db)
+    matched = updated = 0
+    details = []
+    for order in unsettled:
+        broker_order_no = str(order.get("broker_order_no") or "").strip()
+        snapshot = by_order_no.get(broker_order_no)
+        if not snapshot:
+            continue
+        matched += 1
+        requested = number(snapshot.get("ord_qty")) or number(order.get("requested_qty"))
+        filled = min(requested, max(0.0, number(snapshot.get("cntr_qty"))))
+        remaining = max(0.0, number(snapshot.get("ord_remnq")))
+        canceled = max(0.0, number(snapshot.get("cncl_qty")))
+        status_text = str(snapshot.get("ord_stat") or snapshot.get("ord_stat_nm") or "").lower()
+        if requested > 0 and filled >= requested:
+            status = "filled"
+        elif filled > 0 and remaining > 0:
+            status = "partially_filled"
+        elif canceled > 0 or any(token in status_text for token in ("cancel", "취소")):
+            status = "canceled"
+        elif remaining > 0:
+            status = "open"
+        else:
+            status = "accepted"
+        average_price = number(snapshot.get("cntr_uv"))
+        old_filled = number(order.get("filled_qty"))
+        changed = status != str(order.get("status")) or filled != old_filled
+        if not changed:
+            details.append({"broker_order_no": broker_order_no, "status": status, "changed": False})
+            continue
+        mistock_db.update_managed_order(
+            int(order["id"]), status=status, filled_qty=filled,
+            avg_fill_price=average_price or order.get("avg_fill_price"), broker_payload=snapshot,
+            last_error=None,
+        )
+        unified = mistock_db.row(
+            "SELECT id FROM orders WHERE market='US' AND broker_order_id=? ORDER BY id DESC LIMIT 1",
+            (broker_order_no,),
+        )
+        unified_status = "partial" if status == "partially_filled" else status
+        if unified and unified_status in {"accepted", "open", "partial", "filled", "canceled"}:
+            unified_repo.reconcile_snapshot(
+                int(unified["id"]), status=unified_status,
+                cumulative_filled_qty=int(filled), average_fill_price=average_price,
+                broker_order_id=broker_order_no, raw=snapshot,
+            )
+        delta = filled - old_filled
+        if delta > 0:
+            mistock_trader.save_trade(
+                str(order["symbol"]), symbol_name(str(order["symbol"])), str(order["action"]),
+                delta, average_price or number(order.get("requested_price")),
+                "Kiwoom US execution synchronized", True,
+                "filled" if status == "filled" else "partially_filled",
+                "Kiwoom ust21510 fill confirmation", order.get("strategy_id"),
+            )
+        updated += 1
+        details.append({
+            "broker_order_no": broker_order_no, "status": status,
+            "filled_qty": filled, "changed": True,
+        })
     return {
-        "availability": "unavailable",
-        "reason": "Kiwoom overseas fill-status query is not implemented; accepted orders remain unsettled.",
-        "estimated_fills": False,
-        "mutated": False,
+        "availability": "available", "estimated_fills": False,
+        "mutated": updated > 0, "checked": len(unsettled), "matched": matched,
+        "updated": updated, "details": details,
     }
 
 

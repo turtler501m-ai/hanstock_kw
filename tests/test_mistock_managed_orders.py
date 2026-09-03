@@ -174,7 +174,7 @@ class MistockManagedOrdersTests(unittest.TestCase):
         self.assertEqual(mistock_db.row("SELECT status FROM managed_orders WHERE client_order_key='failed'")["status"], "failed")
         self.assertEqual(mistock_db.rows("SELECT * FROM trades"), [])
 
-    def test_list_summary_and_sync_never_estimate_fills(self):
+    def test_list_summary_and_sync_confirms_broker_fills_without_estimation(self):
         for key, status in (("a", "accepted"), ("b", "accepted"), ("c", "rejected")):
             mistock_db.create_managed_order({
                 "client_order_key": key, "symbol": "AAPL", "action": "buy",
@@ -182,7 +182,16 @@ class MistockManagedOrdersTests(unittest.TestCase):
             })
 
         listed = mistock.mistock_managed_orders(status="accepted")
-        sync = mistock.mistock_managed_order_sync_status()
+        broker = _Broker()
+        broker.get_overseas_order_executions = lambda: [{
+            "ord_no": "US-100", "ord_qty": "1", "cntr_qty": "1",
+            "ord_remnq": "0", "cntr_uv": "101.25", "ord_stat": "filled",
+        }]
+        mistock_db.execute(
+            "UPDATE managed_orders SET broker_order_no='US-100' WHERE client_order_key='a'"
+        )
+        with patch.object(trader, "_get_broker_client", return_value=broker):
+            sync = mistock.mistock_managed_order_sync_status()
 
         self.assertEqual(listed["count"], 2)
         self.assertEqual(listed["status_summary"], {"accepted": 2, "rejected": 1})
@@ -190,11 +199,16 @@ class MistockManagedOrdersTests(unittest.TestCase):
         self.assertEqual(listed["source"], "mistock_managed_orders")
         self.assertTrue(listed["as_of"])
         self.assertTrue(listed["read_only"])
-        self.assertEqual(listed["sync"]["availability"], "unavailable")
+        self.assertEqual(listed["sync"]["availability"], "available")
         self.assertFalse(listed["sync"]["estimated_fills"])
-        self.assertEqual(sync["availability"], "unavailable")
+        self.assertEqual(sync["availability"], "available")
         self.assertFalse(sync["estimated_fills"])
-        self.assertFalse(sync["mutated"])
+        self.assertTrue(sync["mutated"])
+        self.assertEqual(sync["updated"], 1)
+        filled = mistock_db.row("SELECT status,filled_qty,avg_fill_price FROM managed_orders WHERE client_order_key='a'")
+        self.assertEqual(filled["status"], "filled")
+        self.assertEqual(filled["filled_qty"], 1)
+        self.assertEqual(filled["avg_fill_price"], 101.25)
 
     def test_cancel_and_revise_update_the_managed_order_state(self):
         object.__setattr__(config, "trading_env", "demo")

@@ -72,6 +72,26 @@ class KiwoomUSStockAdapter:
             "_account_configured": bool(self.account_no),
         }
 
+    def get_overseas_order_executions(self) -> list[dict[str, Any]]:
+        """Return today's Kiwoom US order/fill snapshots.
+
+        ``ust21510`` is the broker's authoritative same-day order execution
+        query.  Keep the broker field names intact so reconciliation can retain
+        the original evidence.
+        """
+        pages = self.client.post_all_pages(
+            "/api/us/acnt",
+            api_id="ust21510",
+            body={"slby_tp": "", "stex_tp": "", "stk_cd": ""},
+        )
+        rows: list[dict[str, Any]] = []
+        for page in pages:
+            result_list = page.data.get("result_list") or []
+            if isinstance(result_list, Mapping):
+                result_list = [result_list]
+            rows.extend(dict(item) for item in result_list if isinstance(item, Mapping))
+        return rows
+
     def place_overseas_order(self, symbol: str, action: str, price: float, qty: float) -> dict[str, Any]:
         if not self.order_submission_enabled:
             raise RuntimeError("Kiwoom US order submission is disabled")

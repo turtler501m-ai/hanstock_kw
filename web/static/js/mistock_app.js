@@ -851,11 +851,11 @@ window.openMistockStrategyDetail = openMistockStrategyDetail;
 window.renderWatchlistPolicy = renderWatchlistPolicy;
 window.renderMistockSchedules = renderMistockSchedules;
 
-const MANAGED_ORDER_STATUS_LABELS = { accepted:'접수', partial:'부분체결', partially_filled:'부분체결', filled:'체결', cancelled:'취소', rejected:'거부', failed:'실패', demo_local_filled:'데모 로컬 체결' };
+const MANAGED_ORDER_STATUS_LABELS = { accepted:'접수', partial:'부분체결', partially_filled:'부분체결', filled:'체결', canceled:'취소', cancelled:'취소', rejected:'거부', failed:'실패', demo_local_filled:'데모 로컬 체결' };
 
 function managedOrderStatusKind(status) {
     if (['filled','demo_local_filled'].includes(status)) return 'buy';
-    if (['cancelled','rejected','failed'].includes(status)) return 'sell';
+    if (['canceled','cancelled','rejected','failed'].includes(status)) return 'sell';
     return 'hold';
 }
 
@@ -889,6 +889,7 @@ async function renderManagedOrders() {
     const status = document.getElementById('managed-orders-status'); if (!status) return;
     status.textContent = '미스톡 주문 원장을 조회하는 중입니다.';
     try {
+        if (force) await fetchJson('/api/mistock/managed-orders/sync');
         const data = await fetchJson('/api/mistock/managed-orders');
         managedOrdersCache = (Array.isArray(data.orders) ? data.orders : []).filter((row) => row && typeof row === 'object');
         const summary = data.summary || {};

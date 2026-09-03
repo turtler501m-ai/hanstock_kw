@@ -44,6 +44,21 @@ class KiwoomUSStockAdapterTests(unittest.TestCase):
         result = KiwoomUSStockAdapter(client).get_overseas_balance()
         self.assertEqual([row["pdno"] for row in result["output1"]], ["AAPL", "MSFT"])
 
+    def test_today_order_executions_are_combined(self):
+        client = Mock()
+        client.post_all_pages.return_value = [
+            KiwoomPage(data={"result_list": [{"ord_no": "101", "cntr_qty": "1"}]}),
+            KiwoomPage(data={"result_list": {"ord_no": "102", "cntr_qty": "2"}}),
+        ]
+
+        result = KiwoomUSStockAdapter(client).get_overseas_order_executions()
+
+        self.assertEqual([row["ord_no"] for row in result], ["101", "102"])
+        client.post_all_pages.assert_called_once_with(
+            "/api/us/acnt", api_id="ust21510",
+            body={"slby_tp": "", "stex_tp": "", "stk_cd": ""},
+        )
+
     def test_mistock_balance_prefers_orderable_cash_over_deposit(self):
         balance_data = {
             "output1": [],
