@@ -20,6 +20,10 @@ MOCK_BASE_URL = "https://mockapi.kiwoom.com"
 class KiwoomApiError(RuntimeError):
     """Raised when Kiwoom rejects or cannot complete a request."""
 
+    def __init__(self, message: str, *, response_payload=None):
+        super().__init__(message)
+        self.response_payload = response_payload
+
 
 class RequestThrottle:
     """Thread-safe fixed-interval limiter with independently keyed lanes."""
@@ -260,5 +264,7 @@ class KiwoomRestClient:
         return_code = payload.get("return_code")
         if return_code not in (None, 0, "0"):
             message = str(payload.get("return_msg") or "broker rejected request")
-            raise KiwoomApiError(f"Kiwoom {operation} failed: {message}")
+            raise KiwoomApiError(
+                f"Kiwoom {operation} failed: {message}", response_payload=dict(payload)
+            )
         return payload

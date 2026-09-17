@@ -1130,6 +1130,9 @@ def place_order(
         apply_migrations(unified_conn)
     if action == "buy":
         try:
+            from src.mistock.recovery import run_mistock_recovery
+
+            run_mistock_recovery(unified_connect)
             assert_new_risk_allowed(unified_connect)
         except Exception as exc:
             finish("rejected", error=str(exc))
@@ -1263,11 +1266,20 @@ def place_order(
                     "broker_order_no": broker_order_no}
         except Exception as e:
             from src.utils.logger import logger
+            from src.broker.kiwoom_client import KiwoomApiError
+            from src.mistock.recovery import is_symbol_rejection
+
+            rejected = (
+                isinstance(e, KiwoomApiError)
+                and e.response_payload is not None
+                and is_symbol_rejection(str(e))
+            )
+            status = "rejected" if rejected else "failed"
             logger.error(f"Failed to place Kiwoom US order: {e}")
-            finish("failed", error=str(e))
-            unified_finish("failed", message=str(e))
+            finish(status, error=str(e))
+            unified_finish(status, message=str(e))
             notify_slack_order(symbol, action, qty, price, str(e), False)
-            return {"ok": False, "status": "failed", "message": str(e), "managed_order_id": managed_order_id, "client_order_key": key}
+            return {"ok": False, "status": status, "message": str(e), "managed_order_id": managed_order_id, "client_order_key": key}
 
 
 def cancel_order(symbol: str, order_no: str, qty: float = 0) -> dict[str, Any]:

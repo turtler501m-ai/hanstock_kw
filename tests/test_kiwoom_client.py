@@ -23,6 +23,15 @@ def http_error_response(status_code):
 
 
 class KiwoomRestClientTests(unittest.TestCase):
+    def test_broker_error_payload_is_distinct_from_transport_failure(self):
+        payload = {"return_code": 1, "return_msg": "symbol rejected"}
+        with self.assertRaises(KiwoomApiError) as rejected:
+            KiwoomRestClient._decode_response(response(payload), "ust20000")
+        self.assertEqual(rejected.exception.response_payload, payload)
+        with self.assertRaises(KiwoomApiError) as uncertain:
+            KiwoomRestClient._decode_response(http_error_response(500), "ust20000")
+        self.assertIsNone(uncertain.exception.response_payload)
+
     def setUp(self):
         KiwoomRestClient.clear_shared_token_cache()
         self.now = datetime(2026, 8, 14, tzinfo=timezone.utc)

@@ -127,6 +127,54 @@ class MistockManagedOrdersTests(unittest.TestCase):
         self.assertEqual(unified["status"], "submitted")
         self.assertEqual(unified["broker_order_id"], "US-100")
 
+    def test_explicit_unknown_symbol_response_is_rejected_not_unknown(self):
+        from src.broker.kiwoom_client import KiwoomApiError
+
+        object.__setattr__(config, "trading_env", "demo")
+        object.__setattr__(config, "dry_run", False)
+        message = "Kiwoom ust20000 failed: [1903:종목 정보가 없습니다. 종목코드=AAPL]"
+        result = self._place(_Broker(error=KiwoomApiError(
+            message, response_payload={"return_code": 1, "return_msg": message},
+        )), client_order_key="symbol-rejected")
+        self.assertEqual(result["status"], "rejected")
+        self.assertEqual(mistock_db.row(
+            "SELECT status FROM orders WHERE client_order_key='symbol-rejected'"
+        )["status"], "rejected")
+
+    def test_recovery_uses_mistock_schema_and_preserves_uncertain_orders(self):
+        from src.mistock.recovery import run_mistock_recovery
+
+        object.__setattr__(config, "trading_env", "demo")
+        object.__setattr__(config, "dry_run", False)
+        message = "Kiwoom ust20000 failed: [1903:종목 정보가 없습니다. 종목코드=AAPL]"
+        self._place(_Broker(error=RuntimeError(message)), client_order_key="legacy-rejection")
+        recovery = run_mistock_recovery(mistock_db.connect_db)
+        self.assertEqual(recovery["state"], "ready")
+        self.assertEqual(recovery["details"]["verified_rejections"], 1)
+        self.assertEqual(run_mistock_recovery(mistock_db.connect_db)["details"]["verified_rejections"], 0)
+
+        self._place(_Broker(error=TimeoutError("response lost")), client_order_key="uncertain")
+        recovery = run_mistock_recovery(mistock_db.connect_db)
+        self.assertEqual(recovery["state"], "reduce_only")
+        self.assertEqual(mistock_db.row(
+            "SELECT status FROM orders WHERE client_order_key='uncertain'"
+        )["status"], "broker_unknown")
+
+    def test_recovery_expires_old_us_day_orders_without_inventing_fills(self):
+        from src.mistock.recovery import run_mistock_recovery
+
+        object.__setattr__(config, "trading_env", "demo")
+        object.__setattr__(config, "dry_run", False)
+        self._place(_Broker(), client_order_key="old-day")
+        with mistock_db.connect_db() as conn:
+            conn.execute("UPDATE orders SET created_at='2020-01-02T15:00:00+00:00'")
+        recovery = run_mistock_recovery(mistock_db.connect_db)
+        self.assertEqual(recovery["state"], "ready")
+        order = mistock_db.row("SELECT status,filled_qty FROM orders")
+        self.assertEqual(order["status"], "canceled")
+        self.assertEqual(order["filled_qty"], 0)
+        self.assertEqual(mistock_db.row("SELECT status FROM managed_orders")["status"], "expired")
+
     def test_only_unsupported_demo_order_uses_shadow_fill(self):
         object.__setattr__(config, "trading_env", "demo")
         object.__setattr__(config, "dry_run", False)
